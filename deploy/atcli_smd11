@@ -1,0 +1,86 @@
+#!/bin/sh
+# =============================================================================
+# atcli_smd11 — compatibility shim for QManager on GreenPacket RG520N-EB
+# =============================================================================
+# QManager's qcmd expects a binary named atcli_smd11 that:
+#   * takes one AT command as $1,
+#   * writes the raw response text to stdout,
+#   * ALWAYS exits 0 (qcmd does its own OK/ERROR text parsing).
+#
+# This firmware does NOT ship atcli_smd11, and /dev/smd11 is owned by modemd
+# (its AT multiplexer). Two working ports exist here:
+#   /dev/smd7    — the vendor's "spare" AT port, but the vendor's own metricsd
+#                  polls it every ~0.4s and STEALS response bytes: without the
+#                  shared atlock, responses get truncated to a bare "OK".
+#   /dev/at_mdm0 — the modem's dedicated AT channel (bridged to the USB AT
+#                  port by port_bridge). Measured clean and complete on every
+#                  call, with no participation in the vendor's atlock.
+# We default to at_mdm0 so QManager never contends with the vendor metrics
+# daemon. Set AT_DEV=/dev/smd7 to use the spare port instead (it then waits on
+# the vendor atlock, but does not hold it).
+#
+# The capture technique below is copied from the vendor's proven at_smd()
+# (/data/gp/gp-qmi.sh) — the port is a raw char device, not a tty:
+#   * background `cat` reader into a temp file (the port is a raw char device,
+#     NOT a tty — stty/read -t do not work here),
+#   * write the command + CR,
+#   * poll the capture file until OK / ERROR / +CME ERROR, or a budget expires,
+#   * kill the reader and dump whatever landed.
+#
+# We deliberately do NOT create the vendor's atlock dir /tmp/gp-radio.lock —
+# only observe it — so we never corrupt the vendor's stale-lock protocol.
+# QManager's own serialization happens upstream in qcmd (/tmp/qmanager_at.lock).
+#
+# Exit status is always 0. Override the port with AT_DEV=... if ever needed.
+# =============================================================================
+
+AT_DEV="${AT_DEV:-/dev/at_mdm0}"
+GP_ATLOCK="${GP_ATLOCK:-/tmp/gp-radio.lock}"
+
+CMD="$1"
+[ -n "$CMD" ] || exit 0
+[ -c "$AT_DEV" ] || exit 0
+
+# Long commands (cell scan, FOTA) get a much larger budget than ordinary ones.
+case "$CMD" in
+    *QSCAN*|*QSCANFREQ*|*QFOTADL*) TICKS=240 ;;   # ~60s
+    *)                            TICKS=48  ;;   # ~12s
+esac
+
+# --- Respect vendor radio activity (best effort, never block a CGI for long) --
+# If the vendor holds the atlock (CFUN cycle, band change, metrics refresh),
+# give it a brief window to finish. Proceed regardless after that.
+i=0
+while [ -d "$GP_ATLOCK" ] && [ "$i" -lt 10 ]; do
+    sleep 0.5
+    i=$((i + 1))
+done
+
+# --- Send + capture ----------------------------------------------------------
+OUT="/tmp/atcli_smd11.$$"
+trap 'rm -f "$OUT"' EXIT INT TERM
+
+cat "$AT_DEV" > "$OUT" 2>/dev/null &
+RPID=$!
+sleep 0.2
+
+if ! printf '%s\r' "$CMD" > "$AT_DEV" 2>/dev/null; then
+    kill "$RPID" 2>/dev/null
+    wait "$RPID" 2>/dev/null
+    exit 0
+fi
+
+i=0
+while [ "$i" -lt "$TICKS" ]; do
+    grep -q -e '^OK' -e '^ERROR' -e '+CME ERROR' "$OUT" 2>/dev/null && break
+    sleep 0.25
+    i=$((i + 1))
+done
+
+kill "$RPID" 2>/dev/null
+wait "$RPID" 2>/dev/null
+
+# Strip CRs (the port emits CRLF) and stray NULs, then emit.
+tr -d '\r\000' < "$OUT" 2>/dev/null
+
+exit 0

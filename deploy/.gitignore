@@ -1,0 +1,3 @@
+# Third-party binary, fetched at deploy time (see README "Install" step 3).
+# Static ARMv7 build of jq 1.7.1 — not vendored in this repo.
+jq

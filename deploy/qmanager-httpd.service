@@ -1,0 +1,16 @@
+[Unit]
+Description=QManager Web UI (busybox httpd on port 8080)
+Documentation=https://github.com/RafayGhafoor/QManager-RM520N
+After=network.target
+
+[Service]
+Type=forking
+PIDFile=/var/run/qmanager-httpd.pid
+Environment=PATH=/usrdata/qmanager/bin:/usr/bin:/bin:/sbin:/usr/sbin
+ExecStart=/usrdata/qmanager/bin/qm_serve.sh start
+ExecStop=/usrdata/qmanager/bin/qm_serve.sh stop
+Restart=on-failure
+RestartSec=3s
+
+[Install]
+WantedBy=multi-user.target

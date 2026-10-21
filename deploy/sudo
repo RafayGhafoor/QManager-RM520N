@@ -1,0 +1,28 @@
+#!/bin/sh
+# =============================================================================
+# sudo — no-op compatibility shim for QManager on GreenPacket RG520N-EB
+# =============================================================================
+# Upstream QManager expects CGI requests to run as `www-data` and to escalate
+# with sudo (installed from Entware, with sudoers rules written by the
+# installer). Entware cannot be installed here: the rootfs is a read-only
+# squashfs, so /opt cannot exist and no vendor binaries can be added.
+#
+# Instead the web server (busybox httpd) is started on port 8080 as root and
+# CGI therefore already runs with the privileges these commands need. This
+# shim simply strips sudo's own option flags (-n, -E, -H, -S, -u USER, -g GRP,
+# --) and executes the remaining command. It keeps every `sudo ...` call site
+# in QManager working unchanged.
+# =============================================================================
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -n|-E|-H|-S|-k|-b|--) shift ;;
+        -u|-g|-p|-C|-U)      shift 2 ;;
+        -u*|-g*|-p*|-C*)     shift ;;
+        -*)                  shift ;;
+        *)                   break ;;
+    esac
+done
+
+[ $# -gt 0 ] || exit 1
+exec "$@"

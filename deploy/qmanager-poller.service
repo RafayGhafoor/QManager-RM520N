@@ -1,0 +1,22 @@
+[Unit]
+Description=QManager Modem Data Poller
+Documentation=https://github.com/RafayGhafoor/QManager-RM520N
+StartLimitIntervalSec=3600
+StartLimitBurst=5
+
+[Service]
+Type=simple
+# QManager's helpers live on the writable ubifs volume, not /usr/bin (this
+# device's rootfs is a read-only squashfs), so jq/qcmd must be on PATH.
+Environment=PATH=/usrdata/qmanager/bin:/usr/bin:/bin:/sbin:/usr/sbin
+# Upstream waits for /dev/smd11, which modemd owns on this firmware; the AT
+# shim talks to the modem's dedicated AT channel instead.
+ExecStartPre=/bin/sh -c 'i=0; while [ $i -lt 30 ] && [ ! -e /dev/at_mdm0 ]; do sleep 1; i=$((i+1)); done; [ -e /dev/at_mdm0 ] || { echo "AT device /dev/at_mdm0 not found after 30s"; exit 1; }'
+ExecStart=/usrdata/qmanager/bin/qmanager_poller
+TimeoutStartSec=35
+TimeoutStopSec=10
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
