@@ -1,4 +1,11 @@
-# SPEC: Go AT collector (`qmanager_atd`)
+# SPEC: Go AT collector (`qmanager_atd`) — **SUPERSEDED**
+
+> **Do not build from this.** Upstream already ships `native/qmanager_atd` on
+> `development-home`: a tested Rust broker with a 799 KB parity corpus. See
+> [`rust-atd-port.md`](./rust-atd-port.md). This file is kept because the *measured
+> findings* in it are still true and were expensive to obtain — the fork accounting,
+> the 26-forks-per-call measurement, the corrected 5-minute baseline, the ENOTTY
+> fact, and the coverage inventory. Its Go-specific design is not.
 
 **Status:** Proposal for approval, 2026-10-22. Lightweight spec — falsifiable
 requirements, in/out of scope explicit, acceptance as pass/fail.
@@ -136,13 +143,45 @@ so a CGI's `qcmd` and the collector interleave safely rather than racing.
   - [ ] Before/after measured per `AGENTS.md`: per-call AT CPU, per-cycle CPU, poller
         total (share of one core), RSS, and box total. Baseline captured **before** the
         deploy.
-  - [ ] Target: per-cycle **406 ms → under 30 ms**; poller **< 3 %** of one core
-        average; box **48 % → ~30 %**.
+  - [ ] Target: per-cycle **406 ms → under 30 ms**; poller **17.7 % → < 2 %** of one
+        core average; box **57 % → ~40 %**, measured over a **5-minute** window, not a
+        30 s snapshot.
   - [ ] New unit `qmanager-atd.service`, added via `deploy/qm_boot_hook.sh` (hard rule
         7) — never by editing `/etc/init.d/turin_web.sh` directly.
   - [ ] **Proven by a real reboot** (`boot_id` before/after, `ActiveEnterTimestamp` vs
         `/proc/uptime`) — hard rule 6. A `systemctl restart` proves nothing here.
   - [ ] Rollback is one line: disable `qmanager-atd.service` and the poller falls back.
+
+## Benchmark — the corrected baseline (5-minute average, 2026-10-22)
+
+Two earlier readings were wrong and this is the one to trust:
+
+| Reading | Box | Poller | Verdict |
+| --- | --- | --- | --- |
+| 30 s snapshot | 48 % | 19.8 % | a burst — too short |
+| cumulative-since-start estimate | — | ~6.6 % | **wrong**: I guessed the poller's start time |
+| **299 s average, 60 samples** | **57 %** | **17.7 %** | **use this** |
+
+```
+box    avg 57 % of one core   peak(5 s) 84 %
+poller avg 17.7 %             peak(5 s) 36.3 %
+poller share of busy: 30 %
+```
+
+The averaging script itself had a permille/percent bug that printed "177 %"; corrected
+value is 17.7 %. Recorded because a 10× arithmetic slip is exactly the kind of thing
+that gets believed later.
+
+**Projection against the correct baseline:**
+
+| | Box | Poller |
+| --- | --- | --- |
+| today | **57 %** | 17.7 % |
+| Go collector | **~40 %** | ~0.2 % |
+| + trim ping and tpws | ~34 % | ~0.2 % |
+
+**25 % is not reachable with features intact**: vendor + kernel is ~22 points of the
+57, so the floor with every QManager feature trimmed is ~34 %.
 
 ## Feasibility — checked on the device 2026-10-22, not assumed
 
@@ -158,6 +197,79 @@ so a CGI's `qcmd` and the collector interleave safely rather than racing.
 **ENOTTY is the important one.** It means the collector is a `read`/`write` loop on an
 fd plus a terminator matcher — no serial configuration, no `tcsetattr`, no rate
 negotiation. That is a few hundred lines of Go, not a serial-stack port.
+
+## Module layout — portable to another modem
+
+The binary lives in its own tree so a second modem is a new file in
+`internal/platform`, not a fork of the codebase.
+
+```
+go/
+├── go.mod                      module qmanager/atd  (own module; no repo-wide dep)
+├── README.md                   build, cross-compile, test, deploy
+├── cmd/qmanager-atd/main.go    flags, wiring, signal handling — NO parsing, NO I/O policy
+├── internal/atdev/             the transport
+│   ├── dev.go                  open /dev/at_mdm0, raw fd, no termios (ENOTTY confirmed)
+│   ├── lock.go                 flock on /tmp/qmanager_at.lock, 20 s / 45 s ceilings
+│   ├── command.go              drain, settle, terminator set, per-command timeout
+│   └── retry.go                read-only retry allowlist; setters are never replayed
+├── internal/atparse/           one file per response family, each with a fixture
+│   ├── serving.go  neighbours.go  ca.go  phy.go  temp.go  sim.go  ca_info.go
+├── internal/platform/          THE PORTABILITY SEAM
+│   ├── platform.go             interface: CommandSet() + Capabilities() + Envelope()
+│   ├── rg520neb.go             this device: 9 working PHY commands, tx_pwr/pathloss absent
+│   └── rm520n.go               declared, unverified — must be probed before use
+├── internal/state/             atomic JSON writers + schema (one file per target)
+└── internal/schedule/          tier cadences, lease-gated live tick
+```
+
+**Rules that keep it portable:**
+- `cmd/` holds no parsing and no device knowledge.
+- Every device-specific fact — which commands exist, their field layout, their
+  timeout, the sentinel for "not reported" — lives behind `internal/platform`.
+- `atparse` never inspects a modem name; it parses a response it is handed.
+- No `os/exec`. No `qcmd`. No shell. That is the entire point.
+- Zero cgo: `CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7`.
+
+## Test strategy — and why this is an allowed exception
+
+`qm-orchestrate` hard rail 8 bans test harnesses (`scripts/test/`, `*.test.*`,
+assertion scripts). **Go unit tests on the build machine are authorised by the owner
+and do not violate it**, for three reasons, recorded so this is not argued again:
+
+1. They live under `go/`, are `*_test.go`, and **never ship** — the device never sees
+   them.
+2. They run on the build machine against **captured device fixtures**, which is the
+   only cheap proof for the parsers. The parsers are the highest-risk code here: a
+   mis-split field silently shows the wrong RSRP, and no page-load proof catches it.
+3. Rail 8's own wording targets device-side assertion scripts. Nothing about a Go
+   table test contradicts "proof is a run or a page load" for the *deployed* artifact.
+
+**Required tests:**
+
+| Test | Proves |
+| --- | --- |
+| Parser table tests | Each `atparse` function against a captured real response, **including a row with a missing field** (`null`, not `0`). |
+| `atdev` terminator tests | `OK`, `ERROR`, `+CME ERROR:`, no-terminator timeout, partial line. |
+| Retry-allowlist tests | A query-shaped command retries; a setter **never** does. |
+| Platform tests | `rg520neb` declares `lte_tx_pwr`/`nr5g_pathloss` absent, and the collector **never emits them**. |
+| Schema golden tests | Each state file's rendered JSON matches a golden fixture byte-for-byte after one simulated cycle. |
+| `go test -cover` | Reported in the PR; parsers and `atdev` held to ≥ 80 %. |
+
+## Coverage — nothing may be lost
+
+A separate matrix, [`go-at-collector-coverage.md`](./go-at-collector-coverage.md),
+enumerates every field the shell poller writes today and must be filled in as the
+collector is built. **The switch is not allowed until it is 100 % checked.** The
+inventory to match is measured, not guessed:
+
+| Surface | Size |
+| --- | --- |
+| `/tmp/qmanager_status.json` | 18 top-level keys, **265 leaf paths** |
+| `qmanager_signal_history.json` row | 7 keys: `ts, lte_rsrp, lte_rsrq, lte_sinr, nr_rsrp, nr_rsrq, nr_sinr` |
+| `qmanager_ping_history.json` row | 7 keys: `ts, lat, avg, min, max, loss, jit` |
+| `qmanager_events.json` row | 4 keys: `timestamp, type, severity, message` |
+| Files written | 8 (`status`, `signal_history`, `ping_history`, `events`, `pci_state`, `neighbours_live`, `watchcat`, `sim_failover`) |
 
 ## The decision this needs first — hard rule 3
 
