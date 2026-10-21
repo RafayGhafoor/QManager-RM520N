@@ -30,10 +30,20 @@ anything boot-related or radio-related here, and inherit these rules:
    `backup/<ts>/`. This branch does not modify either; if that changes, back up.
 5. **Boot changes are only proven by a real reboot** — poll
    `/proc/sys/kernel/random/boot_id` before and after. `systemctl restart` proves
-   nothing about boot. The sibling project's history contains several units that
-   were `enabled` yet never ran at boot, so always confirm
-   `ActiveEnterTimestamp` against the boot time afterwards.
-6. Never commit secrets or subscriber identity (IMEI/IMSI/ICCID, `auth.json`).
+   nothing. **`systemctl enable` is not enough either:** this firmware drops units
+   from PID 1's boot transaction (see `qm_boot_hook.sh`'s header), so a unit in
+   `/etc/systemd/system` reads `enabled` and never runs. Always confirm
+   `ActiveEnterTimestamp` against `/proc/uptime` afterwards.
+6. **Never overwrite `/etc/init.d/turin_web.sh`** — the product repo owns it and
+   edits it continuously. QManager joins the boot path by *inserting* two
+   `start_service_async` lines via `deploy/qm_boot_hook.sh` (idempotent, anchored
+   on `systemctl daemon-reload`, one-time backup kept as `.pre-qmanager`). Add
+   new boot-started units there, not by shipping a copy of the script.
+7. **Gate the poller on a real modem answer, not the device node.** Device
+   identity is cached once at poller start; a modem still booting answers with the
+   `RDY` URC, which was observed baking `"model": "RDY"` into the cache for a whole
+   boot. `deploy/qm_wait_modem.sh` is the `ExecStartPre` for exactly this reason.
+8. Never commit secrets or subscriber identity (IMEI/IMSI/ICCID, `auth.json`).
 
 ## Target hardware — assume nothing from upstream
 
@@ -81,6 +91,7 @@ bun run build            # static export -> out/   (no SSR; the device cannot ru
 # assemble payload -> stage/{www,lib,bin} per deploy/README.md, fetch static jq,
 # ship with tar over ssh, then:
 sh deploy/qm_pathfix.sh       # rewrite /usr/lib/qmanager -> /usrdata/qmanager/lib
+sh deploy/qm_boot_hook.sh     # insert the boot start-lines into turin_web.sh
 qm_serve.sh start             # busybox httpd on :8080
 systemctl restart qmanager-httpd qmanager-poller
 ```
@@ -88,6 +99,7 @@ systemctl restart qmanager-httpd qmanager-poller
 `deploy/qm_pathfix.sh` must be re-run after **every** redeploy of the backend,
 because the source tree still hardcodes upstream paths. It only rewrites paths
 QManager owns; `/usr/bin/timeout`, `flock`, `env` etc. must stay untouched.
+`qm_boot_hook.sh` is idempotent — safe to re-run, and it reports "already hooked".
 
 ## Verification (do this after every change)
 

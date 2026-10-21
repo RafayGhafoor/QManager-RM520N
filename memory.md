@@ -96,22 +96,62 @@ So the frontend is built on the workstation and the app is deployed by hand unde
 - AT: `AT+CGMM` → `RG520N-EB`, `AT+CSR`/`AT+CSQ` → signal, `AT+CPIN?` → `READY`.
 - Vendor UI on :80 unaffected.
 
-## Boot wiring — validated by real reboot?
+## Boot wiring — the firmware drops units from the boot transaction
 
-`qmanager-httpd` and `qmanager-poller` are `enabled` into `multi-user.target`.
-That target *does* work at boot on this device — the sibling project's
-`gp-keepalive.service` and `gp-metrics-logger.service` also use
-`multi-user.target` and were observed started at 10:05:37 on a 10:05 boot.
+`qmanager-httpd` and `qmanager-poller` are `enabled` into `multi-user.target`, but
+**that alone does not start them at boot on this device** — proven, not assumed.
 
-**Status: proven by real reboot.** See "Boot validation" at the end of this file.
-The sibling project's `AGENTS.md` is explicit that only a reboot validates boot
-changes (`systemctl restart` proves nothing), so always confirm
-`ActiveEnterTimestamp` against boot time after any unit change.
+First real reboot: both units came back `enabled` yet `inactive`, with an empty
+`ActiveEnterTimestamp` (never even attempted), while the vendor stack booted
+normally. `FragmentPath`, the `multi-user.target.wants` symlinks and
+`systemctl get-default` were all identical to the sibling project's working
+units, so this was not a configuration mistake.
 
-Note the vendor OEM units use a `/systemrw` + `mount --bind` pattern for making
-read-only paths writable (e.g. `/web` ← `/systemrw/web`, launched from
-`/etc/init.d/turin_web.sh`). That pattern only works for directories that already
-exist in the squashfs — which is exactly why it cannot conjure `/opt`.
+The reason is documented inside `/etc/init.d/turin_web.sh` itself:
+
+> "`/etc` is backed by the same late-mounted persistent overlay. PID 1 builds its
+> initial boot transaction before that overlay's masks and drop-ins are visible"
+>
+> "this firmware drops units from the boot transaction"
+
+So any unit living in the persistent `/etc/systemd/system` overlay is **absent
+from PID 1's initial transaction**. This is why the product repo starts gp-v2,
+gp-sysctl, gp-led, gp-ttl, gp-pcidb, gp-quic-policy and gp-syslog-persist by hand
+from `turin_web.sh` via its `start_service_async` helper — the one script known to
+actually run at boot (it ships in the read-only squashfs, so it *is* in the
+initial transaction).
+
+**Fix:** `deploy/qm_boot_hook.sh` idempotently inserts two
+`start_service_async` lines into `/etc/init.d/turin_web.sh`, right after its
+`systemctl daemon-reload` (so systemd has re-read the overlay first). It backs up
+the original once to `turin_web.sh.pre-qmanager` and refuses to patch if the
+anchor line disappears. It deliberately *inserts* rather than shipping a copy of
+the script, because the product repo owns and continuously edits that file.
+
+**Validated across two further real reboots** (`boot_id` changed each time):
+both units `active` with `ActiveEnterTimestamp` at boot time, UI and overview API
+returning 200, vendor UI on :80 and all `gp-*` services unaffected.
+
+The vendor OEM units use a `/systemrw` + `mount --bind` pattern to make read-only
+paths writable (e.g. `/web` ← `/systemrw/web`, launched from `turin_web.sh`).
+That pattern only works for directories that already exist in the squashfs —
+which is exactly why it cannot conjure `/opt`.
+
+## The `model: "RDY"` bug (fixed)
+
+On the first successful boot-hook reboot, the poller started before the modem had
+finished booting and cached `"model": "RDY"` — the boot unsolicited result code —
+where the model belongs. The poller collects device identity **once** at startup,
+so the bogus value persisted for the whole boot even though a manual `AT+CGMM` a
+minute later returned `RG520N-EB`. A live AT device node is therefore not evidence
+that the modem will answer.
+
+**Fix:** `deploy/qm_wait_modem.sh` is the poller's `ExecStartPre`; it polls
+`AT+CGMM` until a real model token (letter + digit, ignoring `RDY`/`OK`/`ERROR`/URC
+lines) appears, with a 150 s wall-clock budget. If the budget expires the unit
+exits 1 and lets `Restart=on-failure` retry, so a genuinely dead modem fails
+loudly instead of silently caching garbage. Re-validated at boot:
+`model=RG520N-EB`, `ca=true`, 80 MHz aggregated.
 
 ## Known gaps
 
@@ -158,8 +198,14 @@ route to a real `/opt`.
 systemctl disable --now qmanager-httpd.service qmanager-poller.service
 rm -f /etc/systemd/system/qmanager-httpd.service /etc/systemd/system/qmanager-poller.service
 systemctl daemon-reload
+# drop the boot hook — this restores the product repo's script verbatim
+[ -f /etc/init.d/turin_web.sh.pre-qmanager ] && \
+  mv /etc/init.d/turin_web.sh.pre-qmanager /etc/init.d/turin_web.sh && \
+  chmod 755 /etc/init.d/turin_web.sh
 rm -rf /usrdata/qmanager /etc/qmanager
 ```
 
-Nothing outside those paths, `/etc/systemd/system` and `/etc/qmanager` was
-modified, so rollback leaves the firmware as it was.
+Touch-points outside `/usrdata/qmanager` are exactly three: the two unit files in
+`/etc/systemd/system`, `/etc/qmanager`, and the 8 inserted lines (plus the
+one-time `.pre-qmanager` backup) in `/etc/init.d/turin_web.sh`. Removing them
+leaves the firmware's own UI and boot path as they were.

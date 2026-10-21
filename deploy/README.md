@@ -28,6 +28,8 @@ bind-mounted along with `/etc`, `/data`, `/cache`, `/persist`). Nothing outside
 | `sudo` | Passthrough shim. Strips sudo flags and execs the command; CGI already runs as root, so no escalation is needed. |
 | `qm_serve.sh` | `start\|stop\|restart\|status` manager for busybox httpd on **port 8080**. |
 | `qm_pathfix.sh` | Rewrites the paths QManager owns (`/usr/lib/qmanager` → `/usrdata/qmanager/lib`, `/usr/bin/<qm helper>` → `.../bin/<helper>`) across the deployed tree. |
+| `qm_boot_hook.sh` | Makes QManager actually start at boot by inserting `start_service_async` lines into `/etc/init.d/turin_web.sh`. Required: this firmware drops units from PID 1's boot transaction. |
+| `qm_wait_modem.sh` | Poller `ExecStartPre` gate. Waits for a real `AT+CGMM` answer instead of just the device node — without it the poller caches the boot `RDY` URC as the model. |
 | `qmanager-httpd.service` | systemd unit: web UI. |
 | `qmanager-poller.service` | systemd unit: modem data poller (fills `/tmp/qmanager_status.json`). |
 
@@ -79,14 +81,24 @@ chmod +x stage/bin/jq
 
 # 4. Ship it and relocate the paths
 tar czf - -C stage . | ssh root@<device> 'mkdir -p /usrdata/qmanager && tar xzf - -C /usrdata/qmanager'
-tar czf - -C deploy qm_pathfix.sh | ssh root@<device> 'tar xzf - -C /tmp && sh /tmp/qm_pathfix.sh'
+tar czf - -C deploy qm_pathfix.sh qm_wait_modem.sh | ssh root@<device> \
+  'tar xzf - -C /tmp && sh /tmp/qm_pathfix.sh && \
+   cp /tmp/qm_wait_modem.sh /usrdata/qmanager/bin/ && chmod +x /usrdata/qmanager/bin/qm_wait_modem.sh'
 
 # 5. Web UI + services
 tar czf - -C deploy qm_serve.sh | ssh root@<device> \
   'tar xzf - -C /usrdata/qmanager/bin && chmod +x /usrdata/qmanager/bin/qm_serve.sh'
 tar czf - -C deploy qmanager-httpd.service qmanager-poller.service | ssh root@<device> \
-  'tar xzf - -C /etc/systemd/system && systemctl daemon-reload &&
-   systemctl enable --now qmanager-httpd.service qmanager-poller.service'
+  'tar xzf - -C /etc/systemd/system && chmod 644 /etc/systemd/system/qmanager-*.service && \
+   systemctl daemon-reload && systemctl enable qmanager-httpd.service qmanager-poller.service'
+
+# 6. Boot wiring — `enable` alone does NOT survive this firmware's boot
+#    transaction (see qm_boot_hook.sh). This is what actually starts them.
+tar czf - -C deploy qm_boot_hook.sh | ssh root@<device> \
+  'tar xzf - -C /tmp && sh /tmp/qm_boot_hook.sh'
+
+# 7. Start now (and reboot to prove the boot path)
+ssh root@<device> 'systemctl start qmanager-httpd.service qmanager-poller.service'
 ```
 
 Then browse to `http://<device-lan-ip>:8080/` and complete first-run setup.
@@ -99,12 +111,22 @@ curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8080/            # 200
 curl -s http://127.0.0.1:8080/cgi-bin/quecmanager/public/overview.sh      # JSON
 systemctl is-active qmanager-httpd qmanager-poller                        # active active
 jq '.device.model, .network.type' /tmp/qmanager_status.json               # RG520N-EB, 5G-NSA
+
+# Boot wiring is only proven by a real reboot — compare against uptime:
+systemctl show -p ActiveEnterTimestamp --value qmanager-httpd qmanager-poller
 ```
 
 ## Notes and known gaps
 
 * **Port 8080 is deliberate** — port 80 already serves the vendor UI
   (`busybox httpd -f -p 80 -h /web/v2`) and is left untouched.
+* **`systemctl enable` is not sufficient here.** This firmware drops units from
+  PID 1's boot transaction, so an enabled unit simply never runs. `qm_boot_hook.sh`
+  is what makes boot work; the hook lives in the product repo's
+  `/etc/init.d/turin_web.sh`, which is also why that file must not be replaced.
+* `qm_wait_modem.sh` exists because the poller caches device identity once at
+  startup; starting it before the modem answers bakes `"model": "RDY"` into the
+  cache until the next restart.
 * Never use `pkill -f "httpd -p 8080"` over SSH: it matches the SSH command line
   itself and kills the session. Use `qm_serve.sh`.
 * `device/about` reports empty LAN/WAN IPs — the poller's boot-time collection
@@ -119,5 +141,10 @@ jq '.device.model, .network.type' /tmp/qmanager_status.json               # RG52
 systemctl disable --now qmanager-httpd.service qmanager-poller.service
 rm -f /etc/systemd/system/qmanager-httpd.service /etc/systemd/system/qmanager-poller.service
 systemctl daemon-reload
+# remove the boot hook (restores the product repo's script verbatim)
+if [ -f /etc/init.d/turin_web.sh.pre-qmanager ]; then
+    mv /etc/init.d/turin_web.sh.pre-qmanager /etc/init.d/turin_web.sh
+    chmod 755 /etc/init.d/turin_web.sh
+fi
 rm -rf /usrdata/qmanager /etc/qmanager
 ```
