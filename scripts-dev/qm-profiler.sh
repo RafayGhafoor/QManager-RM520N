@@ -288,16 +288,21 @@ done
 # which is the difference between the tool answering its one question and not.
 if [ -n "$_cf_probe" ]; then
     CHILD_SRC="children"
-elif [ -r /proc/self/stat ]; then
+elif [ "${PPIDSCAN:-0}" = "1" ]; then
     CHILD_SRC="ppidscan"
-    err "NOTE: no /proc/<pid>/task/*/children on this kernel (CONFIG_PROC_CHILDREN"
-    err "      is off). Discovering children by scanning /proc/*/stat ppid instead:"
-    err "      correct, but it costs the instrument more CPU per sample."
+    err "NOTE: --ppidscan is ON. This kernel has no CONFIG_PROC_CHILDREN, so children"
+    err "      are found by scanning /proc/*/stat. MEASURED COST on the O5A Pro: the"
+    err "      instrument rose to 40 % of one core and halved the sample count, i.e."
+    err "      it contaminates the reading. Only use it for a coarse sanity check."
 else
     CHILD_SRC=""
     ATTR_OK=0
-    err "WARNING: no way to discover children on this kernel — child CPU cannot be"
-    err "         keyed by program name. Own-vs-children totals are still exact."
+    err "NOTE: this kernel has no CONFIG_PROC_CHILDREN (measured on the O5A Pro), so"
+    err "      child CPU cannot be keyed by program name. The own-vs-children split,"
+    err "      WALL breakdown, memory and fork counter are still exact — and the"
+    err "      kids:own ratio is what identifies fork cost anyway."
+    err "      Do NOT reach for --ppidscan: it was measured at 40 % self-overhead and"
+    err "      still left 99 % unattributed."
 fi
 
 # Fractional sleep: busybox needs CONFIG_FEATURE_FANCY_SLEEP, and an unsupported

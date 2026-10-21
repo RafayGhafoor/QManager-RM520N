@@ -47,11 +47,26 @@ Linux. Exit this thread: nothing to do.
 ## Inside the poller
 
 ```
-total   18.5 % of one core   (independent run; 19.8 % above — same ballpark)
-own      1.8 %               utils+stime
-kids    16.6 %               cutime+cstime
-kids:own ratio  8.8 x
+clean read, 60 s, instrument self 7.1 % (a valid run)
+total   21.3 % of one core
+own      2.3 %               utime+stime
+kids    19.0 %               cutime+cstime
+kids:own ratio  8.0 x
+
+WALL     running 2.7 % · waiting on a child 46.4 % · sleeping/nap 50.8 %
+         wchan do_wait 240 · other 277 · flock 0
 ```
+
+**`flock 0` is the important line:** the poller is not blocked on the AT lock. It
+spends 46 % of its wall time waiting for its own children and 51 % napping, which
+confirms the cost is *inside* the child invocations, not contention.
+
+Earlier runs in this document (18.5 % / 16.6 % / 1.8 %, ratio 8.8×) were taken with a
+profiler build whose `--ppidscan` fallback was on by default, which pushed the
+instrument to 38-43 % of one core and halved the sample count. **The
+`cutime`/`cstime` split is exact either way** and the two runs agree (8.0-8.8×,
+~19 % kids), which is why the plan rests on the ratio and the per-call measurement
+rather than on any single total.
 
 **89 % of the poller's CPU is spent in its reaped children.** Optimising the
 poller's own shell logic can recover at most ~1.8 points. The 16.6 has to be
