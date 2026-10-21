@@ -13,8 +13,20 @@ command -v qlog_warn >/dev/null 2>&1 || qlog_warn() { :; }
 # Remove the command echo, trailing OK, and ERROR lines from a raw qcmd
 # response, then print the payload on stdout.
 # ---------------------------------------------------------------------------
+# Drop the AT plumbing, keep the payload.
+#
+# This used to start with `sed -e '1d'`, unconditionally deleting the first
+# line to discard the BLANK line that upstream's atcli_smd11 emits ahead of the
+# payload. deploy/atcli_smd11 already strips those leading blank lines, so `1d`
+# went on to delete the first REAL data line. Two measured consequences:
+#   * AT+QNWPREFCFG="rat_acq_order" has exactly one payload line, so the whole
+#     response became empty and Network Priority reported "at_failed".
+#   * AT+CGDCONT? has one line per PDP context, so CID 1 was silently dropped
+#     and APN profile 1 rendered completely blank while 2 and 3 looked fine.
+# Deleting BLANK lines instead is what was always intended: it removes the
+# padding on any binary that emits it, and cannot eat data.
 strip_at_response() {
-    printf '%s' "$1" | tr -d '\r' | sed -e '1d' -e '/^OK$/d' -e '/^ERROR$/d'
+    printf '%s' "$1" | tr -d '\r' | sed -e '/^[[:space:]]*$/d' -e '/^OK$/d' -e '/^ERROR$/d'
 }
 
 # ---------------------------------------------------------------------------
@@ -44,8 +56,9 @@ run_at() {
 
 # ---------------------------------------------------------------------------
 # detect_active_cid
-# Determine which CID is carrying WAN data by cross-referencing
-# AT+CGPADDR (IPs assigned per CID) with AT+QMAP="WWAN" (authoritative WAN CID).
+# Determine which CID carries WAN data from AT+CGPADDR. The RG520N-EB answers
+# ERROR to AT+QMAP="WWAN", so that command must not be chained here: qcmd would
+# discard the useful CGPADDR payload and log a false error on every APN read.
 #
 # Sets global: active_cid="<number>"  (defaults to "1" if both methods fail)
 # Respects:    CMD_GAP (inter-command sleep, defaults to 0.2s if unset)
@@ -55,11 +68,10 @@ run_at() {
 #   echo "Active CID: $active_cid"
 # ---------------------------------------------------------------------------
 detect_active_cid() {
-    local cgpaddr_cids qmap_cid raw
+    local cgpaddr_cids raw
     active_cid=""
 
-    # Compound AT: fetch both CID sources in one call
-    raw=$(qcmd 'AT+CGPADDR;+QMAP="WWAN"' 2>/dev/null)
+    raw=$(qcmd 'AT+CGPADDR' 2>/dev/null)
 
     # Step 1: +CGPADDR lines — collect CIDs with real IPv4 addresses
     cgpaddr_cids=""
@@ -76,31 +88,11 @@ detect_active_cid() {
         }
     ')
 
-    # Step 2: +QMAP line — WAN-connected CID (authoritative)
-    qmap_cid=$(printf '%s\n' "$raw" | awk -F',' '
-        /\+QMAP:/ {
-            gsub(/"/, "", $5)
-            ip = $5
-            cid = $3
-            gsub(/[^0-9]/, "", cid)
-            if (ip != "" && ip != "0.0.0.0" && ip != "0:0:0:0:0:0:0:0") {
-                print cid
-                exit
-            }
-        }
-    ')
-
-    # Step 3: QMAP is authoritative; CGPADDR is fallback
-    if [ -n "$qmap_cid" ]; then
-        active_cid="$qmap_cid"
-        qlog_debug "Active CID from QMAP: $qmap_cid (CGPADDR CIDs: $cgpaddr_cids)"
-    elif [ -n "$cgpaddr_cids" ]; then
-        active_cid=$(printf '%s\n' "$cgpaddr_cids" | head -1)
-        qlog_debug "Active CID from CGPADDR fallback: $active_cid"
-    fi
-
-    # Default to CID 1 if both detection methods failed
-    [ -z "$active_cid" ] && active_cid="1"
+    # The active WAN CID is the first context with a real IPv4 address. This
+    # firmware uses CID 1 for internet and CID 2 for IMS; only CID 1 has a
+    # public-data IPv4 address. Default to CID 1 if no context is assigned yet.
+    [ -n "$cgpaddr_cids" ] && active_cid=$(printf '%s\n' "$cgpaddr_cids" | head -1)
+    [ -n "$active_cid" ] || active_cid="1"
 }
 
 # ---------------------------------------------------------------------------

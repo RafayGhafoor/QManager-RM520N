@@ -386,7 +386,18 @@ if [ "$REQUEST_METHOD" = "POST" ]; then
             # Pre-flight using the EXACT command line the sudoers rule
             # whitelists (-n = never prompt): a broken sudoers setup fails
             # here, visibly, instead of as a silent detached-spawn death.
-            if ! $_SUDO -n /usr/bin/qmanager_dpi_install --probe >/dev/null 2>&1; then
+            #
+            # MUST tolerate an empty $_SUDO. platform.sh sets _SUDO="" when the
+            # caller is already root (this deployment's httpd runs as root), and
+            # `$_SUDO -n cmd` then expands to `-n cmd`: the shell looks for a
+            # command literally named "-n", the pre-flight fails, and the UI
+            # reports "cannot escalate via sudo" on a device where sudo is fine.
+            if [ -n "$_SUDO" ]; then
+                _dpi_probe_ok=$($_SUDO -n /usr/bin/qmanager_dpi_install --probe >/dev/null 2>&1 && echo 1)
+            else
+                _dpi_probe_ok=$(/usr/bin/qmanager_dpi_install --probe >/dev/null 2>&1 && echo 1)
+            fi
+            if [ "$_dpi_probe_ok" != "1" ]; then
                 cgi_error "sudo_unavailable" "cannot escalate via sudo"
                 exit 0
             fi
@@ -406,7 +417,13 @@ if [ "$REQUEST_METHOD" = "POST" ]; then
             # --- Spawn tpws binary removal ---
             # Mirror of install: same sudoers pre-flight, same detached spawn,
             # same marker protocol for install_status polling.
-            if ! $_SUDO -n /usr/bin/qmanager_dpi_install --probe >/dev/null 2>&1; then
+            # Same empty-$_SUDO caveat as the install branch above.
+            if [ -n "$_SUDO" ]; then
+                _dpi_probe_ok=$($_SUDO -n /usr/bin/qmanager_dpi_install --probe >/dev/null 2>&1 && echo 1)
+            else
+                _dpi_probe_ok=$(/usr/bin/qmanager_dpi_install --probe >/dev/null 2>&1 && echo 1)
+            fi
+            if [ "$_dpi_probe_ok" != "1" ]; then
                 cgi_error "sudo_unavailable" "cannot escalate via sudo"
                 exit 0
             fi

@@ -56,29 +56,103 @@ while [ -d "$GP_ATLOCK" ] && [ "$i" -lt 10 ]; do
     i=$((i + 1))
 done
 
-# --- Send + capture ----------------------------------------------------------
-OUT="/tmp/atcli_smd11.$$"
-trap 'rm -f "$OUT"' EXIT INT TERM
+# --- Drain stale bytes left by the PREVIOUS invocation -----------------------
+# We kill the reader the moment OK appears, so whatever the modem emitted after
+# that (the trailing CRLF, a late ERROR, a queued URC) stays in the device buffer
+# and is the FIRST thing the next invocation's `cat` sees. Measured effect:
+#   AT+QTEMP    -> "+CFUN: 1", "OK", "ERROR"     (all stale, then its own ERROR)
+#   AT+QENG=... -> "ERROR" then the real +QENG lines
+# Parsers then read the wrong line, which is how "missing information" shows up
+# in the UI. Drain to /dev/null first so every capture starts on a clean slate.
+DRAIN="/tmp/atcli_smd11.drain.$$"
 
-cat "$AT_DEV" > "$OUT" 2>/dev/null &
-RPID=$!
-sleep 0.2
+# One clean send + capture round. Leaves the raw text in $OUT.
+# Returns 2 when the modem produced NO BYTES AT ALL (a dropped command), 0 otherwise.
+capture_once() {
+    # Drain to /dev/null first (see the note above about stale bytes).
+    cat "$AT_DEV" > "$DRAIN" 2>/dev/null &
+    _dp=$!
+    sleep 0.15
+    kill "$_dp" 2>/dev/null
+    wait "$_dp" 2>/dev/null
+    rm -f "$DRAIN" "$OUT"
 
-if ! printf '%s\r' "$CMD" > "$AT_DEV" 2>/dev/null; then
+    cat "$AT_DEV" > "$OUT" 2>/dev/null &
+    RPID=$!
+    sleep 0.12
+
+    if ! printf '%s\r' "$CMD" > "$AT_DEV" 2>/dev/null; then
+        kill "$RPID" 2>/dev/null
+        wait "$RPID" 2>/dev/null
+        return 1
+    fi
+
+    # Phase 1 — did the modem answer AT ALL? A dropped command produces zero
+    # bytes, so it is detected in ~1.5s instead of burning the full budget.
+    # That matters: the caller retries this, and a retry that waited the whole
+    # 12s budget would hold the AT flock (qcmd's lock) for ~36s and starve
+    # every CGI request behind it.
+    i=0
+    while [ "$i" -lt 6 ]; do
+        [ -s "$OUT" ] && break
+        sleep 0.25
+        i=$((i + 1))
+    done
+
+    if [ ! -s "$OUT" ]; then
+        kill "$RPID" 2>/dev/null
+        wait "$RPID" 2>/dev/null
+        return 2
+    fi
+
+    # Phase 2 — wait for a terminator.
+    i=0
+    while [ "$i" -lt "$TICKS" ]; do
+        grep -q -e '^OK' -e '^ERROR' -e '+CME ERROR' "$OUT" 2>/dev/null && break
+        sleep 0.25
+        i=$((i + 1))
+    done
+
     kill "$RPID" 2>/dev/null
     wait "$RPID" 2>/dev/null
-    exit 0
-fi
+    return 0
+}
 
-i=0
-while [ "$i" -lt "$TICKS" ]; do
-    grep -q -e '^OK' -e '^ERROR' -e '+CME ERROR' "$OUT" 2>/dev/null && break
-    sleep 0.25
-    i=$((i + 1))
+# --- Send + capture ----------------------------------------------------------
+OUT="/tmp/atcli_smd11.$$"
+trap 'rm -f "$OUT" "$DRAIN"' EXIT INT TERM
+
+# The port intermittently answers NOTHING AT ALL. Measured: 4 of 5 identical
+# AT+QNWPREFCFG reads came back with zero bytes while the modem was healthy and
+# online. qcmd reports that as "command_failed", so the UI showed an empty
+# Network Priority panel and an "at_failed" error on a working modem.
+#
+# A missing response does NOT prove a write had no side effect: the modem may
+# have applied a setter and then dropped its reply. Only retry a narrow,
+# explicitly read-only allowlist; generic/custom AT commands are never replayed.
+# Anything non-empty is left alone, however broken, for qcmd to judge.
+RETRY_EMPTY=false
+case "$CMD" in
+    *\?*|\
+    AT+CGPADDR|AT+CGCONTRDP|AT+CGCONTRDP=*|AT+QCAINFO|AT+QENG=*|\
+    'AT+CVERSION;+'*|'AT+QGETCAPABILITY'|\
+    'AT+QNWPREFCFG="rat_acq_order"'|\
+    'AT+QNWCFG="lte_mimo_layers"'|'AT+QNWCFG="nr5g_mimo_layers"'|\
+    'AT+QNWCFG="lte_time_advance"'|'AT+QNWCFG="nr5g_time_advance"'|\
+    'AT+QTEMP') RETRY_EMPTY=true ;;
+esac
+
+ATTEMPT=1
+while :; do
+    capture_once
+    _cr=$?
+
+    [ "$_cr" -eq 2 ] || break                   # answered (or write failed)
+    [ "$RETRY_EMPTY" = "true" ] || break       # never replay arbitrary writes
+    [ "$ATTEMPT" -ge 3 ] && break
+    ATTEMPT=$((ATTEMPT + 1))
+    sleep 0.2
 done
-
-kill "$RPID" 2>/dev/null
-wait "$RPID" 2>/dev/null
 
 # Strip CRs/NULs, then drop LEADING blank lines. The capture starts with an
 # empty line (the port emits CRLF before the payload); upstream's binary does

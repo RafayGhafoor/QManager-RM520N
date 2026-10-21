@@ -189,13 +189,13 @@ qm_poller: poll_cycle exceeded budget: 14s > 10s
 qm_poller: EVENT [signal_lost] Modem unreachable
 ```
 
-Those are **false alarms**, not modem faults: `AT+QCAINFO`/`AT+QENG` each return in 0-1 s and do include `OK` when called alone. The poller's own 10 s cycle budget is exceeded whenever a CGI request or health-check run holds the lock, and `qcmd`'s 5 s/10 s lock wait then reports `exit=1`. QManager's health check running AT tests while the poller polls is itself enough to produce this. `qm_wait_modem.sh` therefore goes through `qcmd` too.
+Those can be false alarms, not modem faults: `AT+QCAINFO`/`AT+QENG` each return in 0-1 s when called alone. The poller's own 10 s cycle budget can be exceeded when a CGI request or health-check run queues behind the AT lock. `qcmd`'s short/long lock waits are now 20/45s. `qm_wait_modem.sh` goes through `qcmd` too.
 
-Second bug fixed here: the AT capture begins with an empty line, but upstream's binary does not. `atcli_smd11` now strips **leading blank lines**, because parsers that slice line 1 (the health check's `AT+CGMI` test among them) were reading `""` instead of `Quectel`.
+The transport now drains stale bytes before each capture and strips leading blank lines. Before the drain, trailing bytes from one invocation prefixed the next reply (`AT+QENG` got a stray `ERROR` before its valid payload). The port also intermittently returns zero bytes; the shim detects that quickly and retries only a read-only allowlist (generic/custom commands and setters are never replayed).
 
 ## Health check expectations (do not chase these)
 
-`system/health-check` reports 27 pass / 8 fail / 4 warn after this work, up from 25/10. The remaining items are **expected deviations**, not defects:
+`system/health-check` reports 28 pass / 7 fail / 4 warn after the fixes. The remaining failures are **expected deployment deviations**, not defects:
 
 - `perm.smd11` (600 root:root, wants 660 root:dialout) and `perm.www_dialout` — upstream needs these because its CGI runs as `www-data` over `/dev/smd11`. This deployment runs httpd as root and talks to `/dev/at_mdm0`, so both are irrelevant. Not "fixed" on purpose: changing vendor device permissions buys nothing here.
 - `sudo.list` — upstream needs sudoers rules for `www-data`; `deploy/sudo` is a passthrough shim and CGI is already root.
@@ -203,14 +203,21 @@ Second bug fixed here: the AT capture begins with an empty line, but upstream's 
 - `svc.console` / `bin.ttyd` — see the ttyd row above.
 - `svc.firewall`, `svc.setup` — those units were not deployed; the firewall unit writes iptables rules and would collide with the vendor's own firewall set, so it is intentionally absent.
 - `svc.tailscaled` inactive — deliberate (product default).
-- `svc.poller` may show `inactive`/`failed` if the check lands while the unit is inside `RestartSec` or parked by a previous `start-limit-hit`. Confirm with `systemctl show qmanager-poller | grep -E '^(Result|NRestarts)='` before believing it.
+- `svc.poller` may show `inactive` during `RestartSec` or if a health run races its start. Verify `systemctl is-active qmanager-poller`; after this session it was active with a fresh cache.
+
+## Device-specific fixes verified live (2026-10-21)
+
+- **AT response first-line deletion:** `cgi_at.sh` used to delete line 1 unconditionally. The deployment shim already strips leading blanks, so that threw away the first *payload* line. Consequences: APN CID 1 blank and Network Prioritizing empty. It now removes blank/terminal lines instead. Verified profile 1 = `internet`, `ipv4`, active; priority = `NR5G:LTE`.
+- **RG520N-EB unsupported compound commands:** `AT+QTEMP` returns ERROR and aborts all later commands in the chain; `AT+QMAP="WWAN"/"LANIP"/"DHCPV4DNS"` also returns ERROR, making `qcmd` discard other successful lines. Temperature now averages live `modem-*` thermal zones; WAN/LAN addresses come from `ip`; APN/DNS from standalone `AT+CGCONTRDP`; unsupported QMAP probes were removed from poller boot. The optional `AT+QGETCAPABILITY` query was split out of the boot identity chain so a capability-query failure cannot erase model/firmware/identity fields; the read-only identity query now retries empty results.
+- **AT stale/empty captures:** shim drains leftovers and only retries empty responses for explicitly read-only commands, never generic writes. `qcmd` lock waits are longer to tolerate poll cycles without returning misleading AT failures.
+- **Homepage + Connection Details:** poller now reports `temperature=32 C`, carrier `Jazz`, APN `internet`, WAN `10.124.119.137`, carrier DNS, and LAN gateway `192.168.0.1` on this live session.
+- **SMS:** listing returned messages; the requested outbound `hello` test returned `{success:true}`. The recipient number is deliberately not retained in repo memory.
+- **Traffic Engine:** fixed `_SUDO` empty-as-root handling (the old `$_SUDO -n cmd` tried to execute `-n`); installer completed and installed tpws v72.13. It remains stopped until the user enables it.
+- **TLS-dependent fetches:** the device's CA store is dated 2023, so GitHub requests failed certificate verification. Current CA bundle lives at `/usrdata/qmanager/etc/cacert.pem`, exported as `CURL_CA_BUNDLE` by CGI. Verified GitHub manifest HTTP 200 and Traffic Engine release fetch/install. The upstream language manifest currently has `packs: []` (reachable, no community packs published).
+- **Latency Monitor / Internet verdict:** qmanager-ping was not deployed. Added its unit, PATH includes jq, and added it to the boot hook. Live ping history now shows 0% loss, ~40-77 ms; `connectivity.internet_available=true`; About Device shows public IPv4.
+- **System Logs:** unsupported QMAP probes were removed and CID detection no longer issues `QMAP="WWAN"`. One clean log query returned zero ERROR entries; a later full health-check run introduced four transient AT/lock errors in the 100-entry view. The device recovered and all three units, CPIN, and the modem identity were healthy afterwards; these are historical log records, not an ongoing outage.
 
 ## Known gaps
-
-- `device/about` returns empty `device_ip`, `lan_gateway`, `wan_ipv4/6`: the
-  poller's boot-time collection expects upstream interface names, not
-  `bridge0` / `rmnet_data1`. Cosmetic.
-- Unavailable without Entware: HTTPS (443), ttyd console proxy, DPI (tpws), email alerts (msmtp), language packs that need `opkg`.
 - `/lib/systemd/system` is read-only, so `qm_pathfix.sh` rewrites it to `/etc/systemd/system` (12 more files). This is what makes unit-writing features work at all — and why QManager's Tailscale page must **not** be used with its "install" action: it would write `/etc/systemd/system/tailscaled.service` and clobber the product stack's unit (which pins `-statedir=/data/tailscale/state -socket=/run/tailscale/tailscaled.sock -tun=userspace-networking`). Start/stop via the existing unit is fine.
 
 ## Entware: verified feasible, not yet applied
@@ -247,8 +254,8 @@ route to a real `/opt`.
 ## Rollback
 
 ```bash
-systemctl disable --now qmanager-httpd.service qmanager-poller.service
-rm -f /etc/systemd/system/qmanager-httpd.service /etc/systemd/system/qmanager-poller.service
+systemctl disable --now qmanager-httpd.service qmanager-poller.service qmanager-ping.service
+rm -f /etc/systemd/system/qmanager-httpd.service /etc/systemd/system/qmanager-poller.service /etc/systemd/system/qmanager-ping.service
 systemctl daemon-reload
 # drop the boot hook — this restores the product repo's script verbatim
 [ -f /etc/init.d/turin_web.sh.pre-qmanager ] && \

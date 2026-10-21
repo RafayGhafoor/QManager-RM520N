@@ -29,10 +29,11 @@ bind-mounted along with `/etc`, `/data`, `/cache`, `/persist`). Nothing outside
 | `sms_tool` | Wrapper around the vendored `sms_tool.bin`. Defaults the device to `/dev/smd7` (SMS storage is not visible on `at_mdm0`) and takes the vendor's radio lock around each call. |
 | `qm_serve.sh` | `start\|stop\|restart\|status` manager for busybox httpd on **port 8080**. |
 | `qm_pathfix.sh` | Rewrites the paths QManager owns (`/usr/lib/qmanager` → `/usrdata/qmanager/lib`, `/usr/bin/<qm helper>` → `.../bin/<helper>`) across the deployed tree. |
-| `qm_boot_hook.sh` | Makes QManager actually start at boot by inserting `start_service_async` lines into `/etc/init.d/turin_web.sh`. Required: this firmware drops units from PID 1's boot transaction. |
+| `qm_boot_hook.sh` | Makes QManager actually start at boot by inserting `start_service_async` lines for the httpd, poller and ping units into `/etc/init.d/turin_web.sh`. Required: this firmware drops units from PID 1's boot transaction. Add new boot units here; the hook is additive and idempotent. |
 | `qm_wait_modem.sh` | Poller `ExecStartPre` gate. Waits for a real `AT+CGMM` answer instead of just the device node — without it the poller caches the boot `RDY` URC as the model. |
 | `qmanager-httpd.service` | systemd unit: web UI. |
 | `qmanager-poller.service` | systemd unit: modem data poller (fills `/tmp/qmanager_status.json`). |
+| `qmanager-ping.service` | systemd unit: ping/reachability daemon. Fills `/tmp/qmanager_ping.json`; required for Latency Monitor and the Internet tile. |
 
 ## The AT path (the non-obvious part)
 
@@ -46,8 +47,10 @@ replacements both misbehave:
   polls it every ~0.4 s and **steals response bytes**. Measured: responses
   truncate to a bare `OK`, silently losing the payload.
 * **`/dev/at_mdm0`** — the modem's dedicated AT channel (bridged to USB by
-  `port_bridge`). Measured clean and complete on every call, with no
-  participation in the vendor's `atlock`. **This is what the shim uses.**
+  `port_bridge`). It does not use the vendor's `atlock`, but QManager commands
+  are serialized by `qcmd`'s own `/tmp/qmanager_at.lock`. The port can return an
+  empty response intermittently, so the shim retries only a read-only allowlist;
+  never replay arbitrary setters. **This is what the shim uses.**
 
 The port is a **raw character device, not a tty**, so `stty` and `read -t` do
 not work on it. `atcli_smd11` therefore reuses the vendor's proven approach from
@@ -96,7 +99,11 @@ curl -fsSL -o stage/bin/jq \
   https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-armhf
 chmod +x stage/bin/jq
 
-# 3b. Ookla speedtest + the vendored sms_tool (see "Third-party payloads")
+# 3b. Current CA bundle — device's built-in 2023 CA store cannot validate
+#     GitHub's current issuer. This bundle is a deploy-time payload, not git.
+curl -fsSL -o stage/cacert.pem https://curl.se/ca/cacert.pem
+
+# 3c. Ookla speedtest + the vendored sms_tool (see "Third-party payloads")
 curl -fsSL -o /tmp/ookla.tgz \
   https://install.speedtest.net/app/cli/ookla-speedtest-1.2.0-linux-armhf.tgz
 ( mkdir -p /tmp/ookla && tar xzf /tmp/ookla.tgz -C /tmp/ookla && \
@@ -106,16 +113,21 @@ cp deploy/sms_tool stage/bin/sms_tool && chmod +x stage/bin/sms_tool
 
 # 4. Ship it and relocate the paths
 tar czf - -C stage . | ssh root@<device> 'mkdir -p /usrdata/qmanager && tar xzf - -C /usrdata/qmanager'
+# The CA bundle lives in the QManager-owned state dir, not /etc/ssl (read-only).
+ssh root@<device> 'mkdir -p /usrdata/qmanager/etc && mv /usrdata/qmanager/cacert.pem /usrdata/qmanager/etc/cacert.pem'
 tar czf - -C deploy qm_pathfix.sh qm_wait_modem.sh | ssh root@<device> \
   'tar xzf - -C /tmp && sh /tmp/qm_pathfix.sh && \
    cp /tmp/qm_wait_modem.sh /usrdata/qmanager/bin/ && chmod +x /usrdata/qmanager/bin/qm_wait_modem.sh'
+# qm_pathfix.sh only rewrites scripts it recognizes. Verify the poller specifically:
+ssh root@<device> 'grep -q /usrdata/qmanager/lib /usrdata/qmanager/bin/qmanager_poller || \
+  sed -i "s|/usr/lib/qmanager|/usrdata/qmanager/lib|g" /usrdata/qmanager/bin/qmanager_poller'
 
 # 5. Web UI + services
 tar czf - -C deploy qm_serve.sh | ssh root@<device> \
   'tar xzf - -C /usrdata/qmanager/bin && chmod +x /usrdata/qmanager/bin/qm_serve.sh'
-tar czf - -C deploy qmanager-httpd.service qmanager-poller.service | ssh root@<device> \
+tar czf - -C deploy qmanager-httpd.service qmanager-poller.service qmanager-ping.service | ssh root@<device> \
   'tar xzf - -C /etc/systemd/system && chmod 644 /etc/systemd/system/qmanager-*.service && \
-   systemctl daemon-reload && systemctl enable qmanager-httpd.service qmanager-poller.service'
+   systemctl daemon-reload && systemctl enable qmanager-httpd.service qmanager-poller.service qmanager-ping.service'
 
 # 6. Boot wiring — `enable` alone does NOT survive this firmware's boot
 #    transaction (see qm_boot_hook.sh). This is what actually starts them.
@@ -123,7 +135,7 @@ tar czf - -C deploy qm_boot_hook.sh | ssh root@<device> \
   'tar xzf - -C /tmp && sh /tmp/qm_boot_hook.sh'
 
 # 7. Start now (and reboot to prove the boot path)
-ssh root@<device> 'systemctl start qmanager-httpd.service qmanager-poller.service'
+ssh root@<device> 'systemctl start qmanager-httpd.service qmanager-poller.service qmanager-ping.service'
 ```
 
 Then browse to `http://<device-lan-ip>:8080/` and complete first-run setup.
@@ -134,8 +146,14 @@ Set the password there — no credentials are baked into this deployment.
 ```bash
 curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8080/            # 200
 curl -s http://127.0.0.1:8080/cgi-bin/quecmanager/public/overview.sh      # JSON
-systemctl is-active qmanager-httpd qmanager-poller                        # active active
-jq '.device.model, .network.type' /tmp/qmanager_status.json               # RG520N-EB, 5G-NSA
+systemctl is-active qmanager-httpd qmanager-poller qmanager-ping          # active active active
+jq '.device.model, .device.temperature, .network.type, .network.carrier, .network.apn, .network.wan_ipv4, .connectivity.internet_available' /tmp/qmanager_status.json
+# RG520N-EB, temperature °C, 5G-NSA, Jazz, internet, assigned WAN IPv4, true
+jq '{reachable,last_rtt_ms}' /tmp/qmanager_ping.json                    # true + measured RTT
+# Read-only modem diagnostics MUST use qcmd so the shared AT flock is held:
+/usrdata/qmanager/bin/qcmd 'AT+CGMM'                                     # RG520N-EB + OK
+# Feature checks: cellular/apn.sh, cellular/network_priority.sh, cellular/sms.sh,
+# network/video_optimizer.sh, system/language-packs/list.sh, device/about.sh
 
 # Boot wiring is only proven by a real reboot — compare against uptime:
 systemctl show -p ActiveEnterTimestamp --value qmanager-httpd qmanager-poller
@@ -154,10 +172,23 @@ systemctl show -p ActiveEnterTimestamp --value qmanager-httpd qmanager-poller
   cache until the next restart.
 * Never use `pkill -f "httpd -p 8080"` over SSH: it matches the SSH command line
   itself and kills the session. Use `qm_serve.sh`.
-* `device/about` reports empty LAN/WAN IPs — the poller's boot-time collection
-  expects upstream interface names, not this firmware's `bridge0` / `rmnet_data1`.
-* Unavailable without Entware: HTTPS (443), ttyd console proxy, DPI, Tailscale,
-  Discord bot, language packs.
+* The RG520N-EB does not support `AT+QTEMP`, `AT+QMAP="WWAN"`, `AT+QMAP="LANIP"`
+  or `AT+QMAP="DHCPV4DNS"`; probing these in a compound AT chain used to discard
+  other valid responses and create false log errors. Temperature comes from the
+  modem thermal zones; LAN/WAN addressing comes from `ip`; APN/DNS from
+  `AT+CGCONTRDP`.
+* The device's `/etc/ssl` trust store is dated 2023. The current CA bundle is
+  therefore deployed at `/usrdata/qmanager/etc/cacert.pem` and exported as
+  `CURL_CA_BUNDLE` by `cgi_base.sh`; without it GitHub TLS fails even though DNS,
+  TCP and general internet reachability work. The language-pack manifest is
+  currently reachable but upstream publishes `packs: []`.
+* `qmanager-ping.service` must be deployed and started. Without it, every ping
+  history sample is null, the Latency Monitor reports 100% loss, and the
+  `Internet` tile can claim unreachable despite a working WAN.
+* QManager's health check has expected deployment deviations (root-run CGI,
+  no lighttpd/tty/console, no firewall/setup units); see `memory.md`. Do not
+  "fix" the `smd11`/dialout/sudoers checks: this deployment uses `at_mdm0` and
+  root-run CGI.
 * `/tmp/qmanager_status.json` is tmpfs and regenerated by the poller on start.
 
 ## Uninstall

@@ -38,8 +38,19 @@ qlog_init "qcmd"
 # --- Configuration -----------------------------------------------------------
 LOCK_FILE="/tmp/qmanager_at.lock"
 
-LOCK_WAIT_SHORT=5      # seconds to wait for lock (normal commands)
-LOCK_WAIT_LONG=10      # seconds to wait for lock (long commands)
+# How long a caller waits for the AT flock before giving up.
+#
+# These were 5 / 10 seconds, which was enough when one AT command held the lock
+# for well under a second. On this firmware a single poller command can occupy
+# the lock for several seconds (the port sometimes drops a command, and the shim
+# re-sends it), so a CGI request arriving mid-poll gave up and reported
+# "at_failed" — measured in qm_cgi_net_prio's own log as
+#   qm_qcmd: Lock acquisition failed for: AT+QNWPREFCFG="rat_acq_order"
+# while the same command succeeded from an interactive shell. Waiting longer
+# makes the request slow instead of empty, which is the correct trade: an empty
+# panel is a bug, a spinner is not.
+LOCK_WAIT_SHORT=20     # seconds to wait for lock (normal commands)
+LOCK_WAIT_LONG=45      # seconds to wait for lock (long commands)
 
 # Ensure lock file exists and is accessible by both root and www-data.
 # The poller (root) and CGI scripts (www-data) share this file via flock.

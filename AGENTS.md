@@ -63,9 +63,11 @@ already caused a failed install:
    `bin/atcli_smd11` directly while the poller runs** — only `qcmd` holds the
    shared flock (`/tmp/qmanager_at.lock`), so a direct call corrupts concurrent
    polls. Symptom: `qcmd_exec failed: cmd=AT+QENG... exit=1` plus
-   `poll_cycle exceeded budget` in syslog, which is lock contention and NOT a
-   modem fault (each command returns in 0-1 s when called alone).
-   SMS is the one exception: `bin/sms_tool` wraps the vendored binary, defaults
+   `poll_cycle exceeded budget` in syslog, which can be lock contention and is
+   NOT proof of a modem fault (each command returns in 0-1 s when called alone).
+   The shim drains stale bytes and only retries a read-only allowlist; never
+   retry/replay arbitrary setters after an empty response. SMS is the one
+   exception: `bin/sms_tool` wraps the vendored binary, defaults
    the device to `/dev/smd7`, and takes the vendor radio lock itself, because
    SMS storage is not visible on at_mdm0.
 4. **Do not "fix" the remaining health-check failures.** `perm.smd11`,
@@ -83,8 +85,8 @@ already caused a failed install:
    `/etc/systemd/system` reads `enabled` and never runs. Always confirm
    `ActiveEnterTimestamp` against `/proc/uptime` afterwards.
 7. **Never overwrite `/etc/init.d/turin_web.sh`** — the product repo owns it and
-   edits it continuously. QManager joins the boot path by *inserting* two
-   `start_service_async` lines via `deploy/qm_boot_hook.sh` (idempotent, anchored
+   edits it continuously. QManager joins the boot path by *inserting* three
+   `start_service_async` lines (httpd, poller, ping) via `deploy/qm_boot_hook.sh` (idempotent, anchored
    on `systemctl daemon-reload`, one-time backup kept as `.pre-qmanager`). Add
    new boot-started units there, not by shipping a copy of the script.
 8. **Gate the poller on a real modem answer, not the device node.** Device
@@ -113,7 +115,7 @@ bun run build            # static export -> out/   (no SSR; the device cannot ru
 sh deploy/qm_pathfix.sh       # rewrite /usr/lib/qmanager -> /usrdata/qmanager/lib
 sh deploy/qm_boot_hook.sh     # insert the boot start-lines into turin_web.sh
 qm_serve.sh start             # busybox httpd on :8080
-systemctl restart qmanager-httpd qmanager-poller
+systemctl restart qmanager-httpd qmanager-poller qmanager-ping
 ```
 
 `deploy/qm_pathfix.sh` must be re-run after **every** redeploy of the backend,
@@ -127,8 +129,10 @@ QManager owns; `/usr/bin/timeout`, `flock`, `env` etc. must stay untouched.
 curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8080/         # 200
 curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8080/setup/   # 200
 curl -s http://127.0.0.1:8080/cgi-bin/quecmanager/public/overview.sh    # JSON
-systemctl is-active qmanager-httpd qmanager-poller                      # active active
-jq '.device.model, .network.type' /tmp/qmanager_status.json             # RG520N-EB, 5G-NSA
+systemctl is-active qmanager-httpd qmanager-poller qmanager-ping       # active active active
+jq '.device.model, .device.temperature, .network.type, .network.carrier, .network.apn, .network.wan_ipv4' /tmp/qmanager_status.json
+# RG520N-EB, temperature C, 5G-NSA, Jazz, internet, assigned WAN IPv4
+jq '{reachable,last_rtt_ms}' /tmp/qmanager_ping.json                    # true + measured RTT
 # Use qcmd (full path — a plain ssh session does not have bin/ on PATH), NOT
 # atcli_smd11: only qcmd takes the shared AT flock.
 /usrdata/qmanager/bin/qcmd 'AT+CGMM'                                     # RG520N-EB + OK
@@ -136,13 +140,16 @@ jq '.device.model, .network.type' /tmp/qmanager_status.json             # RG520N
 # Feature-level checks (these are the ones that broke before):
 #   Speed Test -> GET  /cgi-bin/quecmanager/at_cmd/speedtest_servers.sh   (needs Ookla)
 #   SMS        -> GET  /cgi-bin/quecmanager/cellular/sms.sh               (needs sms_tool)
+#   Priority   -> GET  /cgi-bin/quecmanager/cellular/network_priority.sh
+#   Languages  -> GET  /cgi-bin/quecmanager/system/language-packs/list.sh?manifest_url=...
+#   Traffic    -> POST /cgi-bin/quecmanager/network/video_optimizer.sh {"action":"install"}
 # Both need a session cookie; log in via POST /cgi-bin/quecmanager/auth/login.sh
 
 # The vendor stack must still be healthy after any change:
 curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1/              # 200 (vendor UI)
 
 # After a reboot, confirm the units really ran at boot (not just enabled):
-systemctl show -p ActiveEnterTimestamp --value qmanager-httpd qmanager-poller
+systemctl show -p ActiveEnterTimestamp --value qmanager-httpd qmanager-poller qmanager-ping
 ```
 
 A response missing its payload line (just `OK`) is the signature of AT port
@@ -156,6 +163,7 @@ contention — check which `AT_DEV` the shim is using.
   for `/dev/smd11`, which never appears for CGI.
 - `/tmp/qmanager_status.json` is tmpfs — it is the poller cache and is
   regenerated on poller start. Never treat it as durable state.
-- `device/about` shows empty LAN/WAN IPs because the poller expects upstream
-  interface names, not this firmware's `bridge0` / `rmnet_data1`. Cosmetic;
-  not yet fixed.
+- `device/about` and Connection Details use the kernel-derived `bridge0` LAN
+  gateway, default-route WAN address, and public-IP probe. The modem identification
+  remains truthful (`Quectel RG520N-EB`); product branding belongs in the
+  application layer, which this deployment-only branch does not modify.

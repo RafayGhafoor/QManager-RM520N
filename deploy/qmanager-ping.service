@@ -1,0 +1,41 @@
+# /etc/systemd/system/qmanager-ping.service
+#
+# Deployment unit for the GreenPacket O5A Pro (see deploy/README.md).
+#
+# WHY THIS UNIT EXISTS AT ALL
+#   Without it the Latency Monitor reported 100% packet loss on a fully working
+#   connection: nothing was probing, so every history row was null and the UI
+#   renders "no samples" as total loss. The daemon writes
+#   /tmp/qmanager_ping.json, which the poller (conn_state.sh) and watchcat read
+#   as THE internet-reachability verdict, so its absence also fed the
+#   "Internet: not reachable" state elsewhere in the UI.
+#
+# DIFFERENCES FROM THE UPSTREAM UNIT (scripts/etc/systemd/system/):
+#   * ExecStart points at the relocated binary. The rootfs is read-only, so
+#     QManager lives in /usrdata/qmanager (qm_pathfix.sh does the same rewrite).
+#   * Environment=PATH includes /usrdata/qmanager/bin because the daemon is a
+#     shell script that shells out to `jq`. Measured without it:
+#       qmanager_ping: line 448: jq: not found   (repeatedly, no probes at all)
+#   * After=qmanager-setup.service is dropped — that unit does not exist here.
+#   * Restart=always with a looser start limit: this device SIGTERMs services
+#     during memory-pressure and boot-cleanup sweeps, and a parked daemon means
+#     the UI silently reverts to "100% loss".
+[Unit]
+Description=QManager Ping Daemon (internet reachability + latency)
+After=network.target
+StartLimitIntervalSec=3600
+StartLimitBurst=20
+
+[Service]
+Type=simple
+Environment=PATH=/usrdata/qmanager/bin:/usr/bin:/bin:/sbin:/usr/sbin
+ExecStart=/usrdata/qmanager/bin/qmanager_ping
+# Deliberately outside /etc/qmanager: that directory is www-data-owned, and a
+# web-writable EnvironmentFile feeding a root daemon would be code execution.
+EnvironmentFile=-/etc/qmanager.env
+TimeoutStopSec=10
+Restart=always
+RestartSec=10s
+
+[Install]
+WantedBy=multi-user.target

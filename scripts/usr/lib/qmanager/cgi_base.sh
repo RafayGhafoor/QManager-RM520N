@@ -18,6 +18,23 @@ _CGI_BASE_LOADED=1
 export PATH="/opt/bin:/opt/sbin:/usr/bin:/usr/sbin:/bin:/sbin:$PATH"
 
 # ---------------------------------------------------------------------------
+# Trust store for HTTPS fetches
+# ---------------------------------------------------------------------------
+# The firmware's /etc/ssl/certs/ca-certificates.crt is from 2023 and no longer
+# chains to GitHub's current issuer, so EVERY outbound HTTPS fetch failed with
+#   curl: (60) SSL certificate problem: unable to get local issuer certificate
+# TCP and DNS were fine, so this looked like "no internet" from inside the UI:
+# the Languages page said "Couldn't reach pack catalog", and the Traffic Engine
+# installer gave up with "GitHub API unreachable (HTTP 000)". Measured: the same
+# URL returns 200 with a current bundle.
+#
+# Every CGI request sources this file, and helpers spawned from a CGI inherit
+# its environment, so exporting here covers the fetch path end to end.
+if [ -z "${CURL_CA_BUNDLE:-}" ] && [ -f /usrdata/qmanager/etc/cacert.pem ]; then
+    export CURL_CA_BUNDLE=/usrdata/qmanager/etc/cacert.pem
+fi
+
+# ---------------------------------------------------------------------------
 # Logging — source qlog.sh with no-op fallbacks if library is missing
 # ---------------------------------------------------------------------------
 . /usr/lib/qmanager/qlog.sh 2>/dev/null || {

@@ -425,6 +425,58 @@ parse_serving_cell() {
 }
 
 # -----------------------------------------------------------------------------
+# Read the modem temperature from the kernel's thermal framework.
+#
+# Used as a FALLBACK when AT+QTEMP is unsupported. That is the case on the
+# RG520N-EB: AT+QTEMP, AT+QTEMP? and AT+QTEMP=? all answer a bare "ERROR", so
+# the dashboard showed temperature: null while the modem was perfectly healthy.
+#
+# SDX6x exposes the SAME sensor set QTEMP reports, under
+# /sys/class/thermal/thermal_zoneN/{type,temp} in millidegrees (e.g.
+# type=modem-lte-sub6-pa1). It also uses the SAME sentinels, which is why the
+# AT parser above filters them and this does too:
+#   -273  sensor absent (mmWave not fitted, BCL not wired)  -> skip
+#      0  idle PA that is not transmitting                  -> skip
+#    -40  beamer sensor when the beamer is unused           -> skip
+# Averaging the live sensors is what QTEMP's own average means; there is no
+# single "the" modem temperature to read.
+#
+# Only modem-* zones are considered: the mdmss-*/cpuss-*/aoss-* entries are SoC
+# thermal zones, not modem sensors, and including them would report the CPU.
+# -----------------------------------------------------------------------------
+read_temperature_sysfs() {
+    _rts_sum=0
+    _rts_count=0
+
+    for _rts_z in /sys/class/thermal/thermal_zone*; do
+        [ -r "$_rts_z/type" ] && [ -r "$_rts_z/temp" ] || continue
+        case "$(cat "$_rts_z/type" 2>/dev/null)" in
+            modem-*) ;;
+            *) continue ;;
+        esac
+
+        _rts_v=$(cat "$_rts_z/temp" 2>/dev/null)
+        # Some zones exist but read empty; some could be non-numeric.
+        case "$_rts_v" in
+            ''|*[!0-9-]*) continue ;;
+        esac
+
+        # millidegrees -> whole degrees (round to nearest)
+        _rts_t=$(( (_rts_v + 500) / 1000 ))
+
+        [ "$_rts_t" -le -40 ] && continue
+        [ "$_rts_t" -eq 0 ] && continue
+
+        _rts_sum=$((_rts_sum + _rts_t))
+        _rts_count=$((_rts_count + 1))
+    done
+
+    if [ "$_rts_count" -gt 0 ]; then
+        printf '%d' $((_rts_sum / _rts_count))
+    fi
+}
+
+# -----------------------------------------------------------------------------
 # Parse AT+QTEMP — Average temperature across active sensors
 # Populates: t2_temperature
 #
@@ -447,7 +499,9 @@ parse_temperature() {
     if [ -n "$result" ]; then
         t2_temperature="$result"
     else
-        t2_temperature=""
+        # AT+QTEMP unsupported or silent (RG520N-EB answers "ERROR") — fall
+        # back to the thermal framework rather than reporting null.
+        t2_temperature=$(read_temperature_sysfs)
     fi
 }
 

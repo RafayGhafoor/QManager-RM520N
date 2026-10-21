@@ -49,19 +49,31 @@
 set -u
 
 TURIN=${TURIN:-/etc/init.d/turin_web.sh}
-MARK="qmanager-httpd.service"
 ANCHOR="systemctl daemon-reload"
 MODE=${1:-apply}
 
+# Units started at boot. Adding to this list is the ONLY change needed to bring
+# a new QManager unit up at boot — the hook is additive, so an already-hooked
+# device picks up the new line without losing the existing ones.
+UNITS="qmanager-httpd.service qmanager-poller.service qmanager-ping.service"
+
 [ -f "$TURIN" ] || { echo "ERROR: $TURIN not found" >&2; exit 1; }
 
-if grep -q -- "$MARK" "$TURIN" 2>/dev/null; then
-    echo "already hooked: $TURIN starts QManager at boot"
+# Already hooked? Only true when EVERY wanted unit is present. A previously
+# hooked device is missing any unit added to $UNITS since, so this must not be a
+# plain "does the marker exist" test (that made new units silently never start).
+_all_present=true
+for _u in $UNITS; do
+    grep -q -- "start_service_async $_u\$" "$TURIN" 2>/dev/null || _all_present=false
+done
+
+if [ "$_all_present" = "true" ]; then
+    echo "already hooked: $TURIN starts all of ($UNITS) at boot"
     exit 0
 fi
 
 if [ "$MODE" = "--check" ]; then
-    echo "NOT hooked: $TURIN has no QManager start lines"
+    echo "NOT fully hooked: $TURIN is missing one or more of ($UNITS)"
     exit 1
 fi
 
@@ -71,30 +83,70 @@ grep -q -- "$ANCHOR" "$TURIN" || {
     exit 1
 }
 
-cp -a "$TURIN" "$TURIN.pre-qmanager" || {
-    echo "ERROR: could not back up $TURIN" >&2
-    exit 1
-}
-
-# Insert immediately AFTER the daemon-reload line, so systemd has re-read the
-# late-mounted /etc overlay (and therefore knows our units) before we start
-# them. start_service_async is defined earlier in the same script.
-awk -v mark="$MARK" '
-    { print }
-    !done && $0 ~ /^[[:space:]]*systemctl daemon-reload[[:space:]]*$/ {
-        print ""
-        print "# QManager (GreenPacket O5A Pro). This firmware drops units from PID 1"
-        print "# boot transaction (see the notes inside /etc/init.d/turin_web.sh, and the"
-        print "# greenpacket-o5a-qmanager repo), so enabled QManager units never start on"
-        print "# their own. Join the one script confirmed to run at boot, exactly like"
-        print "# gp-v2/gp-sysctl/gp-led above."
-        print "start_service_async qmanager-httpd.service"
-        print "start_service_async qmanager-poller.service"
-        done = 1
+# One-time backup: keep the PRISTINE pre-QManager script. Re-running the hook
+# must not overwrite it with an already-hooked copy, or the rollback target
+# silently becomes "the version with our lines in it".
+if [ ! -f "$TURIN.pre-qmanager" ]; then
+    cp -a "$TURIN" "$TURIN.pre-qmanager" || {
+        echo "ERROR: could not back up $TURIN" >&2
+        exit 1
     }
-' "$TURIN.pre-qmanager" > "$TURIN.new" || {
-    echo "ERROR: awk insertion failed" >&2
+fi
+
+# Buffer the file and emit with a single insertion point in END. An earlier
+# version appended at the first matching line it saw, which meant `present[]`
+# was only partly populated at that moment and every unit after the first got
+# emitted a second time — measured on the device as duplicate
+# start_service_async lines. Buffering makes the decision use the WHOLE file.
+awk -v units="$UNITS" -v anchor="$ANCHOR" '
+    BEGIN { n = split(units, want, " ") }
+
+    {
+        lines[NR] = $0
+        if (index($0, "start_service_async qmanager-") == 1) {
+            last_qm = NR
+            for (i = 1; i <= n; i++)
+                if ($0 == "start_service_async " want[i]) present[want[i]] = 1
+        }
+        if ($0 ~ ("^[[:space:]]*" anchor "[[:space:]]*$")) anchor_at = NR
+    }
+
+    END {
+        if (!last_qm && !anchor_at) exit 3
+
+        for (i = 1; i <= NR; i++) {
+            print lines[i]
+
+            if (last_qm) {
+                # Re-run: append only the missing units, after the last existing
+                # QManager line, so the block stays contiguous.
+                if (i == last_qm)
+                    for (j = 1; j <= n; j++)
+                        if (!present[want[j]])
+                            print "start_service_async " want[j]
+            } else if (i == anchor_at) {
+                # First run: systemd has already re-read the late-mounted /etc
+                # overlay, so our units are visible before we start them.
+                print ""
+                print "# QManager (GreenPacket O5A Pro). This firmware drops units from PID 1"
+                print "# boot transaction (see the notes inside /etc/init.d/turin_web.sh, and the"
+                print "# greenpacket-o5a-qmanager repo), so enabled QManager units never start on"
+                print "# their own. Join the one script confirmed to run at boot, exactly like"
+                print "# gp-v2/gp-sysctl/gp-led above."
+                for (j = 1; j <= n; j++)
+                    print "start_service_async " want[j]
+            }
+        }
+    }
+' "$TURIN" > "$TURIN.new" || {
+    _rc=$?
     rm -f "$TURIN.new"
+    if [ "$_rc" = "3" ]; then
+        echo "ERROR: anchor '$ANCHOR' not found in $TURIN — refusing to patch." >&2
+        echo "       The product repo's boot script changed; re-derive the hook." >&2
+    else
+        echo "ERROR: awk insertion failed" >&2
+    fi
     exit 1
 }
 
@@ -106,9 +158,13 @@ fi
 
 chmod 755 "$TURIN.new"
 mv "$TURIN.new" "$TURIN"
-echo "hooked: $TURIN now starts qmanager-httpd + qmanager-poller at boot"
+echo "hooked: $TURIN now starts ($UNITS) at boot"
 echo "        backup: $TURIN.pre-qmanager"
 echo "        validating 'sh -n': OK"
+
+if grep -q -- "start_service_async qmanager-ping.service" "$TURIN"; then
+    echo "        (qmanager-ping = the Latency Monitor / reachability daemon)"
+fi
 echo
 echo "NOTE: only a real reboot proves this. After reboot, check:"
 echo "  systemctl show -p ActiveEnterTimestamp --value qmanager-httpd qmanager-poller"
