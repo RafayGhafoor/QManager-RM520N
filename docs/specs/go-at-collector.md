@@ -136,13 +136,45 @@ so a CGI's `qcmd` and the collector interleave safely rather than racing.
   - [ ] Before/after measured per `AGENTS.md`: per-call AT CPU, per-cycle CPU, poller
         total (share of one core), RSS, and box total. Baseline captured **before** the
         deploy.
-  - [ ] Target: per-cycle **406 ms → under 30 ms**; poller **< 3 %** of one core
-        average; box **48 % → ~30 %**.
+  - [ ] Target: per-cycle **406 ms → under 30 ms**; poller **17.7 % → < 2 %** of one
+        core average; box **57 % → ~40 %**, measured over a **5-minute** window, not a
+        30 s snapshot.
   - [ ] New unit `qmanager-atd.service`, added via `deploy/qm_boot_hook.sh` (hard rule
         7) — never by editing `/etc/init.d/turin_web.sh` directly.
   - [ ] **Proven by a real reboot** (`boot_id` before/after, `ActiveEnterTimestamp` vs
         `/proc/uptime`) — hard rule 6. A `systemctl restart` proves nothing here.
   - [ ] Rollback is one line: disable `qmanager-atd.service` and the poller falls back.
+
+## Benchmark — the corrected baseline (5-minute average, 2026-10-22)
+
+Two earlier readings were wrong and this is the one to trust:
+
+| Reading | Box | Poller | Verdict |
+| --- | --- | --- | --- |
+| 30 s snapshot | 48 % | 19.8 % | a burst — too short |
+| cumulative-since-start estimate | — | ~6.6 % | **wrong**: I guessed the poller's start time |
+| **299 s average, 60 samples** | **57 %** | **17.7 %** | **use this** |
+
+```
+box    avg 57 % of one core   peak(5 s) 84 %
+poller avg 17.7 %             peak(5 s) 36.3 %
+poller share of busy: 30 %
+```
+
+The averaging script itself had a permille/percent bug that printed "177 %"; corrected
+value is 17.7 %. Recorded because a 10× arithmetic slip is exactly the kind of thing
+that gets believed later.
+
+**Projection against the correct baseline:**
+
+| | Box | Poller |
+| --- | --- | --- |
+| today | **57 %** | 17.7 % |
+| Go collector | **~40 %** | ~0.2 % |
+| + trim ping and tpws | ~34 % | ~0.2 % |
+
+**25 % is not reachable with features intact**: vendor + kernel is ~22 points of the
+57, so the floor with every QManager feature trimmed is ~34 %.
 
 ## Feasibility — checked on the device 2026-10-22, not assumed
 
