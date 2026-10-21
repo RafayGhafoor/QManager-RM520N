@@ -8,12 +8,25 @@ Scope: this branch is **deployment-only**. The application code (`app/`,
 `components/`, `lib/`, `types/`, `hooks/`) tracks upstream QManager and should
 not be modified here — the product-specific work lives in `deploy/`.
 
-**One recorded exception:** the speedtest favourite-server control
-(`components/dashboard/speedtest-dialog.tsx`, `hooks/use-speedtest.ts`,
-`types/speedtest.ts`, `public/locales/en/dashboard.json`). A favourite needs a
-control in the UI, so it could not live in `deploy/` alone. Treat this as the
-only app-layer change on this branch: keep it minimal, and prefer extending the
-backend if a future need can be met without touching app code.
+**Two recorded exceptions.** The criterion in both cases is the same: the feature
+needs a control the backend cannot provide, so it could not live in `deploy/` alone.
+Anything that *can* be met by extending the backend must still be.
+
+1. **Speedtest favourite-server control** — `components/dashboard/speedtest-dialog.tsx`,
+   `hooks/use-speedtest.ts`, `types/speedtest.ts`,
+   `public/locales/en/dashboard.json`.
+2. **Neighbour live view for antenna aiming** (2026-10-22) — an aiming UI is a
+   component, so the backend half alone could not deliver it.
+   `components/cellular/cell-scanner/**` (+ `neighbourcell/aim-strip.tsx`),
+   `hooks/use-neighbour-scanner.ts`, `lib/neighbour-live.ts`,
+   `types/cell-scanner.ts`, `public/locales/{en,id,it,zh-CN,zh-TW}/{cellular,dashboard}.json`.
+   Authorised by the owner, recorded in
+   [`docs/specs/neighbour-live-aim.md`](./docs/specs/neighbour-live-aim.md) →
+   "Authorisation to touch the app layer".
+
+Keep any such change minimal, add it here when you make it, and prefer extending
+the backend if a future need can be met without touching app code. An app-layer
+change that is not listed here is out of scope for this branch.
 
 ## Sibling project — the source of truth for device conventions
 

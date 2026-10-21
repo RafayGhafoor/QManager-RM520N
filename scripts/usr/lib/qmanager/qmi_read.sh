@@ -124,14 +124,41 @@ _qm_qmi_raw() {
     if [ -z "$QM_QMI_BIN" ] || [ ! -f "$QM_QMI_BIN" ] || [ ! -x "$QM_QMI_BIN" ]; then
         return 2
     fi
+    # Bound every call, and capture through a FILE, not a command substitution.
+    #
+    # Two traps, both measured on this unit 2026-10-22:
+    # 1. `qm_timeout` is the house wrapper, but this device does NOT have it, so
+    #    the fallback to busybox `timeout` is the real bound.
+    # 2. `out=$(timeout 5 cmd)` is NOT bounded. busybox `timeout` kills the direct
+    #    child, but any grandchild it spawned still holds the stdout PIPE, so the
+    #    command substitution blocks until that grandchild exits. Measured: a stub
+    #    running `sleep 30` returned in 5 s to a plain redirect and in 30 s through
+    #    `$( )`. Redirecting to a file and reading it back is the only portable
+    #    bound. This matters because a wedged qmicli inside the poller would stall
+    #    a whole cycle.
+    # Edge cases EC2 in docs/specs/neighbour-live-aim.md.
+    if ! command -v qm_timeout >/dev/null 2>&1 && ! command -v timeout >/dev/null 2>&1; then
+        # No timeout utility at all: refuse rather than risk an unbounded call.
+        # Returning non-zero degrades the caller to AT, which is safe.
+        return 3
+    fi
+    QM_QMI_TMP="${TMPDIR:-/tmp}/.qm_qmi_raw.$$"
     if command -v qm_timeout >/dev/null 2>&1; then
-        out=$(LD_LIBRARY_PATH="$QM_QMI_LIBDIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
-              qm_timeout "$QM_QMI_TIMEOUT" "$QM_QMI_BIN" -d "$QM_QMI_DEV" "$@" 2>/dev/null)
+        LD_LIBRARY_PATH="$QM_QMI_LIBDIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+            qm_timeout "$QM_QMI_TIMEOUT" "$QM_QMI_BIN" -d "$QM_QMI_DEV" "$@" \
+            >"$QM_QMI_TMP" 2>/dev/null
     else
-        out=$(LD_LIBRARY_PATH="$QM_QMI_LIBDIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
-              "$QM_QMI_BIN" -d "$QM_QMI_DEV" "$@" 2>/dev/null)
+        LD_LIBRARY_PATH="$QM_QMI_LIBDIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+            timeout "$QM_QMI_TIMEOUT" "$QM_QMI_BIN" -d "$QM_QMI_DEV" "$@" \
+            >"$QM_QMI_TMP" 2>/dev/null
     fi
     rc=$?
+    if [ -s "$QM_QMI_TMP" ]; then
+        out=$(cat "$QM_QMI_TMP")
+    else
+        out=""
+    fi
+    rm -f "$QM_QMI_TMP"
     [ "$rc" -eq 0 ] || return 3
     [ -n "$out" ] || return 3
     if [ "$marker" != "-" ]; then

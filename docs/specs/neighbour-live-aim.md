@@ -267,33 +267,51 @@ be taken **before** the deploy, while the old code was still live.
 running, no live lease held for the baseline; 60 s window; CPU is
 `cutime`+`cstime` (parent + reaped children), not htop's parent-only view.
 
-| Metric | Before — 2026-10-22, `qmanager_poller` md5 `60ae0925` | After — 2026-10-22 | Delta |
+| Metric | Before (`60ae0925`) | After, run 1 | After, run 2 (post timeout fix) |
 | --- | --- | --- | --- |
-| Poller CPU, idle (60 s) | **909 ticks = 15.2 % of one core** | **772 ticks = 12.9 %** | −2.3 pts (within run-to-run variance; **no regression**) |
-| Poller CPU, live lease held (60 s) | n/a — feature absent | **1171 ticks = 19.5 %** | **+6.7 pts while watched** |
-| Poller RSS, idle | **2164 kB** | **2468 kB** | +304 kB (sourcing the lib) |
-| Poller RSS, live | — | **2472 kB** | +4 kB while live |
-| Forks for radio reads | AT: ~39 `qcmd` invocations / 60 s | 2 `qmicli`/s while leased, **0 while idle** | live path holds no AT lock |
-| Neighbour refresh latency | 3–6 s, manual, presses a button | ~1 s while leased (82 ms measured per read) | ~4× faster, continuous |
+| Poller CPU, idle 60 s | **909 ticks = 15.2 %** | 772 = 12.9 % | **917 = 15.3 %** |
+| Poller CPU, live 60 s | n/a | 1171 = 19.5 % (**+6.7**) | **1134 = 18.9 % (+3.6)** |
+| Poller RSS, idle | **2164 kB** | 2468 kB | 2456 kB (+292 kB) |
+| Poller RSS, live | — | 2472 kB | — |
+| Forks for radio reads | AT ~39 `qcmd`/60 s | 2 `qmicli`/s leased, 0 idle | same |
+| Neighbour refresh | 3–6 s, manual | ~1 s while leased | same |
 
-Recorded baseline file: `.orchestra/scratch/baseline.txt` (gitignored). Do not mix a
-figure from this run with any other run — see `poller-cpu-profile.md`'s warning.
+**Read this as: idle unchanged, live costs 3.6–6.7 points.** Two back-to-back runs of the
+*same code* differed by 2.4 points idle and 3.1 points live, because the box's load
+average moved between 3.2 and 4.5 across them (the vendor stack is not idle). Neither
+run is "the" number, and quoting the better one would be dishonest — this is the
+`poller-cpu-profile.md` 595-vs-815 ms/cycle warning happening live.
 
-**The regression test is the comparison, not an opinion.** Idle CPU did not rise
-(12.9 % vs 15.2 %); the difference is run-to-run variance on a box whose load
-average moved between 3.2 and 4.5 during the two runs, so it is **not** claimed as
-an improvement. What matters is that idle did not regress and that **idle costs
-nothing structural**: no lease, no fork, no QMI call.
+What the pair does establish, and what matters:
 
-**One correction the benchmark forced.** The probe measured `qmicli` children alone
-at ~4 % and the spec's UI copy repeated that. The real poller delta is **6.7 points**,
-because the tick also pays the `jq` merge — and `jq` is 4.3× a normal applet
-(`poller-cpu-profile.md`). The user-facing disclosure string was corrected to 7 % in
-all five locales rather than shipping a number we now know understates.
+- **Idle did not regress.** 15.3 % against a 15.2 % baseline, with +292 kB RSS.
+- **Idle costs nothing structural**: no lease ⇒ one `[ -f ]` test, no fork, no QMI call.
+- **Live is bounded and small** relative to the poller's existing 15 % — and it only
+exists while a visible tab holds the lease.
 
-**At 1 Hz the design is comfortably inside budget.** 82 ms of read time against a
-1000 ms slot; the residual is fork cost, and it only exists while a visible tab
-holds the lease.
+**The ~4 % in the probe and in the UI copy was wrong** and was corrected to 7 % across
+five locales. The probe measured `qmicli` children only; the tick also pays the `jq`
+merge (`jq` = 4.3× a normal applet, `poller-cpu-profile.md`) and, after the timeout fix
+below, a `cat` and `rm` per read.
+
+**A per-bucket breakdown is deliberately NOT claimed here.** These are whole-tree
+totals; nobody can yet say whether the delta is `qmicli`, `jq`, or fork overhead.
+`scripts-dev/qm-profiler.sh` (dispatched 2026-10-22) attributes CPU by child program
+name so the next optimisation is aimed at a measured target rather than a guess.
+
+### Edge case EC2 found a real bug at close-out
+
+`out=$(timeout 5 cmd)` **is not bounded on this firmware.** busybox `timeout` kills the
+direct child, but a grandchild it spawned still holds the stdout *pipe*, so the command
+substitution blocks until that grandchild exits. Measured: a stub running `sleep 30`
+returned in 5 s to a plain redirect and **30 s** through `$( )`.
+
+Fixed by capturing through a file and reading it back, with a fallback chain
+`qm_timeout` → `timeout` → refuse (never an unbounded call). Inside the poller this
+mattered: a wedged `qmicli` would have stalled a whole cycle.
+
+This is the argument for exercising edge cases at all — it was invisible in review, in
+the fixture tests, and in the happy path on the device.
 
 ## Edge cases — validated at close-out
 
