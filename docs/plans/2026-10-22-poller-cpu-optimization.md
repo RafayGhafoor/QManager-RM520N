@@ -93,11 +93,26 @@ The poller issues roughly **80 AT calls a minute** across its tiers:
 80 calls × 80 ms ≈ **6.4 s of CPU per minute ≈ 11 % of one core** — the bulk of the
 16.6 %.
 
-**It is not the modem and it is not fork cost.** A fork+exec floor is ~2.4 ms; the
-missing ~78 ms is the shim's own `cat` readers **busy-spinning** on
-`/dev/at_mdm0`: `deploy/atcli_smd11` runs a drain (`cat` + `sleep 0.15`) and a
-capture (`cat` + `sleep 0.12`) per call, and a `cat` on a silent tty is a tight
-`read()` loop that burns CPU for as long as it lives.
+### ⚠️ CORRECTION — the first diagnosis was wrong, and it was wrong by 3×
+
+The paragraph that stood here blamed `cat` **busy-spinning** on `/dev/at_mdm0`.
+That was an inference, not a measurement. Measuring it properly (fork-counter delta
+around 10 calls, minus the measured idle fork rate) gives a different answer:
+
+```
+one qcmd call:  cpu 83 ms,  forks 26
+fork floor:     26 x 2.4 ms = 62 ms   ->  76 % of the cost IS fork+exec
+residual:                     21 ms   ->  24 % is everything else
+```
+
+So the cost is **fork count**, not spinning. `qcmd` (a shell) + `flock` + the shim
+(a shell) + two `cat`s + three to eight `sleep 0.25`s in the retry loop + `grep` +
+`kill`/`wait` — that is ~26 processes for one `AT+CGMM`.
+
+**Consequence for A1: the original target ("80 ms → under 20 ms, ~8 points") is
+unreachable.** 21 ms of residual exists no matter what the fork count is, and every
+remaining fork costs 2.4 ms. A1's realistic band is **3–5.5 points**, not 8. The
+target line below has been corrected accordingly.
 
 ## Ranked actions
 
@@ -112,7 +127,13 @@ dominates.
   port costs a syscall block instead of a spin.
 - Or drop the drain entirely when the previous call ended on a terminator — it exists
   to clear *stale* bytes, and the shim already knows when it consumed a full response.
-- **Target:** per-call CPU 80 ms → **under 20 ms**. That is ~8 points of one core.
+- **Target (corrected):** forks/call 26 → ~13, i.e. per-call CPU 80 ms → ~50 ms.
+  That is **3–5.5 points** of one core, realistically **~4**. Removing two `cat`s and
+  using one bounded read instead of the `sleep`-and-check loop is where the forks
+  are; the 21 ms residual sets a floor the fork work cannot cross.
+- **Before starting, count forks per component** — 19 of the 26 may be inherent to
+  `qcmd`'s design, in which case A1 lands near the 3-point end and A2 becomes the
+  real lever.
 - **Risk:** the drain is what prevents the truncated-reply bug (`AGENTS.md` hard rule
   3). Any change must keep the "no stale bytes" guarantee and be proved by the same
   five-consecutive-`AT+CGMM` test plus a `+QENG` parse check.
@@ -184,3 +205,57 @@ universal truth. `poller-cpu-profile.md` records RM520N-GL and RG501Q-EU fork co
 neither was measured with this shim. **Re-measure per device before assuming A1's
 target.** The structural finding — that a busy-waiting reader costs more than the
 work it waits for — does generalise.
+
+---
+
+## Can this reach 25 % of one core? (owner question, 2026-10-22)
+
+Measured attribution of the 48 % total:
+
+| Owner | Points | Detail |
+| --- | --- | --- |
+| **QManager** | **~26** | poller 19.8 · `tpws` 3.7 · `qmanager_ping` 2.5 · transient `sh` |
+| Vendor / kernel | **~22** | kworkers 7.0 · trafficd 2.3 · ipacm 2.1 · systemd 1.9 · modemd 1.0 · ledd 0.9 · ~180 small procs 4.6 |
+
+**`tpws` is OURS, not vendor** — verified: pid 9876 is `qmanager-dpi.service`'s
+MainPID. That 3.7 points belongs to the Traffic Engine.
+
+### The floor is ~22 points
+
+Vendor and kernel are not ours to move. **QManager must fall from ~26 points to
+~3–5** to hit 25 % — a 5–8× cut, not a 2× one.
+
+| Option | Poller | tpws | ping | **Box** | Verdict |
+| --- | --- | --- | --- | --- | --- |
+| today | 19.8 | 3.7 | 2.5 | **48 %** | — |
+| A1 | ~14 | 3.7 | 2.5 | ~43 % | not close |
+| A1+A2+A3 | ~10 | 3.7 | 2.5 | ~39 % | not close |
+| + A4 (2 s → 4 s) | ~5.5 | 3.7 | 2.5 | ~33 % | halves freshness |
+| + (4 s → 8 s) | ~3 | 3.7 | 2.5 | ~30 % | visibly stale |
+| + trim tpws/ping | ~3 | ~1 | ~1 | ~27 % | loses Traffic Engine fidelity |
+| **compiled poller** | **~0.5** | 3.7 | 2.5 | ~30 % | one lever, no staleness |
+| **compiled + trimmed** | ~0.5 | ~1 | ~1 | **~24–25 %** | reaches the target |
+
+**Conclusion: shell optimisation alone cannot reach 25 %.** Best case with the shell
+poller and every non-essential feature trimmed is ~30 %, and the dashboard would
+refresh every 8 s.
+
+25 % needs one of:
+1. **A compiled poller.** `poller-cpu-profile.md` measures a Go equivalent at
+   **2.39 ms/cycle, 0 forks** → ~0.1 % at a 2 s interval, i.e. 19.8 → ~0.5. The only
+   change that removes ~19 points *without* touching freshness. Cost: a new binary to
+   build, ship and maintain (hard rules 1 and 9), and a rewrite.
+2. **Interval 2 s → 8 s** on the shell poller: ~30 %, still short, and stale.
+3. **Drop features**: Traffic Engine off (−3.7), ping to one target (−1.5).
+
+### The decision this needs — not yet answered
+
+- **25 % is a hard requirement** (thermal, battery, vendor SLA) ⇒ **A1/A2 are the
+  wrong work**; do not start them. Go straight to the compiled poller.
+- **"Get it down as far as is sane"** ⇒ **target ~33 %** via A1+A2+A3+A4. That is
+  48 → 33 with no feature loss and no new binary, and 25 % costs a rewrite for 8
+  further points nobody would perceive on a single-core box that already idles 52 %
+  of the time.
+
+**Recommendation: 33 %, not 25 %.** A1 and A2 are only worth doing under the second
+reading.
