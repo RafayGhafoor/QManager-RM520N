@@ -1,4 +1,11 @@
-# SPEC: Go AT collector (`qmanager_atd`)
+# SPEC: Go AT collector (`qmanager_atd`) — **SUPERSEDED**
+
+> **Do not build from this.** Upstream already ships `native/qmanager_atd` on
+> `development-home`: a tested Rust broker with a 799 KB parity corpus. See
+> [`rust-atd-port.md`](./rust-atd-port.md). This file is kept because the *measured
+> findings* in it are still true and were expensive to obtain — the fork accounting,
+> the 26-forks-per-call measurement, the corrected 5-minute baseline, the ENOTTY
+> fact, and the coverage inventory. Its Go-specific design is not.
 
 **Status:** Proposal for approval, 2026-10-22. Lightweight spec — falsifiable
 requirements, in/out of scope explicit, acceptance as pass/fail.
