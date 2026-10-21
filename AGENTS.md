@@ -281,10 +281,20 @@ gh repo view RafayGhafoor/QManager-RM520N \
 
 | Branch | Role |
 | --- | --- |
-| `greenpacket` | This deployment layer. Feature branches start here. |
+| `greenpacket` | **This deployment layer, and the push target.** Work commits here and is pushed directly. |
 | `development` | Upstream's integration base. Not the base for deployment work. |
 | `main` | The fork's default branch. **Never pushed by an agent** — release is the owner's explicit act (`qm-orchestrate` rail 13). |
-| `feat/<slug>` | Feature work off `greenpacket`; push with `git push -u origin feat/<slug>`. |
+
+**Push directly to `greenpacket`. Do not open pull requests.** This is a
+single-owner deployment branch, not a review-gated product line: the owner decided
+on 2026-10-22 that PRs are overhead here. Commit on `greenpacket`, `git push`, done.
+
+A `feat/<slug>` branch is still fine when you want isolation for a risky change
+(parallel agents with disjoint write sets, or a deploy you may need to abandon), but
+its endpoint is a fast-forward into `greenpacket` and a push — not a PR. Verified
+fast-forward: `git merge-base --is-ancestor greenpacket feat/<slug>`. Then delete the
+branch locally and remotely; only `greenpacket`, `development` and `main` should
+exist on `origin`.
 
 Never force-push a shared branch, and never push `main`.
 
