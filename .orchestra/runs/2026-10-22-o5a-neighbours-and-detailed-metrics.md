@@ -49,12 +49,44 @@ reboot performed — so **boot state is unproven** for this deploy (rule 6 does 
 apply since nothing boot-related changed, but the next reboot is still the only proof).
 
 ## Handoff — NEXT ACTION
-Nothing is in flight. Open follow-ups, in order of value:
-1. **Cell-change event panel** — the one real History parity gap vs greenpacket
-   (`total_cells` is a count, not "PCI changed at 03:14"). Needs its own spec.
-2. **Tier-1 cycle duration under Tier 3** — measure properly; budget warnings
-   pre-date the change but the rate may have risen (n=6, not proven).
-3. Browser pass on `/cellular/detailed-metrics` — no console errors and the nav row
+
+Nothing is in flight. The owner's current priority is **CPU**, not more features:
+the box sits at ~48 % of one core and the poller is **41 % of all busy CPU**.
+
+**Plan: [`docs/plans/2026-10-22-poller-cpu-optimization.md`](../../docs/plans/2026-10-22-poller-cpu-optimization.md).**
+Diagnosis is complete and measured; **A1 is not started** and needs the owner's go.
+
+The one number A1 must move, reproducible with `scripts-dev/at-cost.sh`:
+
+```
+cmd=AT+CGMM calls=10 failures=1
+per-call: cpu=80ms wall=800ms        <-- against a 2.4 ms fork+exec floor
+```
+
+Measured CPU per AT round-trip, not inferred. At the poller's ~80 calls/min that is
+~11 % of one core, and it is `atcli_smd11`'s `cat` readers busy-spinning on
+/dev/at_mdm0 (drain 0.15 s + settle 0.12 s), not the modem.
+
+Also useful and already in the tree: `scripts-dev/qm-profiler.sh` (own vs kids,
+WALL/wchan, memory, forks; per-program attribution is unavailable on this kernel) and
+`/tmp/sysprof.sh`-style system-wide sampling, which is what identified the poller as
+the top consumer.
+
+### Open, in value order
+
+1. **A1 — stop the shim spinning.** Target 80 ms → under 20 ms per call (~8 points).
+   Contained to `deploy/atcli_smd11`. Must keep the no-stale-bytes guarantee
+   (hard rule 3) and be proved by `scripts-dev/at-cost.sh` plus a `+QENG` parse check.
+2. **A2 — batch Tier 1/2 into compounds** as Tier 3 already does (~80 → ~30
+   calls/min, ~6 points). Group only commands known to answer: `qcmd` rejects a whole
+   compound on `*ERROR*`.
+3. **Cell-change event panel** — the one real History parity gap vs greenpacket.
+4. **Browser pass** on `/cellular/detailed-metrics` — console errors and the nav row
    from another route were never visually confirmed.
-4. `docs/reference/phone-number.md` is untracked and predates this run — decide
-   whether it is wanted.
+5. `docs/reference/phone-number.md` is untracked and predates this run.
+
+**Do not start A2 or A4 before A1 is measured** — A1 is the largest single win and
+A4 (cadence) trades freshness for cost, which A1–A3 may make unnecessary.
+
+Boot remains unproven: no unit or boot-hook changed in this run, so rule 6 did not
+apply, but the next reboot is still the only proof.
