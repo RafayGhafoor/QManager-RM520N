@@ -85,8 +85,9 @@ already caused a failed install:
    `/etc/systemd/system` reads `enabled` and never runs. Always confirm
    `ActiveEnterTimestamp` against `/proc/uptime` afterwards.
 7. **Never overwrite `/etc/init.d/turin_web.sh`** — the product repo owns it and
-   edits it continuously. QManager joins the boot path by *inserting* three
-   `start_service_async` lines (httpd, poller, ping) via `deploy/qm_boot_hook.sh` (idempotent, anchored
+   edits it continuously. QManager joins the boot path by *inserting*
+   `start_service_async` lines via `deploy/qm_boot_hook.sh` (currently httpd,
+   poller, ping, dpi and the dpi-ensure timer; idempotent and additive, anchored
    on `systemctl daemon-reload`, one-time backup kept as `.pre-qmanager`). Add
    new boot-started units there, not by shipping a copy of the script.
 8. **Gate the poller on a real modem answer, not the device node.** Device
@@ -131,7 +132,6 @@ curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8080/setup/   # 200
 curl -s http://127.0.0.1:8080/cgi-bin/quecmanager/public/overview.sh    # JSON
 systemctl is-active qmanager-httpd qmanager-poller qmanager-ping qmanager-dpi   # all active
 systemctl is-active qmanager-dpi-ensure.timer                                  # active
-jq -r '\(.device.temperature) \(.network.carrier) \(.network.wan_ipv4)' /tmp/qmanager_status.json
 jq '.device.model, .device.temperature, .network.type, .network.carrier, .network.apn, .network.wan_ipv4' /tmp/qmanager_status.json
 # RG520N-EB, temperature C, 5G-NSA, Jazz, internet, assigned WAN IPv4
 jq '{reachable,last_rtt_ms}' /tmp/qmanager_ping.json                    # true + measured RTT
@@ -141,7 +141,9 @@ jq '{reachable,last_rtt_ms}' /tmp/qmanager_ping.json                    # true +
 
 # Feature-level checks (these are the ones that broke before):
 #   Speed Test -> GET  /cgi-bin/quecmanager/at_cmd/speedtest_servers.sh   (needs Ookla)
-#   SMS        -> GET  /cgi-bin/quecmanager/cellular/sms.sh               (needs sms_tool)
+#   SMS        -> GET  /cgi-bin/quecmanager/cellular/sms.sh               (needs sms_tool;
+#                 multipart rows carry parts_received/parts_total, and got<total is
+#                 normal because the modem drops segments)
 #   Priority   -> GET  /cgi-bin/quecmanager/cellular/network_priority.sh
 #   Languages  -> GET  /cgi-bin/quecmanager/system/language-packs/list.sh?manifest_url=...
 #   Traffic    -> POST /cgi-bin/quecmanager/network/video_optimizer.sh {"action":"install"}
@@ -149,15 +151,14 @@ jq '{reachable,last_rtt_ms}' /tmp/qmanager_ping.json                    # true +
 #                 domains_loaded>0, force_tcp_active=true)
 #   Clock      -> GET  .../system/settings.sh  (want timezone_applied=true and a
 #                 non-UTC effective_offset; see the tz note in deploy/README.md)
-#   SMS        -> multipart rows carry parts_received/parts_total; got<total is
-#                 normal because the modem drops segments
-# Both need a session cookie; log in via POST /cgi-bin/quecmanager/auth/login.sh
+# Every endpoint above needs a session cookie; log in via
+# POST /cgi-bin/quecmanager/auth/login.sh first.
 
 # The vendor stack must still be healthy after any change:
 curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1/              # 200 (vendor UI)
 
 # After a reboot, confirm the units really ran at boot (not just enabled):
-systemctl show -p ActiveEnterTimestamp --value qmanager-httpd qmanager-poller qmanager-ping
+systemctl show -p ActiveEnterTimestamp --value qmanager-httpd qmanager-poller qmanager-ping qmanager-dpi
 ```
 
 A response missing its payload line (just `OK`) is the signature of AT port
