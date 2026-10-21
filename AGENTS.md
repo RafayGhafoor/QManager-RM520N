@@ -2,7 +2,7 @@
 
 This branch (`greenpacket`) carries the deployment layer for running QManager on
 the **GreenPacket O5A Pro**. Read this before touching anything that talks to the
-device. `MEMORY.md` records the current state of the live install.
+device. `memory.md` records the current state of the live install.
 
 Scope: this branch is **deployment-only**. The application code (`app/`,
 `components/`, `lib/`, `types/`, `hooks/`) tracks upstream QManager and should
@@ -22,28 +22,16 @@ anything boot-related or radio-related here, and inherit these rules:
    the vendor UI, `turin_web`, `gp-pcidb`, the radio handler, the metrics stream
    and nanoproxy. QManager's **8080 is free** — keep it.
 3. **All AT access must be serialized.** The product convention is
-   `acquire_atlock`/`release_atlock` in `/data/gp/radio-handler.sh`, and
-   `deploy/atcli_smd11` deliberately avoids that contention entirely by using a
-   separate port (see below). If you ever move it to `/dev/smd7`, you MUST
-   participate in that lock.
+   `acquire_atlock`/`release_atlock` in `/data/gp/radio-handler.sh`. QManager's
+   general AT path sidesteps that contention with its own port plus `qcmd`'s
+   flock — **Hard rule 3** below is the authority on how; nothing here overrides
+   it.
 4. **Back up before touching `/web` or `/data/gp`** — timestamped tarball into
    `backup/<ts>/`. This branch does not modify either; if that changes, back up.
-5. **Boot changes are only proven by a real reboot** — poll
-   `/proc/sys/kernel/random/boot_id` before and after. `systemctl restart` proves
-   nothing. **`systemctl enable` is not enough either:** this firmware drops units
-   from PID 1's boot transaction (see `qm_boot_hook.sh`'s header), so a unit in
-   `/etc/systemd/system` reads `enabled` and never runs. Always confirm
-   `ActiveEnterTimestamp` against `/proc/uptime` afterwards.
-6. **Never overwrite `/etc/init.d/turin_web.sh`** — the product repo owns it and
-   edits it continuously. QManager joins the boot path by *inserting* two
-   `start_service_async` lines via `deploy/qm_boot_hook.sh` (idempotent, anchored
-   on `systemctl daemon-reload`, one-time backup kept as `.pre-qmanager`). Add
-   new boot-started units there, not by shipping a copy of the script.
-7. **Gate the poller on a real modem answer, not the device node.** Device
-   identity is cached once at poller start; a modem still booting answers with the
-   `RDY` URC, which was observed baking `"model": "RDY"` into the cache for a whole
-   boot. `deploy/qm_wait_modem.sh` is the `ExecStartPre` for exactly this reason.
-8. Never commit secrets or subscriber identity (IMEI/IMSI/ICCID, `auth.json`).
+
+Boot wiring, `/etc/init.d/turin_web.sh` ownership, the poller readiness gate and
+the secrets/binary rules are each stated **once**, in Hard rules below — do not
+restate them here.
 
 ## Target hardware — assume nothing from upstream
 
@@ -56,7 +44,7 @@ already caused a failed install:
 | Module is **Quectel RG520N-EB**, SDX6X / `sdxlemur`, `LE.UM.6.2.3.r1-03100-SDX65.0` | Upstream `--force` is needed for its firmware check, and AT parsers written for RM520N occasionally miss |
 | `/` is a **read-only squashfs** | `/usr/lib`, `/usr/bin`, `/bin`, `/lib` are **physically unwritable**; `mount -o remount,rw /` fails. Never plan an install there |
 | Writable storage is the ubifs volume `ubi2_0`, bind-mounted at `/etc`, `/usrdata`, `/data`, `/cache`, `/persist`, `/systemrw`, `/web` | All install state goes under `/usrdata/qmanager` + `/etc/qmanager` + `/etc/systemd/system` |
-| No `lighttpd`, `jq`, `sudo`, node, python, or compiler; `/opt` cannot be created | The stock installer's package stage cannot run. Use the shims in `deploy/` |
+| No `lighttpd`, `jq`, `sudo`, node, python, or compiler; `/opt` cannot be created | The stock installer's package stage cannot run. Use the shims in `deploy/` — `jq`, `sudo`, `speedtest` and `sms_tool` are all provided that way |
 | Port 80 is the vendor UI (`busybox httpd -f -p 80 -h /web/v2`) | QManager goes on **8080**. Never bind 80 |
 | `/dev/smd11` is owned by `modemd`; `atcli_smd11` does **not exist** | Use `deploy/atcli_smd11`, which talks to `/dev/at_mdm0` |
 
@@ -141,7 +129,14 @@ curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8080/setup/   # 200
 curl -s http://127.0.0.1:8080/cgi-bin/quecmanager/public/overview.sh    # JSON
 systemctl is-active qmanager-httpd qmanager-poller                      # active active
 jq '.device.model, .network.type' /tmp/qmanager_status.json             # RG520N-EB, 5G-NSA
-/usrdata/qmanager/bin/atcli_smd11 'AT+CGMM'                             # RG520N-EB + OK
+# Use qcmd (full path — a plain ssh session does not have bin/ on PATH), NOT
+# atcli_smd11: only qcmd takes the shared AT flock.
+/usrdata/qmanager/bin/qcmd 'AT+CGMM'                                     # RG520N-EB + OK
+
+# Feature-level checks (these are the ones that broke before):
+#   Speed Test -> GET  /cgi-bin/quecmanager/at_cmd/speedtest_servers.sh   (needs Ookla)
+#   SMS        -> GET  /cgi-bin/quecmanager/cellular/sms.sh               (needs sms_tool)
+# Both need a session cookie; log in via POST /cgi-bin/quecmanager/auth/login.sh
 
 # The vendor stack must still be healthy after any change:
 curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1/              # 200 (vendor UI)
