@@ -331,3 +331,24 @@ Touch-points outside `/usrdata/qmanager` are exactly three: the two unit files i
 `/etc/systemd/system`, `/etc/qmanager`, and the 8 inserted lines (plus the
 one-time `.pre-qmanager` backup) in `/etc/init.d/turin_web.sh`. Removing them
 leaves the firmware's own UI and boot path as they were.
+
+## Added 2026-10-22 — QMI read path, live neighbours, Detailed Metrics
+
+| Item | Where on the device | Notes |
+| --- | --- | --- |
+| QMI reader | `/usrdata/qmanager/lib/qmi_read.sh` | Read-only `qmicli` against `/data/gp/qmi` (vendor binary, invoked not modified). Never touches the AT flock. |
+| PHY reader | `/usrdata/qmanager/lib/phy_metrics.sh` | `ubus call modemd status` whitelist + 2 AT compounds. Resolves `jq` itself — it is not on a plain ssh PATH. |
+| Trend archive | `/usrdata/qmanager/metrics/YYYY-MM-DD.csv` | 1 row/min, schema marker on line 1, 30-day retention. **New durable data**; ~190 KB/day. |
+| Live neighbour files | `/tmp/qmanager_neighbours_live` (lease, www-data) and `.json` (poller) | tmpfs; lease ages out in 10 s |
+| New CGIs | `at_cmd/neighbour_scan_status.sh?range=now\|last`, `at_cmd/fetch_signal_history.sh?range=&panels=` | no query string = pre-existing behaviour |
+| New route | `/cellular/detailed-metrics` | sidebar row `items.detailed_metrics` |
+| Boot units | **unchanged** — no new unit, no `qm_boot_hook.sh` line | so no reboot was required for this deploy |
+
+Measured on this unit: Tier 3 costs **+3.2 points of one core** (15.2 % → 18.4 % idle),
+RSS +404 kB. Live neighbours at 1 Hz cost **+3.6 to +6.7 points** while a visible tab
+holds the lease, and nothing when it does not.
+
+`poll_cycle exceeded budget` warnings pre-date these changes (11 in the 39 min before
+Tier 3 deployed, 6 in the 9 min after). The budget is warn-only; the overruns are AT
+lock contention, not a new fault. Not proven either way with n=6 — re-measure before
+treating the rate as a regression.
