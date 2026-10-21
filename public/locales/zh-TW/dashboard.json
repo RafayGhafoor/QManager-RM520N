@@ -263,6 +263,8 @@
     "unmeasured": "—"
   },
   "speedtest": {
+    "favourite_aria": "將此伺服器固定用於以後的測速",
+    "favourite_pinned_note": "已固定的伺服器會被自動使用",
     "section_label": "速度測試",
     "start_button_aria": "開始速度測試",
     "dialog_idle_description": "測量當前的下載速度、上傳速度和延遲。",

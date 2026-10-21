@@ -8,6 +8,7 @@ import type {
   VisibilityState,
 } from "@tanstack/react-table";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -16,6 +17,27 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { MaterialSymbol } from "@/components/ui/material-symbol";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  ALL_BANDS,
+  ageParts,
+  bandOf,
+  bandsInRows,
+  deltaRsrp,
+  dlFrequencyOf,
+  inBand,
+  isServingRow,
+  topMeasured,
+  type RowBand,
+  type ServingIdentity,
+} from "@/lib/neighbour-live";
+import { cn } from "@/lib/utils";
 import type {
   NeighbourCellResult,
   NeighbourCellType,
@@ -25,7 +47,7 @@ import ScanTable from "../scan-table";
 import ScanTableNote from "../table-note";
 import { NetworkTypeBadge, SignalBadge } from "../signal-badges";
 import { signalSortingFn, signalSortValue } from "../sort";
-import { TABLE } from "../shapes";
+import { BADGE_GLYPH_SIZE, TABLE, TOOLBAR } from "../shapes";
 import { summariseNeighbours } from "../summaries";
 
 // =============================================================================
@@ -33,11 +55,23 @@ import { summariseNeighbours } from "../summaries";
 // =============================================================================
 // Definitions only; the shell is `scan-table.tsx`. Opens sorted by signal,
 // strongest first, unmeasured rows last (`sort.ts`). Only LTE rows lock.
+//
+// FIVE COLUMNS WERE ADDED FOR THE AIMING VIEW (2026-10-22): Serving, Band, DL
+// MHz, delta RSRP, Age. Four of them are derived, not reported — nothing in the
+// AT worker's row carries a band, a frequency, a serving-cell comparison or an
+// age — so they are computed here from `lib/neighbour-live.ts` rather than
+// requested from the modem. That is the one place the two ranges' rows become
+// comparable, which is why both are mapped onto one row shape before this file
+// sees them.
 // =============================================================================
 
 /**
  * The measurements fold away first. They are the columns a reader can recover
  * from the CSV export, and the identity columns are what makes a row findable.
+ *
+ * The Serving column is deliberately NOT in here: it is the one thing a reader
+ * on a phone must still be able to see, because "which of these is my own cell"
+ * is what the whole aiming comparison is against.
  */
 export const NEIGHBOUR_NARROW_HIDDEN: VisibilityState = {
   rsrq: false,
@@ -67,6 +101,32 @@ export type NeighbourColumnCopy = {
   rsrq: string;
   rssi: string;
   sinr: string;
+  serving: string;
+  band: string;
+  dlMhz: string;
+  delta: string;
+  age: string;
+};
+
+/**
+ * What the columns need from the SAMPLE rather than from the row: which cell the
+ * modem is camped on (the Serving badge and the delta both compare against it)
+ * and how old the sample is (the Age column).
+ *
+ * A sample, not a row, because all three facts are properties of the read: the
+ * modem is camped on one cell, and every row of one sample was measured at the
+ * same instant. See the Age column's note for why it is nevertheless a column.
+ */
+export interface NeighbourSampleContext {
+  serving: ServingIdentity | null;
+  servingRsrp: number | null;
+  ageS: number | null;
+}
+
+export const NO_SAMPLE_CONTEXT: NeighbourSampleContext = {
+  serving: null,
+  servingRsrp: null,
+  ageS: null,
 };
 
 /** An unreported value. The workers emit 0 for channel/PCI/RSRP and null for the
@@ -79,6 +139,34 @@ function Unreported({ label }: { label: string }) {
   );
 }
 
+/**
+ * A frequency for display: whole MHz where the maths lands on one, one decimal
+ * otherwise. `getDLFrequency` returns EARFCN × 0.1 + the band's low edge, so an
+ * LTE channel frequently lands on a clean 0.1 boundary and an NR one on a long
+ * decimal. The unit word comes from the catalogue (`{{value}} MHz`), not from a
+ * template string here.
+ */
+function mhzValue(freq: number): string {
+  return Number.isInteger(freq) ? freq.toFixed(0) : freq.toFixed(1);
+}
+
+/**
+ * A delta for display, signed and trimmed.
+ *
+ * The sign is part of the reading: "+3 dB" and "3 dB" are not the same claim
+ * about a neighbour, and a reader sweeping a mast needs to know which side of
+ * the serving cell a candidate sits on without reading the sign off the numeral.
+ * A whole-number delta loses the `.0` because `-81.0 - (-77.9)` is a floating
+ * artefact, not precision.
+ */
+function deltaValue(delta: number): string {
+  const rounded = Math.round(delta * 10) / 10;
+  const body = Number.isInteger(rounded)
+    ? rounded.toFixed(0)
+    : rounded.toFixed(1);
+  return rounded > 0 ? `+${body}` : body;
+}
+
 export function createNeighbourColumns(
   copy: NeighbourColumnCopy,
   labels: {
@@ -86,12 +174,39 @@ export function createNeighbourColumns(
     lockCell: string;
     lockUnavailable: string;
     unreported: string;
+    notServing: string;
+    serving: string;
     cellType: (value: NeighbourCellType) => string;
+    age: (seconds: number) => string;
+    decibel: (value: string) => string;
+    mhz: (value: string) => string;
   },
   format: { signal: (value: number) => string; decibel: (value: number) => string },
+  sample: NeighbourSampleContext,
   onLockCell?: (cell: NeighbourCellResult) => void,
 ): ColumnDef<NeighbourCellResult>[] {
   return [
+    {
+      // The row's flag, on its leading edge, so it lines up with the inset rule
+      // `TABLE.ROW_SERVING` draws there. A flag column is mostly empty by
+      // nature; a reader scans the header once and then only sees the rows that
+      // are marked.
+      id: "serving",
+      header: () => <span>{copy.serving}</span>,
+      enableSorting: false,
+      cell: ({ row }) =>
+        isServingRow(row.original, sample.serving) ? (
+          <Badge variant="info">
+            <MaterialSymbol name="cell_tower" size={BADGE_GLYPH_SIZE} />
+            {labels.serving}
+          </Badge>
+        ) : (
+          // Nothing visible, because "this is not your cell" is the ordinary
+          // case and a column of marks would make every row shout. Assistive
+          // tech still gets the distinction the tone and badge carry.
+          <span className="sr-only">{labels.notServing}</span>
+        ),
+    },
     {
       accessorKey: "networkType",
       header: () => <span>{copy.networkType}</span>,
@@ -133,6 +248,36 @@ export function createNeighbourColumns(
         ),
     },
     {
+      // Derived from the channel by `lib/earfcn.ts`. The band's common name
+      // ("DCS 1800") rides the `title`, because it is a second string for the
+      // same fact and a column wide enough for both would push the readings off
+      // the row.
+      id: "band",
+      header: () => <span>{copy.band}</span>,
+      enableSorting: false,
+      cell: ({ row }) => {
+        const band: RowBand | null = bandOf(row.original);
+        if (!band) return <Unreported label={labels.unreported} />;
+        return (
+          <span className={TABLE.IDENT} title={band.name || undefined}>
+            {band.label}
+          </span>
+        );
+      },
+    },
+    {
+      id: "dlMhz",
+      header: () => <span>{copy.dlMhz}</span>,
+      enableSorting: false,
+      cell: ({ row }) => {
+        const freq = dlFrequencyOf(row.original);
+        if (freq === null) return <Unreported label={labels.unreported} />;
+        return (
+          <span className={TABLE.FIGURE}>{labels.mhz(mhzValue(freq))}</span>
+        );
+      },
+    },
+    {
       // The accessor feeds sorting only; the cell reads `row.original`.
       id: "signalStrength",
       accessorFn: (row) => signalSortValue(row.signalStrength),
@@ -160,6 +305,44 @@ export function createNeighbourColumns(
           ) : null}
         </span>
       ),
+    },
+    {
+      /**
+       * RSRP relative to the serving cell — the column an operator aims by.
+       *
+       * `null` (never `0`) when either side has no reading: a row with no
+       * serving reference and a row that happens to match the serving level are
+       * different facts, and only the second is `0`. The column is sortable for
+       * that reason: "which neighbour is stronger than mine" is the question,
+       * and sorting answers it without reading every cell.
+       *
+       * A delta of exactly 0 renders as `0`, not an em dash: it is a real
+       * measurement. The em-dash rule guards the reading columns, where the
+       * worker's `0` means "unreported"; here the absent case is `null`.
+       */
+      id: "delta",
+      accessorFn: (row) => deltaRsrp(row, sample.servingRsrp) ?? undefined,
+      sortingFn: signalSortingFn,
+      sortUndefined: "last",
+      header: ({ column }) => (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        >
+          {copy.delta}
+          <MaterialSymbol name="unfold_more" size={16} />
+        </Button>
+      ),
+      cell: ({ row }) => {
+        const delta = deltaRsrp(row.original, sample.servingRsrp);
+        return delta === null ? (
+          <Unreported label={labels.unreported} />
+        ) : (
+          <span className={TABLE.FIGURE}>{labels.decibel(deltaValue(delta))}</span>
+        );
+      },
     },
     {
       accessorKey: "rsrq",
@@ -198,6 +381,29 @@ export function createNeighbourColumns(
         ) : (
           <span className={TABLE.FIGURE}>
             {format.decibel(row.original.sinr)}
+          </span>
+        ),
+    },
+    {
+      /**
+       * How old the sample behind this row is.
+       *
+       * It reads the same on every row, and that is not an oversight: a scan is
+       * one measurement of every cell it lists, so the age belongs to the read,
+       * not to the row. It is a COLUMN because the reader must be able to see it
+       * without leaving the table — in `now` it is the only per-row evidence
+       * that the list is a second old rather than an hour old, and in `last` it
+       * is what stops a memorable scan from being read as a current one.
+       */
+      id: "age",
+      header: () => <span>{copy.age}</span>,
+      enableSorting: false,
+      cell: () =>
+        sample.ageS === null ? (
+          <Unreported label={labels.unreported} />
+        ) : (
+          <span className={cn(TABLE.FIGURE, "text-on-surface-variant")}>
+            {labels.age(sample.ageS)}
           </span>
         ),
     },
@@ -250,8 +456,20 @@ export function createNeighbourColumns(
 /** Strongest signal first; a module constant so its identity is stable. */
 const DEFAULT_SORTING: SortingState = [{ id: "signalStrength", desc: true }];
 
+/** The row limits the toolbar offers. `all` is the unclipped read. */
+const ROW_LIMITS = [
+  { value: "all", count: null },
+  { value: "3", count: 3 },
+  { value: "5", count: 5 },
+  { value: "10", count: 10 },
+] as const;
+
+type RowLimit = (typeof ROW_LIMITS)[number]["value"];
+
 export interface NeighbourScanResultViewProps {
   data: NeighbourCellResult[];
+  /** The serving cell and the sample's age — see `NeighbourSampleContext`. */
+  sample?: NeighbourSampleContext;
   onLockCell?: (cell: NeighbourCellResult) => void;
   /** Rendered in the table toolbar, before the column menu (Download CSV). */
   toolbarActions?: React.ReactNode;
@@ -259,10 +477,32 @@ export interface NeighbourScanResultViewProps {
 
 export function NeighbourScanResultView({
   data,
+  sample = NO_SAMPLE_CONTEXT,
   onLockCell,
   toolbarActions,
 }: NeighbourScanResultViewProps) {
   const { t } = useTranslation("cellular");
+
+  // Two filters live with the table they filter. Both reset with the card: a
+  // band chosen during one read has no meaning in the next one, and a reader
+  // who picked "Top 3" to aim is not asking for three rows of every later scan.
+  const [band, setBand] = React.useState<string>(ALL_BANDS);
+  const [limit, setLimit] = React.useState<RowLimit>("all");
+
+  const bands = React.useMemo(() => bandsInRows(data), [data]);
+
+  const shown = React.useMemo(() => {
+    const filtered = data.filter((row) => inBand(row, band));
+    const selected = ROW_LIMITS.find((option) => option.value === limit);
+    if (!selected || selected.count === null) return filtered;
+    return topMeasured(filtered, selected.count);
+  }, [band, data, limit]);
+
+  // A live sample can lose a band between ticks. Without its own item Radix
+  // renders an empty trigger while the filter is still being applied — the same
+  // trap `transcript-card.tsx` documents for its component filter, and worse
+  // here because the row it filtered by has just disappeared.
+  const staleBand = band !== ALL_BANDS && !bands.some((b) => b.label === band);
 
   const columnCopy: NeighbourColumnCopy = React.useMemo(
     () => ({
@@ -274,6 +514,11 @@ export function NeighbourScanResultView({
       rsrq: t("cell_scanner.neighbour.columns.rsrq"),
       rssi: t("cell_scanner.neighbour.columns.rssi"),
       sinr: t("cell_scanner.neighbour.columns.sinr"),
+      serving: t("cell_scanner.neighbour.columns.serving"),
+      band: t("cell_scanner.columns.band"),
+      dlMhz: t("cell_scanner.neighbour.columns.dl_mhz"),
+      delta: t("cell_scanner.neighbour.columns.delta_rsrp"),
+      age: t("cell_scanner.neighbour.columns.age"),
     }),
     [t],
   );
@@ -287,15 +532,30 @@ export function NeighbourScanResultView({
           lockCell: t("cell_scanner.actions.lock_cell"),
           lockUnavailable: t("cell_scanner.neighbour.actions.lock_lte_only"),
           unreported: t("cell_scanner.neighbour.cells.unreported"),
+          notServing: t("cell_scanner.neighbour.cells.not_serving"),
+          serving: t("cell_scanner.neighbour.cells.serving"),
           cellType: (value) => t(CELL_TYPE_KEY[value]),
+          age: (seconds) => {
+            const parts = ageParts(seconds);
+            const key =
+              parts.unit === "s"
+                ? "cell_scanner.neighbour.cells.age_seconds"
+                : parts.unit === "min"
+                  ? "cell_scanner.neighbour.cells.age_minutes"
+                  : "cell_scanner.neighbour.cells.age_hours";
+            return t(key, { value: parts.value });
+          },
+          decibel: (value) => t("cell_scanner.neighbour.cells.decibel", { value }),
+          mhz: (value) => t("radio_info.bands.units.mhz", { value }),
         },
         {
           signal: (value) => t("cell_scanner.cells.signal", { value }),
           decibel: (value) => t("cell_scanner.neighbour.cells.decibel", { value }),
         },
+        sample,
         onLockCell,
       ),
-    [columnCopy, onLockCell, t],
+    [columnCopy, onLockCell, sample, t],
   );
 
   // Measured versus channel-only, over the whole read rather than the filtered view.
@@ -312,9 +572,56 @@ export function NeighbourScanResultView({
     ];
   }, [data, t]);
 
+  const toolbarLeading = (
+    <>
+      <Select value={band} onValueChange={setBand}>
+        <SelectTrigger
+          aria-label={t("cell_scanner.neighbour.toolbar.band_label")}
+          className={cn(TOOLBAR.SELECT)}
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={ALL_BANDS}>
+            {t("cell_scanner.neighbour.toolbar.band_all")}
+          </SelectItem>
+          {staleBand ? <SelectItem value={band}>{band}</SelectItem> : null}
+          {bands.map((option) => (
+            <SelectItem key={option.label} value={option.label}>
+              {option.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      <Select
+        value={limit}
+        onValueChange={(next) => setLimit(next as RowLimit)}
+      >
+        <SelectTrigger
+          aria-label={t("cell_scanner.neighbour.toolbar.limit_label")}
+          className={cn(TOOLBAR.SELECT)}
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {ROW_LIMITS.map((option) => (
+            <SelectItem key={option.value} value={option.value}>
+              {option.count === null
+                ? t("cell_scanner.neighbour.toolbar.limit_all")
+                : t("cell_scanner.neighbour.toolbar.limit_top", {
+                    count: option.count,
+                  })}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </>
+  );
+
   return (
     <ScanTable
-      data={data}
+      data={shown}
       columns={columns}
       footer={
         <ScanTableNote
@@ -328,7 +635,11 @@ export function NeighbourScanResultView({
       filterColumnId="frequency"
       narrowHidden={NEIGHBOUR_NARROW_HIDDEN}
       initialSorting={DEFAULT_SORTING}
+      toolbarLeading={toolbarLeading}
       toolbarActions={toolbarActions}
+      rowClassName={(row) =>
+        isServingRow(row, sample.serving) ? TABLE.ROW_SERVING : undefined
+      }
       labels={{
         filterPlaceholder: t(
           "cell_scanner.neighbour.results.filter_placeholder",
@@ -336,8 +647,8 @@ export function NeighbourScanResultView({
         columns: t("cell_scanner.results.columns"),
         previous: t("cell_scanner.results.previous"),
         next: t("cell_scanner.results.next"),
-        noMatchTitle: t("cell_scanner.results.no_match_title"),
-        noMatchBody: t("cell_scanner.results.no_match_body"),
+        noMatchTitle: t("cell_scanner.neighbour.results.no_match_title"),
+        noMatchBody: t("cell_scanner.neighbour.results.no_match_body"),
       }}
       // No `countLabel`: the footer tally already counts the read.
     />

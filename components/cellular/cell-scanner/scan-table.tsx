@@ -89,6 +89,18 @@ export interface ScanTableProps<TData> {
   initialSorting?: SortingState;
   /** Extra controls in the toolbar's actions group, before the column menu. */
   toolbarActions?: React.ReactNode;
+  /**
+   * Extra controls beside the filter box, for a filter that is not the free-text
+   * one (a band, a row limit). Kept apart from `toolbarActions` so filters stay
+   * on the filter's side of the toolbar and actions stay on the actions' side,
+   * however narrow the surface gets.
+   */
+  toolbarLeading?: React.ReactNode;
+  /**
+   * A row's extra class, for a row that must be findable in the list rather than
+   * only in one of its cells. Returns `undefined` for the rows that need nothing.
+   */
+  rowClassName?: (row: TData) => string | undefined;
 }
 
 export function ScanTable<TData>({
@@ -102,6 +114,8 @@ export function ScanTable<TData>({
   footer,
   initialSorting = NO_INITIAL_SORTING,
   toolbarActions,
+  toolbarLeading,
+  rowClassName,
 }: ScanTableProps<TData>) {
   const shellRef = React.useRef<HTMLDivElement>(null);
   const [sorting, setSorting] = React.useState<SortingState>(initialSorting);
@@ -162,6 +176,8 @@ export function ScanTable<TData>({
           }
           className={TOOLBAR.FILTER}
         />
+
+        {toolbarLeading}
 
         <div className={TOOLBAR.ACTIONS}>
           {toolbarActions}
@@ -236,6 +252,8 @@ export function ScanTable<TData>({
                     // Striped from the rendered index, so banding survives a sort.
                     index % 2 === 1 && TABLE.ROW_STRIPE,
                     TABLE.ROW_HOVER,
+                    // Last, so a row's own tone wins over the stripe it landed on.
+                    rowClassName?.(row.original),
                   )}
                 >
                   {row.getVisibleCells().map((cell, index) => (

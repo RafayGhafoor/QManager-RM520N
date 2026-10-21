@@ -422,6 +422,41 @@
       "scan_vanished": "Pemindaian berakhir tanpa mengembalikan hasil apa pun. Mulai lagi untuk mencoba ulang."
     },
     "neighbour": {
+      "range": {
+        "label": "Rentang data",
+        "now": "Langsung",
+        "last": "Pembacaan terakhir"
+      },
+      "toolbar": {
+        "band_label": "Saring per band",
+        "band_all": "Semua band",
+        "limit_label": "Batas baris",
+        "limit_all": "Semua baris",
+        "limit_top": "{{count}} teratas",
+        "pause": "Jeda",
+        "resume": "Lanjutkan"
+      },
+      "live": {
+        "title": "Bidikan langsung",
+        "description": "Sel tempat Anda terhubung dan sel tetangga yang bisa didengar radio, diperbarui sekitar sekali per detik selama rentang ini terbuka.",
+        "registered": "Terdaftar",
+        "not_registered": "Tidak terdaftar",
+        "detached_note": "Modem melaporkan sinyal tanpa terhubung ke jaringan, jadi angka ini menunjukkan apa yang bisa didengar, bukan ke mana ia terhubung.",
+        "updated": "Usia sampel {{age}}",
+        "waiting": "Modem belum menerbitkan sampel langsung. Biasanya muncul dalam satu detik setelah rentang ini dibuka.",
+        "serving_rsrp": "RSRP sel pelayan",
+        "serving_sinr": "SINR sel pelayan",
+        "neighbours_title": "Sel tetangga terkuat",
+        "no_neighbours": "Sampel ini tidak punya sel tetangga dengan pengukuran, jadi belum ada yang bisa diperingkat.",
+        "peak_sr": "terbaik {{value}} dBm sejak rentang ini dibuka",
+        "cost": "Polling langsung membaca modem sekali per detik dan memakan sekitar 7 % dari inti tunggal perangkat ini, diukur pada unit ini 2026-10-22.",
+        "stopped_paused": "Polling langsung dijeda, jadi tidak ada yang dibaca dan modem berhenti mengambil sampel.",
+        "stopped_expired": "Polling langsung berhenti setelah lima menit. Mulai lagi untuk terus membaca.",
+        "stopped_failed": "Pembacaan langsung tidak merespons, jadi ini sampel terakhir yang diterbitkan modem.",
+        "resume": "Mulai lagi",
+        "empty_title": "Tidak ada sampel terkini",
+        "empty_body": "Modem belum menerbitkan sampel sel tetangga dalam beberapa detik terakhir. Tampilan langsung lanjut begitu sampelnya ada."
+      },
       "page": {
         "title": "Sel Tetangga",
         "description": "Membaca menara yang sudah dilacak oleh sel pelayan, tanpa memindai pita mana pun."
@@ -448,6 +483,8 @@
         "failed_body": "Modem mungkin sibuk atau tidak terjangkau. Periksa koneksi lalu baca lagi."
       },
       "results": {
+        "no_match_title": "Tidak ada sel yang cocok dengan saringan itu",
+        "no_match_body": "Kosongkan saringan band, batas baris, dan saringan kanal untuk melihat semua sel dari pembacaan ini.",
         "title": "Laporan sel tetangga",
         "description": "Urutkan per sinyal, saring per kanal, kunci baris LTE mana pun.",
         "filter_placeholder": "Saring per kanal",
@@ -462,6 +499,10 @@
         "tally_channel_only_other": "{{count}} hanya kanal"
       },
       "columns": {
+        "serving": "Digunakan",
+        "dl_mhz": "DL MHz",
+        "delta_rsrp": "Δ RSRP",
+        "age": "Usia data",
         "cell_type": "Relasi",
         "frequency": "Kanal",
         "rsrq": "RSRQ",
@@ -474,6 +515,11 @@
         "nr5g": "5G NR"
       },
       "cells": {
+        "serving": "Digunakan",
+        "not_serving": "Bukan sel pelayan",
+        "age_seconds": "{{value}} dtk",
+        "age_minutes": "{{value}} mnt",
+        "age_hours": "{{value}} jam",
         "unreported": "Tidak dilaporkan",
         "decibel": "{{value}} dB"
       },

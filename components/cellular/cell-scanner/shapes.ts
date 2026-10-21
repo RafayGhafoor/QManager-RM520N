@@ -1,5 +1,6 @@
 import type { BadgeVariant } from "@/components/ui/badge";
 import type { MaterialSymbolName } from "@/components/ui/material-symbol";
+import type { MetricBarTone } from "@/components/ui/metric-bar";
 import type { TagVariant } from "@/components/ui/tag";
 import { cn } from "@/lib/utils";
 
@@ -191,6 +192,20 @@ export const TABLE = {
   /** Every second rendered row; applied in JS so `ROW_HOVER` always wins. */
   ROW_STRIPE: "bg-surface-container-high",
   ROW_HOVER: "hover:bg-surface focus-within:bg-surface",
+  /**
+   * The row the modem is camped on. Three changes at once, only one of which is
+   * a hue: an inset rule down the leading edge, VALUE weight on the whole row,
+   * and the fill the stripes use. The Serving chip in its own column is what
+   * actually states the fact — this tone only makes the row findable once the
+   * reader knows to look for it, so a reader with deuteranopia (for whom the
+   * rule and the stripe collapse onto one lightness axis) loses nothing.
+   *
+   * The ring is `--primary` because it is an emphasis, not a verdict: the cell
+   * being the camped one is not good or bad news. Same 2px inset rule the other
+   * cellular families use for "this is the active row".
+   */
+  ROW_SERVING:
+    "bg-surface-container-high font-semibold shadow-[inset_2px_0_0_0_var(--primary)]",
   IDENT,
   FIGURE,
 } as const;
@@ -201,6 +216,12 @@ export const TOOLBAR = {
   FILTER: "max-w-[18rem]",
   ACTIONS: "ms-auto flex flex-wrap items-center gap-2",
   COUNT: "text-xs tabular-nums text-on-surface-variant",
+  /**
+   * A `Select` sitting in the toolbar. Height-matched to `PILL_QUIET` (36px) rather
+   * than to the filter input's 42px: it is a control beside buttons, so it belongs
+   * to their line, and the toolbar already mixes the two heights by design.
+   */
+  SELECT: "h-9 w-auto gap-1.5 px-3 text-xs font-semibold",
 } as const;
 
 /** The strip under the table: what a row can do (left), what the rows add up to (right). */
@@ -300,10 +321,87 @@ export function signalTier(strength: number | null | undefined): SignalTier {
   return "poor";
 }
 
+/**
+ * The tier as a meter fill, for the live aim strip.
+ *
+ * `none` is deliberately ABSENT from the map rather than mapped to a neutral
+ * tone: a missing reading renders the track alone, and `MetricBar`'s own API
+ * takes `null` for exactly that. Returning a fill for "no reading" is the bug
+ * that paints an unread antenna green.
+ *
+ * This is the family's THREE-tier scale, not the five-stop ramp in
+ * `cellular/signal-quality-display.ts`. That module's own header records why:
+ * `cell-scanner/**` is deliberately not a consumer, and unifying the two scales
+ * is a product decision nobody has taken. A three-tier badge beside a five-stop
+ * bar would be two verdicts on one reading.
+ */
+const SIGNAL_BAR_TONE: Record<Exclude<SignalTier, "none">, MetricBarTone> = {
+  good: "success",
+  fair: "warning",
+  poor: "destructive",
+};
+
+/** The meter fill for a reading, or `null` when there is nothing measured. */
+export function signalBarTone(
+  strength: number | null | undefined,
+): MetricBarTone | null {
+  const tier = signalTier(strength);
+  return tier === "none" ? null : SIGNAL_BAR_TONE[tier];
+}
+
 /** Radio identity, an outline `Tag` variant — never a verdict. */
 export function networkIdentity(networkType: string): TagVariant {
   return networkType.toUpperCase().startsWith("NR") ? "nr" : "lte";
 }
+
+// -----------------------------------------------------------------------------
+// The live aim strip
+// -----------------------------------------------------------------------------
+// The `now` range's anchor: the camped cell's two readings at figure size, its
+// attachment state, and the strongest neighbours with a per-cell peak.
+//
+// It is an INSTRUMENT, not a headline. What earns a 40px numeral is that it
+// never appears alone — the bar beneath it carries magnitude, the tier word
+// carries the verdict for assistive tech, and the peak marker beside the top
+// three neighbours carries what the current sample cannot: the best this cell
+// has managed since the range was entered. A number you can take apart is an
+// instrument; a number you can only admire is decoration.
+//
+// Nothing here animates. A 1 Hz retarget is already motion, and the peak marker
+// snaps on purpose: a new best is a discrete event, and DESIGN.md's
+// Transform-Only Rule keeps layout properties out of transitions anyway.
+
+export const AIM = {
+  /** Serving readouts side by side from `@md/section`; stacked on a phone. */
+  READOUTS: "grid grid-cols-1 gap-4 @md/section:grid-cols-2",
+  READOUT: "flex min-w-0 flex-col gap-2 rounded-tile bg-surface-container p-4",
+  READOUT_HEAD: "flex flex-wrap items-baseline gap-x-2 gap-y-1",
+  EYEBROW: "text-xs font-medium text-on-surface-variant",
+  /** The figure. Sized to its slot, per DESIGN.md > Typography > Numeric. */
+  FIGURE: "text-[28px] font-semibold leading-none tabular-nums @2xl/section:text-[40px]",
+  UNIT: "text-sm font-semibold text-on-surface-variant",
+  /**
+   * A neighbour row's bar lane. `relative`, because the peak marker is absolutely
+   * positioned inside it — the marker's percentage is the bar's own scale, so the
+   * two cannot drift apart.
+   */
+  ROW_LANE: "relative min-w-0",
+  /** See `CONSOLE.PEAK_TICK` in `antenna-alignment/shapes.ts` — same object, same reasoning. */
+  PEAK_TICK: "absolute top-[-2px] h-3 w-0.5 rounded-pill bg-on-surface-variant",
+  CAPTION: "text-xs tabular-nums text-on-surface-variant",
+
+  /** The registration line, above the two readouts it makes interpretable. */
+  STATE: "flex flex-wrap items-center gap-x-3 gap-y-2",
+
+  NEIGHBOURS: "flex flex-col gap-2",
+  /** Rank, identity, lane, value — one 40px pill per neighbour, per DESIGN.md > Metric rows. */
+  ROW: "grid grid-cols-[1rem_5.5rem_minmax(0,1fr)_4.75rem] items-center gap-3 rounded-pill bg-surface-container px-4 py-2.5",
+  RANK: "text-xs font-semibold tabular-nums text-on-surface-variant",
+  ROW_IDENTITY: "flex min-w-0 flex-col",
+  ROW_PCI: "truncate text-[13px] font-semibold tabular-nums",
+  ROW_BAND: "truncate text-xs tabular-nums text-on-surface-variant",
+  ROW_VALUE: "text-right text-[13px]/5 font-semibold tabular-nums",
+} as const;
 
 // -----------------------------------------------------------------------------
 // Skeleton mirrors — ALWAYS LAST

@@ -422,6 +422,41 @@
       "scan_vanished": "La scansione è terminata senza restituire alcun risultato. Avviala di nuovo per riprovare."
     },
     "neighbour": {
+      "range": {
+        "label": "Intervallo dati",
+        "now": "In diretta",
+        "last": "Ultima lettura"
+      },
+      "toolbar": {
+        "band_label": "Filtra per banda",
+        "band_all": "Tutte le bande",
+        "limit_label": "Limite righe",
+        "limit_all": "Tutte le righe",
+        "limit_top": "Primi {{count}}",
+        "pause": "Pausa",
+        "resume": "Riprendi"
+      },
+      "live": {
+        "title": "Puntamento in diretta",
+        "description": "La cella a cui sei agganciato e le celle vicine che la radio riesce a sentire, aggiornate circa una volta al secondo mentre questo intervallo è aperto.",
+        "registered": "Registrato",
+        "not_registered": "Non registrato",
+        "detached_note": "Il modem riporta segnale pur non essendo collegato, quindi questi valori dicono cosa riesce a sentire, non a cosa è agganciato.",
+        "updated": "Età del campione {{age}}",
+        "waiting": "Il modem non ha ancora pubblicato un campione in diretta. Di solito compare entro un secondo dall'apertura di questo intervallo.",
+        "serving_rsrp": "RSRP cella di servizio",
+        "serving_sinr": "SINR cella di servizio",
+        "neighbours_title": "Celle vicine più forti",
+        "no_neighbours": "Questo campione non ha celle vicine con una misurazione, quindi non c'è nulla da classificare.",
+        "peak_sr": "migliore {{value}} dBm da quando è stato aperto questo intervallo",
+        "cost": "Il polling in diretta legge il modem una volta al secondo e costa circa il 7 % dell'unico core di questo dispositivo, misurato su questa unità il 2026-10-22.",
+        "stopped_paused": "Il polling in diretta è in pausa, quindi non viene letto nulla e il modem ha smesso di campionare.",
+        "stopped_expired": "Il polling in diretta si è fermato dopo cinque minuti. Riavvialo per continuare a leggere.",
+        "stopped_failed": "Le letture in diretta non rispondono, quindi questo è l'ultimo campione pubblicato dal modem.",
+        "resume": "Ricomincia",
+        "empty_title": "Nessun campione attuale",
+        "empty_body": "Il modem non ha pubblicato un campione di celle vicine negli ultimi secondi. La vista in diretta riprende appena lo fa."
+      },
       "page": {
         "title": "Celle vicine",
         "description": "Legge le torri che la cella di servizio già monitora, senza scansionare alcuna banda."
@@ -448,6 +483,8 @@
         "failed_body": "Il modem potrebbe essere occupato o irraggiungibile. Verifica la connessione e riprova."
       },
       "results": {
+        "no_match_title": "Nessuna cella corrisponde a quei filtri",
+        "no_match_body": "Azzera il filtro banda, il limite righe e il filtro canale per vedere tutte le celle di questa lettura.",
         "title": "Rapporti celle vicine",
         "description": "Ordina per segnale, filtra per canale, blocca qualsiasi riga LTE.",
         "filter_placeholder": "Filtra per canale",
@@ -462,6 +499,10 @@
         "tally_channel_only_other": "{{count}} con solo canale"
       },
       "columns": {
+        "serving": "In uso",
+        "dl_mhz": "DL MHz",
+        "delta_rsrp": "Δ RSRP",
+        "age": "Età",
         "cell_type": "Relazione",
         "frequency": "Canale",
         "rsrq": "RSRQ",
@@ -474,6 +515,11 @@
         "nr5g": "5G NR"
       },
       "cells": {
+        "serving": "In uso",
+        "not_serving": "Non è la cella di servizio",
+        "age_seconds": "{{value}} s",
+        "age_minutes": "{{value}} min",
+        "age_hours": "{{value}} h",
         "unreported": "Non rilevato",
         "decibel": "{{value}} dB"
       },

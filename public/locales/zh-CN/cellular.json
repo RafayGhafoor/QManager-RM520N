@@ -422,6 +422,41 @@
       "scan_vanished": "扫描结束了，但没有返回任何结果。请重新开始扫描。"
     },
     "neighbour": {
+      "range": {
+        "label": "数据范围",
+        "now": "实时",
+        "last": "上次读取"
+      },
+      "toolbar": {
+        "band_label": "按频段筛选",
+        "band_all": "全部频段",
+        "limit_label": "行数上限",
+        "limit_all": "全部行",
+        "limit_top": "前 {{count}} 行",
+        "pause": "暂停",
+        "resume": "继续"
+      },
+      "live": {
+        "title": "实时对准",
+        "description": "你驻留的小区，以及无线电当前能听到的邻区；此范围打开期间约每秒刷新一次。",
+        "registered": "已注册",
+        "not_registered": "未注册",
+        "detached_note": "调制解调器未附着网络却在报告信号，因此这些读数说明它能听到什么，而不是它连接到哪里。",
+        "updated": "样本时间 {{age}}",
+        "waiting": "调制解调器尚未发布实时样本。通常打开此范围后一秒内就会出现。",
+        "serving_rsrp": "服务小区 RSRP",
+        "serving_sinr": "服务小区 SINR",
+        "neighbours_title": "最强邻区",
+        "no_neighbours": "此样本中没有带测量值的邻区，因此暂无内容可排序。",
+        "peak_sr": "自打开此范围以来最佳 {{value}} dBm",
+        "cost": "实时轮询每秒读取一次调制解调器，约占本机单核的 7 %，测量于 2026-10-22。",
+        "stopped_paused": "实时轮询已暂停，因此不会读取任何数据，调制解调器也已停止采样。",
+        "stopped_expired": "实时轮询在五分钟后停止。重新开始即可继续读取。",
+        "stopped_failed": "实时读取没有响应，因此这是调制解调器最后发布的样本。",
+        "resume": "重新开始",
+        "empty_title": "暂无当前样本",
+        "empty_body": "调制解调器最近几秒内没有发布邻区样本。一旦发布，实时视图会立即恢复。"
+      },
       "page": {
         "title": "邻区",
         "description": "读取服务小区已在跟踪的基站，无需扫描任何频段。"
@@ -448,6 +483,8 @@
         "failed_body": "调制解调器可能繁忙或无法访问。请检查连接后重新读取。"
       },
       "results": {
+        "no_match_title": "没有小区符合这些筛选条件",
+        "no_match_body": "清除频段筛选、行数上限和信道筛选，即可看到本次读取的全部小区。",
         "title": "邻区报告",
         "description": "按信号排序、按信道筛选，可锁定任意 LTE 行。",
         "filter_placeholder": "按信道筛选",
@@ -462,6 +499,10 @@
         "tally_channel_only_other": "{{count}} 个仅信道"
       },
       "columns": {
+        "serving": "驻留中",
+        "dl_mhz": "下行 MHz",
+        "delta_rsrp": "Δ RSRP",
+        "age": "已过时间",
         "cell_type": "关系",
         "frequency": "信道",
         "rsrq": "RSRQ",
@@ -474,6 +515,11 @@
         "nr5g": "5G NR"
       },
       "cells": {
+        "serving": "驻留中",
+        "not_serving": "非服务小区",
+        "age_seconds": "{{value}} 秒",
+        "age_minutes": "{{value}} 分钟",
+        "age_hours": "{{value}} 小时",
         "unreported": "未报告",
         "decibel": "{{value}} dB"
       },

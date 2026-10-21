@@ -94,3 +94,100 @@ export interface NeighbourScanStatusResponse {
   results?: NeighbourCellResult[];
   message?: string;
 }
+
+// -----------------------------------------------------------------------------
+// The two RANGES of that endpoint
+// -----------------------------------------------------------------------------
+// A request with no query string keeps answering with the envelope above, and
+// that path is untouched. `?range=` adds a view of the same data for the aiming
+// surface: `last` is the final scan row set plus how old it is, `now` is the
+// live QMI sample the poller publishes while the browser holds a lease.
+//
+// The row shape differs by design. A live row is a QMI measurement of an LTE
+// neighbour (`type`/`rat`/`source`, and `earfcn`/`pci` as digit STRINGS because
+// they are identities), while a last-read row is the AT worker's own shape. Both
+// are mapped onto `NeighbourCellResult` by one function before the table sees
+// them — see `lib/neighbour-live.ts`.
+
+export type NeighbourRange = "last" | "now";
+
+/** One LTE neighbour in a live sample, as `qm_qmi_neighbours` emits it. */
+export interface LiveNeighbourCell {
+  /** Intra-frequency neighbours share the serving cell's EARFCN. */
+  type: "intra" | "inter";
+  /** QMI reports LTE neighbours only; NR neighbours stay an AT read. */
+  rat: "LTE";
+  /** EARFCN as a digit string, or `null` when the modem reported none. */
+  earfcn: string | null;
+  pci: string | null;
+  rsrp: number | null;
+  rsrq: number | null;
+  rssi: number | null;
+  /** True for the cell whose PCI matched the serving cell ID. */
+  serving: boolean;
+  source: "qmi";
+}
+
+/**
+ * The camped cell's own readings.
+ *
+ * `sinr` exists only on a live sample: `range=last` fills this object from the
+ * poller's AT status cache, which carries no SINR. See `LiveServingReadings`.
+ */
+export interface ServingReadings {
+  pci: string | null;
+  earfcn: string | null;
+  rsrp: number | null;
+  rsrq: number | null;
+  rssi: number | null;
+}
+
+export interface LiveServingReadings extends ServingReadings {
+  sinr: number | null;
+}
+
+/**
+ * `?range=now` — the live sample, served while the lease is fresh.
+ *
+ * `live_at` is `null` (with `cells: []`) when there is no sample, or when the
+ * sample is older than the CGI's 6 s window. A stale sample is never passed off
+ * as current: an operator aiming an antenna would chase a tower the dish left
+ * behind. `registered` is what makes the signal values interpretable at all —
+ * QMI reports a strong reading for a cell the modem is not attached to.
+ */
+export interface NeighbourNowResponse {
+  success: true;
+  range: "now";
+  live_at: number | null;
+  age_s: number | null;
+  registered: boolean;
+  carrier: string | null;
+  serving: LiveServingReadings | null;
+  cells: LiveNeighbourCell[];
+}
+
+/**
+ * `?range=last` — the last completed scan, plus its age and the serving cell.
+ *
+ * `cells` is the AT worker's row shape, unchanged. `serving` comes from the AT
+ * status cache rather than from those rows: a neighbour report carries no
+ * serving-cell marker, and mixing the two transports for one value is what
+ * `docs/specs/neighbour-live-aim.md` forbids.
+ */
+export interface NeighbourLastResponse {
+  success: true;
+  range: "last";
+  generated_at: number | null;
+  age_s: number | null;
+  registered: boolean;
+  carrier: string | null;
+  serving: ServingReadings | null;
+  cells: NeighbourCellResult[];
+}
+
+/** Any `range` the CGI does not serve. */
+export interface NeighbourRangeFailure {
+  success: false;
+  error: string;
+  message: string;
+}

@@ -5,7 +5,7 @@
 
 This file is the **router**. One row per reference doc, and each row lists only the concrete names that doc governs — routes, scripts, binaries, symbols, config keys, `/tmp` files. If your task touches any trigger in a row, read that doc before you edit; if it touches none of them, read nothing. The rows say *when* to open a doc, never *what* it says: the invariants, gotchas and rationale live in the doc itself, and this table is deliberately not a summary of them. Read only the matching doc, not its neighbours.
 
-**Scope** is the device a doc's facts were measured on: `RM520N` (RM520N-GL only), `RG501Q` (RG501Q-EU only), `Both`.
+**Scope** is the device a doc's facts were measured on: `RM520N` (RM520N-GL only), `RG501Q` (RG501Q-EU only), `RG520N` (RG520N-EB on the GreenPacket O5A Pro only — the deployment branch's target), `Both`.
 
 ### Cellular
 
@@ -20,6 +20,7 @@ This file is the **router**. One row per reference doc, and each row lists only 
 | [cellular-settings-family.md](cellular-settings-family.md) | `components/cellular/settings/shapes.ts`, `apply-foot.tsx` (`ApplyFoot`) and all five `/cellular/settings/` routes — `network_priority.sh` / `rat_acq_order` / `RAT_RANK_TONE`, `imei.sh` / `qm_imei_reboot_pending`, `fplmn.sh` / `AT+CRSM`, `FIELD_SHELL` | RM520N |
 | [frequency-locking.md](frequency-locking.md) | `/cellular/cell-locking/frequency-locking`, `AT+QNWCFG`, `lte_earfcn_lock`, `nr5g_earfcn_lock`, `tower_lock_lte_active` / `tower_lock_nr_active`, `LOCK_BADGE` | RM520N |
 | [radio-information.md](radio-information.md) | The `/cellular/` index, `lib/radio-info.ts`, `components/cellular/radio/**`, `resolveRadioMode`, `summariseRadio`, `enrichCarriers`, `carrierKey`, `scsInferred` | RM520N |
+| [phone-number.md](phone-number.md) | Any work on `.device.phone_number` / MSISDN, `AT+CNUM`, `AT+CRSM` on `6F40`, `AT$QCMSISDN`, `sim_registry.json`'s `phone_number`, the device card's phone row, or a USSD own-number lookup | RG520N |
 | [sim-detection.md](sim-detection.md) | `sim_db.sh`, `known_iccids`, `sim_registry.json`, `sim_db_add`, `sim_swap.detected`, the SIM-swap banner, the Tracked SIMs card | RM520N |
 | [sim-profiles.md](sim-profiles.md) | `/cellular/custom-profiles`, the retired `connection-scenarios` redirect, `current_settings.sh`, `scenario_id`, `profile_managed`, `+QSPN`, `--auto` apply, suggested profiles, the schedule ribbon | RM520N |
 | [sms-forwarding.md](sms-forwarding.md) | `/cellular/sms/forwarding`, `qmanager_sms_forward`, its seed-on-first-run / loop guard / retry state, the gated service unit, the dirty-row promotion | RM520N |
@@ -94,6 +95,7 @@ This file is the **router**. One row per reference doc, and each row lists only 
 | [gui-installer.md](gui-installer.md) | `installer-gui/`, `bridge.py`, `core/dpapi.py`, `prefs.py`, `wrap_command`, `__QM_RC=`, `stage_payload`, `tokens.css`, the frozen PyInstaller build | Both |
 | [platform-matrix.md](platform-matrix.md) | Any fact that differs **by device** — BusyBox versions, `wget` / `timeout` / `mountpoint` availability, `PATH` under systemd, `/tmp` semantics, CPU/ABI, the F6–F14 defect register | Both |
 | [platform-profile.md](platform-profile.md) | `hw_profile.sh`, `/etc/qmanager/platform.json`, `QM_HW_SCHEMA`, `qm_hw_self_heal`, `qm_hw_write_profile`, and any root helper that writes into `/etc/qmanager` | Both |
+| [qmi-transport.md](qmi-transport.md) | Any QMI path — `qmicli`, `qrtr://3`, `/data/gp/qmi`, `gp-qmi.sh`, `--nas-get-cell-location-info` / `--nas-get-signal-info` / `--nas-get-serving-system` / `--nas-get-rf-band-info`, `AT+QNWCFG="ssb_beam_id"`, a neighbour or serving-cell read that does not need the AT flock, or bringing QMI up on a new modem | RG520N |
 | [poller-cpu-profile.md](poller-cpu-profile.md) | Any performance work on `qmanager_poller` — per-function CPU attribution, fork+exec cost, `cutime` / `cstime`, the de-fork pass, the Go rewrite comparison | Both |
 | [qmanager-independence.md](qmanager-independence.md) | `install_rm520n.sh`, Entware bootstrap, `/dev/smd11` udev rules, CGI auth, lighttpd, the firewall, the OTA pipeline, `update.auto_update_enabled`, `qmanager_auto_update_arm`, what lives inside vs outside `/etc/qmanager` | RM520N |
 | [rg501q-bringup.md](rg501q-bringup.md) | Bringing QManager up on the RG501Q-EU — the Entware `wget` chicken-and-egg, the `timeout` positional form, GitHub/GFW reachability, the bootstrap poison-pill guard | RG501Q |

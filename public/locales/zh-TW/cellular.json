@@ -422,6 +422,41 @@
       "scan_vanished": "掃描結束了，但沒有回傳任何結果。請重新開始掃描。"
     },
     "neighbour": {
+      "range": {
+        "label": "資料範圍",
+        "now": "即時",
+        "last": "上次讀取"
+      },
+      "toolbar": {
+        "band_label": "依頻段篩選",
+        "band_all": "全部頻段",
+        "limit_label": "列數上限",
+        "limit_all": "全部列",
+        "limit_top": "前 {{count}} 列",
+        "pause": "暫停",
+        "resume": "繼續"
+      },
+      "live": {
+        "title": "即時對準",
+        "description": "你駐留的細胞，以及無線電目前能聽到的鄰區；此範圍開啟期間約每秒重新整理一次。",
+        "registered": "已註冊",
+        "not_registered": "未註冊",
+        "detached_note": "數據機未附著網路卻在回報訊號，因此這些讀數說明它能聽到什麼，而不是它連接到哪裡。",
+        "updated": "樣本時間 {{age}}",
+        "waiting": "數據機尚未發布即時樣本。通常開啟此範圍後一秒內就會出現。",
+        "serving_rsrp": "服務細胞 RSRP",
+        "serving_sinr": "服務細胞 SINR",
+        "neighbours_title": "最強鄰區",
+        "no_neighbours": "此樣本中沒有帶測量值的鄰區，因此暫無內容可排序。",
+        "peak_sr": "自開啟此範圍以來最佳 {{value}} dBm",
+        "cost": "即時輪詢每秒讀取一次數據機，約佔本機單核的 7 %，測量於 2026-10-22。",
+        "stopped_paused": "即時輪詢已暫停，因此不會讀取任何資料，數據機也已停止取樣。",
+        "stopped_expired": "即時輪詢在五分鐘後停止。重新開始即可繼續讀取。",
+        "stopped_failed": "即時讀取沒有回應，因此這是數據機最後發布的樣本。",
+        "resume": "重新開始",
+        "empty_title": "暫無目前樣本",
+        "empty_body": "數據機最近幾秒內沒有發布鄰區樣本。一旦發布，即時檢視會立即恢復。"
+      },
       "page": {
         "title": "鄰區",
         "description": "讀取服務細胞已在追蹤的基地台，無需掃描任何頻段。"
@@ -448,6 +483,8 @@
         "failed_body": "數據機可能忙碌或無法存取。請檢查連線後重新讀取。"
       },
       "results": {
+        "no_match_title": "沒有小區符合這些篩選條件",
+        "no_match_body": "清除頻段篩選、列數上限和通道篩選，即可看到本次讀取的全部小區。",
         "title": "鄰區回報",
         "description": "依訊號排序、依通道篩選，可鎖定任一 LTE 列。",
         "filter_placeholder": "依通道篩選",
@@ -462,6 +499,10 @@
         "tally_channel_only_other": "{{count}} 個僅通道"
       },
       "columns": {
+        "serving": "駐留中",
+        "dl_mhz": "下行 MHz",
+        "delta_rsrp": "Δ RSRP",
+        "age": "已過時間",
         "cell_type": "關係",
         "frequency": "通道",
         "rsrq": "RSRQ",
@@ -474,6 +515,11 @@
         "nr5g": "5G NR"
       },
       "cells": {
+        "serving": "駐留中",
+        "not_serving": "非服務細胞",
+        "age_seconds": "{{value}} 秒",
+        "age_minutes": "{{value}} 分鐘",
+        "age_hours": "{{value}} 小時",
         "unreported": "未回報",
         "decibel": "{{value}} dB"
       },

@@ -422,6 +422,41 @@
       "scan_vanished": "The sweep ended without returning a result. Start it again to retry."
     },
     "neighbour": {
+      "range": {
+        "label": "Data range",
+        "now": "Live",
+        "last": "Last read"
+      },
+      "toolbar": {
+        "band_label": "Filter by band",
+        "band_all": "All bands",
+        "limit_label": "Row limit",
+        "limit_all": "All rows",
+        "limit_top": "Top {{count}}",
+        "pause": "Pause",
+        "resume": "Resume"
+      },
+      "live": {
+        "title": "Live aim",
+        "description": "The cell you are camped on and the neighbours the radio can hear, refreshed about once a second while this range is open.",
+        "registered": "Registered",
+        "not_registered": "Not registered",
+        "detached_note": "The modem is reporting signal without being attached, so these readings say what it can hear, not where it is.",
+        "updated": "Sample age {{age}}",
+        "waiting": "The modem has not published a live sample yet. It usually appears within a second of opening this range.",
+        "serving_rsrp": "Serving RSRP",
+        "serving_sinr": "Serving SINR",
+        "neighbours_title": "Strongest neighbours",
+        "no_neighbours": "This sample has no neighbour with a measurement, so there is nothing to rank yet.",
+        "peak_sr": "best {{value}} dBm since this range was opened",
+        "cost": "Live polling reads the modem once a second and costs about 7 % of this device's single core, measured on this unit 2026-10-22.",
+        "stopped_paused": "Live polling is paused, so nothing is being read and the modem has stopped sampling.",
+        "stopped_expired": "Live polling stopped after five minutes. Start it again to keep reading.",
+        "stopped_failed": "Live reads are not answering, so this is the last sample the modem published.",
+        "resume": "Start again",
+        "empty_title": "No current sample",
+        "empty_body": "The modem has not published a neighbour sample in the last few seconds. The live view resumes as soon as it does."
+      },
       "page": {
         "title": "Neighboring Cells",
         "description": "Read the towers the serving cell already tracks, without sweeping any bands."
@@ -448,6 +483,8 @@
         "failed_body": "The modem may be busy or unreachable. Check the connection and read again."
       },
       "results": {
+        "no_match_title": "No cell matches those filters",
+        "no_match_body": "Clear the band filter, the row limit and the channel filter to see every cell from this read.",
         "title": "Neighbourcell reports",
         "description": "Sort by signal, filter by channel, lock onto any LTE row.",
         "filter_placeholder": "Filter by channel",
@@ -462,6 +499,10 @@
         "tally_channel_only_other": "{{count}} channel only"
       },
       "columns": {
+        "serving": "Serving",
+        "dl_mhz": "DL MHz",
+        "delta_rsrp": "Δ RSRP",
+        "age": "Age",
         "cell_type": "Relation",
         "frequency": "Channel",
         "rsrq": "RSRQ",
@@ -474,6 +515,11 @@
         "nr5g": "5G NR"
       },
       "cells": {
+        "serving": "Serving",
+        "not_serving": "Not the serving cell",
+        "age_seconds": "{{value}} s",
+        "age_minutes": "{{value}} min",
+        "age_hours": "{{value}} h",
         "unreported": "Not reported",
         "decibel": "{{value}} dB"
       },

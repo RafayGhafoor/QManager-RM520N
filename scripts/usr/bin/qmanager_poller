@@ -30,11 +30,20 @@
 #                                       AT+CNUM, AT+QGETCAPABILITY,
 #                                       AT+QNWPREFCFG="policy_band"
 #
+#   Neighbour live (QMI, lease-gated): once per cycle while a browser holds
+#   /tmp/qmanager_neighbours_live — one LTE neighbour read + one signal read over
+#   QMI, published atomically to /tmp/qmanager_neighbours_live.json. QMI is a
+#   separate pipe from the AT port, so this takes no qcmd and no AT lock and
+#   cannot starve Tier 1; it is called AFTER the cycle's budget timer (see main)
+#   so a slow QMI answer can never move that measurement either. With no lease
+#   it does nothing at all.
+#
 # Libraries (sourced at startup):
 #   /usr/lib/qmanager/qlog.sh      — Centralized logging
 #   /usr/lib/qmanager/hw_profile.sh — Hardware identity (model / SoC) parser
 #   /usr/lib/qmanager/parse_at.sh  — AT command response parsers
 #   /usr/lib/qmanager/events.sh    — Network event detection
+#   /usr/lib/qmanager/qmi_read.sh  — Read-only QMI (neighbour cells / signal)
 #
 # Install location: /usr/bin/qmanager_poller
 # =============================================================================
@@ -117,6 +126,20 @@ detect_orientation_from_soc() {
 
 SIP_DELAY=0.1          # Delay between AT commands (seconds)
 LONG_FLAG_MAX_AGE=300  # seconds; auto-clear stale long-running flags
+
+# --- Neighbour live view (QMI) -----------------------------------------------
+# Lease : /tmp/qmanager_neighbours_live — one epoch, written by the CGI
+#         (neighbour_scan_status.sh?range=now) as www-data. This daemon only
+#         ever READS it and trusts nothing but digits: the shape qmanager_sites
+#         uses for its own live lease.
+# Live  : /tmp/qmanager_neighbours_live.json — written here, atomically (temp +
+#         mv), never by the CGI. tmpfs; regenerated, never durable state.
+NEIGHBOURS_LIVE_LEASE="/tmp/qmanager_neighbours_live"
+NEIGHBOURS_LIVE_FILE="/tmp/qmanager_neighbours_live.json"
+NEIGHBOURS_LIVE_LEASE_SEC=10   # live ticks run while the lease is at most this old
+NEIGHBOURS_LIVE_WARN_GAP=60    # at most one warning per this many seconds while reads fail
+neigh_live_on=false            # for the on/off transition log only
+neigh_live_warn_at=0           # epoch of the last live-read warning
 
 # Signal history (NDJSON file for chart data)
 SIGNAL_HISTORY_FILE="/tmp/qmanager_signal_history.json"
@@ -501,6 +524,22 @@ fi
     sim_registry_seed_new() { :; }
     sim_registry_refresh_active() { :; }
     SIM_REGISTRY_FILE="/etc/qmanager/sim_registry.json"
+}
+
+# Read-only QMI reader (neighbour live view). NON-FATAL, like hw_profile.sh
+# above: the lib is additive — losing it costs the live neighbour view, and a
+# die-on-missing-library would cost the dashboard (see that block's comment for
+# why the unit's restart budget makes this the expensive failure). The fallback
+# reports "unavailable" for every function, which is exactly the degradation the
+# spec requires: the live view says it is unavailable, the AT scanner keeps
+# working.
+. /usr/lib/qmanager/qmi_read.sh 2>/dev/null || {
+    qlog_warn "qmi_read.sh not found, neighbour live view disabled"
+    qm_qmi_available()    { return 1; }
+    qm_qmi_neighbours()   { return 2; }
+    qm_qmi_signal()       { return 2; }
+    qm_qmi_registration() { return 2; }
+    qm_qmi_band()         { return 2; }
 }
 
 # =============================================================================
@@ -2426,6 +2465,120 @@ write_cache() {
 }
 
 # =============================================================================
+# NEIGHBOUR LIVE VIEW (QMI)
+# =============================================================================
+# Antenna aiming needs a neighbour list that updates while the antenna moves.
+# The AT scanner cannot do that (two commands plus a hard sleep 1, 3-6 s, on the
+# contended AT port), so the live view reads QMI instead — a different pipe into
+# the modem that no AT consumer can starve (docs/reference/qmi-transport.md).
+#
+# The browser holds a LEASE, exactly as the sites monitor does: while
+# /tmp/qmanager_neighbours_live holds an epoch 0-10 s old, this daemon ticks;
+# when the tab closes and the renewals stop, the lease goes stale on its own and
+# the cost drops to one `[ -f ]` per cycle. There is no "live mode" flag to
+# leave switched on, and nothing here writes the lease.
+
+# True while the lease holds a recent epoch. The file belongs to www-data, so
+# nothing in it is trusted beyond digits: not a symlink, at most 12 characters,
+# and the age must be in the future-tolerant 0..LIVE_LEASE_SEC window.
+neighbours_live_fresh() {
+    local v="" now
+    [ -f "$NEIGHBOURS_LIVE_LEASE" ] && [ ! -L "$NEIGHBOURS_LIVE_LEASE" ] || return 1
+    v=$(cat "$NEIGHBOURS_LIVE_LEASE" 2>/dev/null)
+    case "$v" in ''|*[!0-9]*) return 1 ;; esac
+    [ "${#v}" -le 12 ] || return 1
+    now=$(date +%s)
+    [ $(( now - 10#$v )) -ge 0 ] && [ $(( now - 10#$v )) -le "$NEIGHBOURS_LIVE_LEASE_SEC" ]
+}
+
+# Warn at most once per NEIGHBOURS_LIVE_WARN_GAP. A failing live read repeats
+# every cycle (~4 s), and one line per tick would bury the log in ~900 lines an
+# hour for a view nobody may even be watching.
+neighbours_live_warn() {
+    local now
+    now=$(date +%s)
+    [ $(( now - neigh_live_warn_at )) -ge "$NEIGHBOURS_LIVE_WARN_GAP" ] || return 0
+    neigh_live_warn_at=$now
+    qlog_warn "neighbours live: $1"
+}
+
+# One live tick: one neighbours read + one signal read, merged into one object
+# and published atomically. Returns non-zero without touching the previous file
+# when either read fails — a stale-but-labelled sample is recoverable, a file
+# half-overwritten by a failed tick is not.
+#
+# The explicit qm_qmi_available call is not redundant: it caches the capability
+# in THIS shell, and the two command substitutions below inherit it, so the tick
+# pays for one capability probe rather than three (qmi_read.sh's cache cannot
+# travel back out of a subshell — see its header).
+#
+# sinr is joined onto `serving` from the signal read because the neighbours call
+# does not report it; every other serving field comes from the serving cell's own
+# row in the neighbours answer, so Δ-RSRP against the table below it is exact.
+neighbours_live_tick() {
+    local cells sig out at rc tmp
+    qm_qmi_available || { neighbours_live_warn "QMI unavailable — live view idle"; return 1; }
+
+    cells=$(qm_qmi_neighbours)
+    rc=$?
+    if [ "$rc" -ne 0 ]; then
+        neighbours_live_warn "neighbour read failed (qmi status ${rc})"
+        return 1
+    fi
+
+    sig=$(qm_qmi_signal)
+    rc=$?
+    if [ "$rc" -ne 0 ]; then
+        neighbours_live_warn "signal read failed (qmi status ${rc})"
+        return 1
+    fi
+
+    at=$(date +%s)
+    out=$(jq -c -n --argjson at "$at" --argjson n "$cells" --argjson s "$sig" '
+        {at: $at,
+         registered: ($s.registered == true),
+         carrier: (if ($s.carrier | type) == "string" then $s.carrier else null end),
+         serving: (if ($n.serving | type) == "object"
+                   then $n.serving + {sinr: (if ($s.lte.snr | type) == "number" then $s.lte.snr else null end)}
+                   else null end),
+         cells: (if ($n.cells | type) == "array" then $n.cells else [] end)}' 2>/dev/null)
+    if [ -z "$out" ]; then
+        neighbours_live_warn "jq merge produced nothing"
+        return 1
+    fi
+
+    # Atomic publish: mktemp in /tmp (same filesystem as the target, so the mv
+    # is a rename), fully written and chmodded before it replaces the old file.
+    # A reader therefore sees either the previous sample or this one, never a
+    # partial object — the CGI's 6 s freshness window is judged on `at` alone.
+    tmp=$(mktemp "${NEIGHBOURS_LIVE_FILE}.XXXXXX" 2>/dev/null) || {
+        neighbours_live_warn "mktemp failed"
+        return 1
+    }
+    if printf '%s\n' "$out" > "$tmp" && chmod 0644 "$tmp" && mv -f "$tmp" "$NEIGHBOURS_LIVE_FILE"; then
+        return 0
+    fi
+    rm -f "$tmp"
+    neighbours_live_warn "could not publish $NEIGHBOURS_LIVE_FILE"
+    return 1
+}
+
+# Lease gate + the on/off transition line. Called once per cycle from main.
+neighbours_live_service() {
+    if neighbours_live_fresh; then
+        if [ "$neigh_live_on" != "true" ]; then
+            neigh_live_on=true
+            qlog_info "neighbours: live mode on"
+        fi
+        neighbours_live_tick
+    elif [ "$neigh_live_on" = "true" ]; then
+        neigh_live_on=false
+        qlog_info "neighbours: live mode off"
+    fi
+    return 0
+}
+
+# =============================================================================
 # POLL CYCLE
 # =============================================================================
 
@@ -2586,6 +2739,14 @@ main() {
         if [ "$cycle_duration" -gt "$CYCLE_TIME_BUDGET" ]; then
             qlog_warn "poll_cycle exceeded budget: ${cycle_duration}s > ${CYCLE_TIME_BUDGET}s"
         fi
+        # Neighbour live tick — deliberately AFTER cycle_end, not inside the
+        # cycle body: it is the one thing here that can block on something other
+        # than the AT port, and running it past the budget timer keeps
+        # `poll_cycle exceeded budget` meaning exactly what it meant before this
+        # feature (AT/Tier-1 slowness) instead of also firing on a slow QMI read.
+        # No lease => one `[ -f ]` test and nothing else, which is why the
+        # no-lease path stays byte-identical to the pre-feature poller.
+        neighbours_live_service
         sleep "$POLL_INTERVAL"
     done
 }

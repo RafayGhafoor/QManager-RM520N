@@ -263,6 +263,8 @@
     "unmeasured": "—"
   },
   "speedtest": {
+    "favourite_aria": "Sematkan server ini untuk tes kecepatan berikutnya",
+    "favourite_pinned_note": "Server yang disematkan dipakai secara otomatis",
     "section_label": "Tes Kecepatan",
     "start_button_aria": "Mulai tes kecepatan",
     "dialog_idle_description": "Ukur kecepatan unduh, kecepatan unggah, dan latensi Anda saat ini.",

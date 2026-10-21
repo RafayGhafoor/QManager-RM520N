@@ -263,6 +263,8 @@
     "unmeasured": "—"
   },
   "speedtest": {
+    "favourite_aria": "Fissa questo server per i prossimi test di velocità",
+    "favourite_pinned_note": "Il server fissato viene usato automaticamente",
     "section_label": "Prova di velocità",
     "start_button_aria": "Avvia il test di velocità",
     "dialog_idle_description": "Misura la velocità di download, la velocità di upload e la latenza attuali.",
