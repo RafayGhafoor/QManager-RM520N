@@ -1498,6 +1498,45 @@ ahead of it.~~
 | `+CGCONTRDP` IPv6 format | 16 dotted-decimal octets; gateway quoting varies between reads | *unverified* | on-device 2026-08-03 |
 | ⚠️ `+CGCONTRDP` field quoting | **Quoted** — `1,5,"SMARTLTE","10.148.167.210",,"10.151.151.44","10.151.151.48"` | ⚠️ **Bare — no quotes on any field**: `1,5,SMARTLTE,10.167.105.28,,10.151.151.44,10.151.151.48`. `+CGCONTRDP` **only**; `+CGDCONT?`, `+CGPADDR` and `+QMAP` are still quoted on this device | on-device 2026-08-30, both devices, same SIM, minutes apart — see the section below |
 
+### RG520N-EB (GreenPacket O5A Pro) — PHY command availability
+
+**Scope:** deployment-only target, *not* an upstream-supported modem, so this gets a
+subsection and not a column (per this document's own policy on community devices).
+Measured on the O5A Pro 2026-10-22 (`LE.UM.6.2.3.r1-03100-SDX65.0`). Recorded here
+because these are exactly the facts a port re-discovers the hard way.
+
+| Command | Answer on RG520N-EB |
+| --- | --- |
+| `AT+QNWCFG="lte_csi"` | `3,0,9,0` — f1, RI, CQI, PMI |
+| `AT+QNWCFG="nr5g_csi"` | `13,4,10,20` |
+| `AT+QNWCFG="lte_ulMCS"` | `1,3,1` |
+| `AT+QNWCFG="nr5g_ulMCS"` / `"nr5g_dlMCS"` | `1,26,4` / `1,24,3` |
+| `AT+QNWCFG="lte_mimo_layers"` / `"nr5g_mimo_layers"` | `1,1` / `1,2` |
+| `AT+QNWCFG="lte_dl_tx_mode"` | `1` |
+| `AT+QNWCFG="rrc_state"` | `1,"LTE",4` |
+| `AT+QNWCFG="nr5g_tx_pwr"` | `1,2,-10,18,-10` |
+| `AT+QNWCFG="ssb_beam_id"` | 6 beams: `…,<count>,<beam>,<rsrp>,<rsrq>,<pci>` |
+| **`AT+QNWCFG="lte_tx_pwr"`** | **`ERROR: command_failed` — absent on this firmware** |
+| **`AT+QNWCFG="nr5g_pathloss"`** | **`ERROR: command_failed` — absent on this firmware** |
+
+Notes that matter for a port:
+
+- **All working commands already answer enabled** (they return data, not `,0`), so on
+  this device no `,1` enable write is needed — and none is issued. greenpacket's
+  `AT_ENABLE` list exists because another unit arrived disabled; do not assume.
+- **The cheap half is not AT.** `ubus call modemd status` carries `cqi`, `nr_cqi`,
+  `lte_rank`, `nr_rank`, `lte_dl_tx_mode`, `bandwidth`, `NR_bandwidth`,
+  `regStat`/`regName`/`rat` with no AT lock at all. AT is only for the precise fields
+  (CSI, MCS, layers, RRC, per-channel TX, beams) because modemd's cache is coarse —
+  greenpacket measured `nr5g_ulMCS` moving 22→21→19 across six reads while modemd sat still.
+- **Do not send the two failing commands.** A command that always errors costs a lock
+  hold every cycle and returns nothing. Publish `null`; the UI says "not reported by
+  this modem".
+- **`AT+QNWCFG` costs a lock hold each.** Eleven separate `qcmd` calls ≈ 6 s of flock,
+  enough to starve CGIs. Batch into compound commands — but remember `qcmd` rejects an
+  entire compound response on `*ERROR*`, so keep groups small.
+- **Unverified on RM520N-GL.** Do not assume either presence or absence there; re-probe.
+
 ### ⚠️ `+CGCONTRDP` is quoted on SDX65 and bare on SDX55 — and only `+CGCONTRDP`
 
 **Short version: the same AT command, on the same SIM, wraps its fields in double
