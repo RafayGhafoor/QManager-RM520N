@@ -153,13 +153,65 @@ exits 1 and lets `Restart=on-failure` retry, so a genuinely dead modem fails
 loudly instead of silently caching garbage. Re-validated at boot:
 `model=RG520N-EB`, `ca=true`, 80 MHz aggregated.
 
+## Plugins and dependencies (what was missing, what was done)
+
+QManager probes for external binaries. Measured gaps and resolutions:
+
+| Need | Status | Resolution |
+| --- | --- | --- |
+| `speedtest` (Speed Test page) | **installed, working** | Ookla CLI **1.2.0 armhf** (`speedtest`), a **statically linked** musl binary in `bin/`. NOT the Python `speedtest-cli`: QManager invokes `--accept-license --accept-gdpr -f json -p yes --progress-update-interval=250`, which only Ookla's client accepts — the error text saying "speedtest-cli" is misleading. Verified live: 20.2 Mbps down / 5.4 Mbps up, 38 ms, 0 % loss. |
+| `sms_tool` (SMS page) | **installed, working** | Upstream's vendored `dependencies/sms_tool` (static ARM) as `bin/sms_tool.bin`, behind `bin/sms_tool` — see below. |
+| `tailscale` (VPN page) | **detected, not started** | `/usrdata/tailscale` is a **symlink to the product's `/data/tailscale`**, so QManager sees the existing v1.98.4 binaries and *shares* their single login state (`-statedir=/data/tailscale/state`) instead of duplicating 64 MB on a volume with ~80 MB free. Left **off**, matching the product's deliberate lazy/opt-in default. |
+| `jq` | installed | Static `jq-linux-armhf` 1.7.1 in `bin/`. |
+| `ttyd` (Console page) | **blocked, by design** | Cannot work in this deployment: ttyd's unit listens on **127.0.0.1:8080**, which this deployment's busybox httpd occupies (the UI is on 8080 per the requirement), and upstream reached it through lighttpd's `mod_proxy` at `/console`, which busybox httpd does not have. |
+| `msmtp` (email alerts) | not installed | Only needed for email alerts, which are unconfigured anyway (health check reports "email alerts not configured"). Would need Entware. |
+| `tpws` (Video Optimizer / DPI) | not installed | Optional DPI-bypass engine; needs an entropy of its own installer. Not required for the UI to function. |
+
+### Why `sms_tool` needs a wrapper
+
+Upstream's vendored `sms_tool` has **/dev/smd11 compiled in as its default device** — the port `modemd` owns. Injecting SMS commands there risks the vendor's modem manager and therefore the WAN. Measured on this unit:
+
+```
+-d /dev/at_mdm0  -> {"msg":[]}          SMS storage NOT visible
+-d /dev/smd7     -> full list ("Storage type: ME, used: 24, total: 255")
+-d /dev/smd11    -> works, but modemd's port (avoid)
+```
+
+So `deploy/sms_tool` is a wrapper that defaults `-d /dev/smd7` (an explicit `-d` still wins) and participates in the vendor's radio lock (`/tmp/gp-radio.lock`, the mkdir + `init` + `owner|pid|token|uptime|procstart` protocol defined by `/data/gp/radio-handler.sh`) around each call, because `gp-metricsd.sh` polls smd7 every ~0.4 s and otherwise steals response bytes. The real binary stays beside it as `sms_tool.bin`.
+
+### AT access rule (learned the hard way)
+
+**Every AT call must go through `qcmd`**, which holds the shared flock on `/tmp/qmanager_at.lock`. Calling `bin/atcli_smd11` directly looks fine in isolation but steals response bytes from concurrent polls. Measured consequence of doing it during debugging:
+
+```
+qm_poller: qcmd_exec failed: cmd=AT+QENG="servingcell" exit=1
+qm_poller: poll_cycle exceeded budget: 14s > 10s
+qm_poller: EVENT [signal_lost] Modem unreachable
+```
+
+Those are **false alarms**, not modem faults: `AT+QCAINFO`/`AT+QENG` each return in 0-1 s and do include `OK` when called alone. The poller's own 10 s cycle budget is exceeded whenever a CGI request or health-check run holds the lock, and `qcmd`'s 5 s/10 s lock wait then reports `exit=1`. QManager's health check running AT tests while the poller polls is itself enough to produce this. `qm_wait_modem.sh` therefore goes through `qcmd` too.
+
+Second bug fixed here: the AT capture begins with an empty line, but upstream's binary does not. `atcli_smd11` now strips **leading blank lines**, because parsers that slice line 1 (the health check's `AT+CGMI` test among them) were reading `""` instead of `Quectel`.
+
+## Health check expectations (do not chase these)
+
+`system/health-check` reports 27 pass / 8 fail / 4 warn after this work, up from 25/10. The remaining items are **expected deviations**, not defects:
+
+- `perm.smd11` (600 root:root, wants 660 root:dialout) and `perm.www_dialout` — upstream needs these because its CGI runs as `www-data` over `/dev/smd11`. This deployment runs httpd as root and talks to `/dev/at_mdm0`, so both are irrelevant. Not "fixed" on purpose: changing vendor device permissions buys nothing here.
+- `sudo.list` — upstream needs sudoers rules for `www-data`; `deploy/sudo` is a passthrough shim and CGI is already root.
+- `svc.lighttpd`, `net.lighttpd_listen` — this deployment deliberately does not run lighttpd (busybox httpd on 8080 instead).
+- `svc.console` / `bin.ttyd` — see the ttyd row above.
+- `svc.firewall`, `svc.setup` — those units were not deployed; the firewall unit writes iptables rules and would collide with the vendor's own firewall set, so it is intentionally absent.
+- `svc.tailscaled` inactive — deliberate (product default).
+- `svc.poller` may show `inactive`/`failed` if the check lands while the unit is inside `RestartSec` or parked by a previous `start-limit-hit`. Confirm with `systemctl show qmanager-poller | grep -E '^(Result|NRestarts)='` before believing it.
+
 ## Known gaps
 
 - `device/about` returns empty `device_ip`, `lan_gateway`, `wan_ipv4/6`: the
   poller's boot-time collection expects upstream interface names, not
   `bridge0` / `rmnet_data1`. Cosmetic.
-- Unavailable without Entware: HTTPS (443), ttyd console proxy, DPI, Tailscale,
-  Discord bot, language packs.
+- Unavailable without Entware: HTTPS (443), ttyd console proxy, DPI (tpws), email alerts (msmtp), language packs that need `opkg`.
+- `/lib/systemd/system` is read-only, so `qm_pathfix.sh` rewrites it to `/etc/systemd/system` (12 more files). This is what makes unit-writing features work at all — and why QManager's Tailscale page must **not** be used with its "install" action: it would write `/etc/systemd/system/tailscaled.service` and clobber the product stack's unit (which pins `-statedir=/data/tailscale/state -socket=/run/tailscale/tailscaled.sock -tun=userspace-networking`). Start/stop via the existing unit is fine.
 
 ## Entware: verified feasible, not yet applied
 

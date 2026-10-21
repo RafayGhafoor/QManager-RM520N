@@ -68,17 +68,49 @@ already caused a failed install:
    QMI helpers), the `:80` UI, and `modemd` must keep working. Verify
    `curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1/` still returns 200
    after any change.
-3. **AT goes through `/dev/at_mdm0`.** Do not switch to `/dev/smd7`: the vendor's
-   `gp-metricsd.sh` polls it every ~0.4 s and steals response bytes, which
-   silently truncates replies to a bare `OK`. Do not use `/dev/smd11` (modemd).
-4. **Never `pkill -f "httpd -p 8080"` over SSH.** The pattern matches the SSH
+3. **AT goes through `/dev/at_mdm0`, and every call goes through `qcmd`.**
+   Do not switch to `/dev/smd7` for general AT: the vendor's `gp-metricsd.sh`
+   polls it every ~0.4 s and steals response bytes, which silently truncates
+   replies to a bare `OK`. Do not use `/dev/smd11` (modemd). And **never call
+   `bin/atcli_smd11` directly while the poller runs** — only `qcmd` holds the
+   shared flock (`/tmp/qmanager_at.lock`), so a direct call corrupts concurrent
+   polls. Symptom: `qcmd_exec failed: cmd=AT+QENG... exit=1` plus
+   `poll_cycle exceeded budget` in syslog, which is lock contention and NOT a
+   modem fault (each command returns in 0-1 s when called alone).
+   SMS is the one exception: `bin/sms_tool` wraps the vendored binary, defaults
+   the device to `/dev/smd7`, and takes the vendor radio lock itself, because
+   SMS storage is not visible on at_mdm0.
+4. **Do not "fix" the remaining health-check failures.** `perm.smd11`,
+   `perm.www_dialout`, `sudo.list`, `svc.lighttpd`, `net.lighttpd_listen`,
+   `svc.console`/`bin.ttyd`, `svc.firewall` and `svc.setup` are expected
+   deviations of this deployment (root-run CGI, at_mdm0, no lighttpd, console
+   blocked by the 8080 requirement). See `memory.md` before chasing any of them.
+5. **Never `pkill -f "httpd -p 8080"` over SSH.** The pattern matches the SSH
    command line itself and kills your own session. Use
    `/usrdata/qmanager/bin/qm_serve.sh {start|stop|restart|status}`.
-5. **Keep third-party binaries out of git.** `deploy/.gitignore` excludes the
-   static `jq`; it is fetched at deploy time (see `deploy/README.md`).
-6. **Do not commit secrets or subscriber identifiers.** No IMEI/IMSI/ICCID, no
-   passwords, no `auth.json` copies. The device is left in `setup_required`
-   state so the owner sets their own password.
+6. **Boot changes are only proven by a real reboot** — poll
+   `/proc/sys/kernel/random/boot_id` before and after; `systemctl restart` proves
+   nothing. **`systemctl enable` is not enough either:** this firmware drops units
+   from PID 1's boot transaction (see `qm_boot_hook.sh`'s header), so a unit in
+   `/etc/systemd/system` reads `enabled` and never runs. Always confirm
+   `ActiveEnterTimestamp` against `/proc/uptime` afterwards.
+7. **Never overwrite `/etc/init.d/turin_web.sh`** — the product repo owns it and
+   edits it continuously. QManager joins the boot path by *inserting* two
+   `start_service_async` lines via `deploy/qm_boot_hook.sh` (idempotent, anchored
+   on `systemctl daemon-reload`, one-time backup kept as `.pre-qmanager`). Add
+   new boot-started units there, not by shipping a copy of the script.
+8. **Gate the poller on a real modem answer, not the device node.** Device
+   identity is cached once at poller start; a modem still booting answers with
+   the `RDY` URC, which was observed baking `"model": "RDY"` into the cache for a
+   whole boot. `deploy/qm_wait_modem.sh` is the `ExecStartPre` for that reason,
+   and it calls `qcmd` (not `atcli_smd11`) so it honours the AT flock.
+9. **Do not ship third-party binaries in git.** `deploy/.gitignore` excludes the
+   static `jq`; it is fetched at deploy time (see `deploy/README.md`). The Ookla
+   `speedtest` binary and `sms_tool.bin` are likewise deploy-time payloads, not
+   repo content.
+10. **Do not commit secrets or subscriber identifiers.** No IMEI/IMSI/ICCID, no
+    passwords, no `auth.json` copies. The device is left in `setup_required`
+    state so the owner sets their own password.
 
 ## Build & deploy
 

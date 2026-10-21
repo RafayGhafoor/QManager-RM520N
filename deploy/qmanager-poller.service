@@ -2,7 +2,11 @@
 Description=QManager Modem Data Poller
 Documentation=https://github.com/RafayGhafoor/QManager-RM520N
 StartLimitIntervalSec=3600
-StartLimitBurst=5
+# 5 was too tight here: this device SIGTERMs services during memory-pressure
+# and boot-cleanup sweeps, and once the limit is hit the poller stays parked in
+# `failed` for the rest of the hour, which shows up as a permanently "inactive"
+# poller in QManager's own health check. A daemon should keep coming back.
+StartLimitBurst=20
 
 [Service]
 Type=simple
@@ -16,8 +20,8 @@ ExecStartPre=/usrdata/qmanager/bin/qm_wait_modem.sh 150
 ExecStart=/usrdata/qmanager/bin/qmanager_poller
 TimeoutStartSec=170
 TimeoutStopSec=10
-Restart=on-failure
-RestartSec=15s
+Restart=always
+RestartSec=10s
 
 [Install]
 WantedBy=multi-user.target

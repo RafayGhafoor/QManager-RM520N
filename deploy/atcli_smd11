@@ -80,7 +80,10 @@ done
 kill "$RPID" 2>/dev/null
 wait "$RPID" 2>/dev/null
 
-# Strip CRs (the port emits CRLF) and stray NULs, then emit.
-tr -d '\r\000' < "$OUT" 2>/dev/null
+# Strip CRs/NULs, then drop LEADING blank lines. The capture starts with an
+# empty line (the port emits CRLF before the payload); upstream's binary does
+# not, and several parsers slice line 1 (e.g. health-check's AT+CGMI test),
+# which then read an empty string instead of "Quectel".
+tr -d '\r\000' < "$OUT" 2>/dev/null | sed -e '/./,$!d'
 
 exit 0

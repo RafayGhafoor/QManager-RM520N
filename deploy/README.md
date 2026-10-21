@@ -26,6 +26,7 @@ bind-mounted along with `/etc`, `/data`, `/cache`, `/persist`). Nothing outside
 | --- | --- |
 | `atcli_smd11` | AT transport shim. `qcmd`'s single dependency. Talks to `/dev/at_mdm0` using the vendor's own capture technique (see below). |
 | `sudo` | Passthrough shim. Strips sudo flags and execs the command; CGI already runs as root, so no escalation is needed. |
+| `sms_tool` | Wrapper around the vendored `sms_tool.bin`. Defaults the device to `/dev/smd7` (SMS storage is not visible on `at_mdm0`) and takes the vendor's radio lock around each call. |
 | `qm_serve.sh` | `start\|stop\|restart\|status` manager for busybox httpd on **port 8080**. |
 | `qm_pathfix.sh` | Rewrites the paths QManager owns (`/usr/lib/qmanager` → `/usrdata/qmanager/lib`, `/usr/bin/<qm helper>` → `.../bin/<helper>`) across the deployed tree. |
 | `qm_boot_hook.sh` | Makes QManager actually start at boot by inserting `start_service_async` lines into `/etc/init.d/turin_web.sh`. Required: this firmware drops units from PID 1's boot transaction. |
@@ -55,6 +56,22 @@ not work on it. `atcli_smd11` therefore reuses the vendor's proven approach from
 `+CME ERROR`, then kill the reader. It always exits 0 because `qcmd` does its
 own OK/ERROR text parsing. Override the port with `AT_DEV=...`.
 
+## Third-party payloads (fetched, never committed)
+
+`deploy/.gitignore` keeps binaries out of git. Place these in `stage/bin/`:
+
+| Binary | Source | Why |
+| --- | --- | --- |
+| `jq` | `jqlang/jq` release `jq-linux-armhf` (1.7.1) | Not on the device; used everywhere. |
+| `speedtest` | Ookla: `https://install.speedtest.net/app/cli/ookla-speedtest-1.2.0-linux-armhf.tgz` | Powers the Speed Test page. Must be **Ookla's** CLI, not Python `speedtest-cli`: QManager passes `--accept-license --accept-gdpr -f json -p yes --progress-update-interval=250`. Statically linked (musl), so no glibc dependency. |
+| `sms_tool.bin` | `dependencies/sms_tool` in this repo | Vendored, static ARM. Kept as `.bin` because `deploy/sms_tool` is the wrapper that supplies `-d` and the radio lock. |
+
+Tailscale is **not** a payload: `/usrdata/tailscale` is a symlink to the product
+stack's `/data/tailscale`, so the ~64 MB of binaries and the single login state
+are shared rather than duplicated (the volume only has ~80 MB free). Do not let
+QManager's VPN page run its "install" action — it would overwrite
+`/etc/systemd/system/tailscaled.service` and clobber the product's unit.
+
 ## Install
 
 Requires: SSH root on the device, and `bun` + `git` on the build machine.
@@ -78,6 +95,14 @@ cp -a deploy/atcli_smd11 deploy/sudo   stage/bin/
 curl -fsSL -o stage/bin/jq \
   https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-armhf
 chmod +x stage/bin/jq
+
+# 3b. Ookla speedtest + the vendored sms_tool (see "Third-party payloads")
+curl -fsSL -o /tmp/ookla.tgz \
+  https://install.speedtest.net/app/cli/ookla-speedtest-1.2.0-linux-armhf.tgz
+( mkdir -p /tmp/ookla && tar xzf /tmp/ookla.tgz -C /tmp/ookla && \
+  cp /tmp/ookla/speedtest stage/bin/speedtest && chmod +x stage/bin/speedtest )
+cp dependencies/sms_tool stage/bin/sms_tool.bin && chmod +x stage/bin/sms_tool.bin
+cp deploy/sms_tool stage/bin/sms_tool && chmod +x stage/bin/sms_tool
 
 # 4. Ship it and relocate the paths
 tar czf - -C stage . | ssh root@<device> 'mkdir -p /usrdata/qmanager && tar xzf - -C /usrdata/qmanager'

@@ -28,10 +28,21 @@ qmanager_scheduled_reboot_arm qmanager_secret_set qmanager_set_ssh_password
 qmanager_setup qmanager_sim_registry_apply qmanager_sites qmanager_sms_forward
 qmanager_sms_storage qmanager_tailscale_mgr qmanager_timezone_apply
 qmanager_tower_failover qmanager_tower_schedule qmanager_tower_schedule_arm
-qmanager_update qmanager_watchcat"
+qmanager_update qmanager_watchcat
+# Bundled third-party binary QManager calls by fixed path (wraps sms_tool.bin
+# and defaults the device to /dev/smd7 — see deploy/sms_tool for why).
+sms_tool sms_tool.bin atcli_smd11"
 
 # Build one sed program: -e for the lib dir, then -e per owned binary.
-SEDARGS="-e s|/usr/lib/qmanager|$QM_ROOT/lib|g"
+#
+# /lib/systemd/system -> /etc/systemd/system matters here: /lib is on the
+# read-only squashfs, so no unit can ever be written there. On this firmware
+# units live in the (ubifs-backed, writable) /etc/systemd/system, which systemd
+# treats as higher priority anyway. Without this rewrite, every QManager feature
+# that writes or probes a unit (scheduled reboot, scenarios, SMS forward,
+# firewall, health check, console, auto-update) silently fails or reports
+# "not installed" against a directory it can never write.
+SEDARGS="-e s|/usr/lib/qmanager|$QM_ROOT/lib|g -e s|/lib/systemd/system|/etc/systemd/system|g"
 for b in $QM_BINS; do
     SEDARGS="$SEDARGS -e s|/usr/bin/$b|$QM_ROOT/bin/$b|g"
 done
@@ -50,7 +61,7 @@ patch_file() {
         skipped=$((skipped + 1))
         return 0
     fi
-    if grep -q -e '/usr/lib/qmanager' -e '/usr/bin/qmanager_' "$f" 2>/dev/null; then
+    if grep -q -e '/usr/lib/qmanager' -e '/usr/bin/qmanager_' -e '/lib/systemd/system' "$f" 2>/dev/null; then
         # shellcheck disable=SC2086
         sed -i $SEDARGS "$f" 2>/dev/null && patched=$((patched + 1))
     fi

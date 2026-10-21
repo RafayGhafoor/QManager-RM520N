@@ -1,0 +1,136 @@
+#!/bin/sh
+# =============================================================================
+# sms_tool — device-defaulting, lock-participating wrapper (GreenPacket O5A Pro)
+# =============================================================================
+# WHY THIS EXISTS
+#
+# Upstream ships a patched `sms_tool` (dependencies/sms_tool, from obsy/sms_tool)
+# whose compiled-in default device is **/dev/smd11**. On this firmware smd11 is
+# owned by `modemd`, the vendor's AT multiplexer. Injecting SMS commands into
+# that stream risks corrupting modem-manager traffic — and the WAN is what this
+# router exists for — so the default must not be used here.
+#
+# Measured device behaviour (RG520N-EB, this unit):
+#   -d /dev/at_mdm0  -> {"msg":[]}          SMS storage NOT visible
+#   -d /dev/smd7     -> full list, "Storage type: ME, used: 24, total: 255"
+#   -d /dev/smd11    -> works, but it is modemd's port (avoid)
+#
+# So this wrapper default to the vendor's spare AT port, /dev/smd7, and takes the
+# vendor's radio lock around the call. smd7 is shared with gp-metricsd.sh, which
+# polls it roughly every 0.4 s and will otherwise steal response bytes — exactly
+# the failure that made the first AT shim truncate replies to a bare "OK".
+#
+# The lock protocol is the *participant* half defined by
+# /data/gp/radio-handler.sh and implemented in gp-metricsd.sh: mkdir the lock
+# dir, write `init` (uptime), write `owner` as pid|token|uptime|procstart via a
+# temp file + rename, remove `init`. We never perform the owner's stale-recovery
+# decisions beyond an obvious dead-pid check, and we only remove a lock whose
+# recorded pid AND token are still ours.
+#
+# The real binary lives beside this wrapper as sms_tool.bin.
+#
+# USAGE
+#   sms_tool -j recv            # device defaults to /dev/smd7
+#   sms_tool -d /dev/xxx ...    # explicit -d always wins, lock still taken
+#
+# FAILURE MODES
+#   * If the lock cannot be acquired within ~6 s we proceed anyway rather than
+#     fail the feature; SMS is read-mostly and a rare collision is preferable to
+#     a UI that hangs.
+#   * Lock hold time is the sms_tool call itself. A wedged tool would pin the
+#     vendor's radio lock, so the caller should bound it (QManager uses flock +
+#     timeouts around SMS already).
+# =============================================================================
+
+REAL="${SMS_TOOL_BIN:-/usrdata/qmanager/bin/sms_tool.bin}"
+AT_DEV="${SMS_TOOL_DEV:-/dev/smd7}"
+LOCKDIR="${GP_ATLOCK:-/tmp/gp-radio.lock}"
+
+[ -x "$REAL" ] || { echo "sms_tool: $REAL not found" >&2; exit 1; }
+
+# Pass-through: an explicit -d wins, but we still serialize.
+case " $* " in
+    *" -d "*) set -- "$@" ; DEV_GIVEN=1 ;;
+    *)        set -- -d "$AT_DEV" "$@" ; DEV_GIVEN=0 ;;
+esac
+
+# --- acquire the vendor radio lock (participant protocol) --------------------
+LOCK_HELD=0
+TOKEN=""
+
+acquire_lock() {
+    local i=0
+    while [ "$i" -lt 12 ]; do
+        if mkdir "$LOCKDIR" 2>/dev/null; then
+            # uptime seconds, integer part
+            local up
+            up=$(cut -d' ' -f1 /proc/uptime 2>/dev/null)
+            case "$up" in ''|*[!0-9]*) up=0 ;; esac
+            printf '%s\n' "$up" > "$LOCKDIR/init" 2>/dev/null
+
+            # field 22 of /proc/$$/stat (starttime); comm may contain spaces so
+            # strip through the last ')'
+            local start=0 stat rest
+            if read -r stat < /proc/$$/stat 2>/dev/null; then
+                rest=${stat##*') '}
+                # shellcheck disable=SC2086
+                set -- $rest
+                eval "start=\${20:-0}"
+            fi
+            case "$start" in ''|*[!0-9]*) start=0 ;; esac
+
+            TOKEN="$$-$start-$up-sms_tool"
+            if printf '%s|%s|%s|%s\n' "$$" "$TOKEN" "$up" "$start" \
+                    > "$LOCKDIR/owner.tmp.$$" 2>/dev/null &&
+               mv "$LOCKDIR/owner.tmp.$$" "$LOCKDIR/owner" 2>/dev/null; then
+                rm -f "$LOCKDIR/init" 2>/dev/null
+                LOCK_HELD=1
+                return 0
+            fi
+            rm -f "$LOCKDIR/owner.tmp.$$" "$LOCKDIR/init" 2>/dev/null
+            rmdir "$LOCKDIR" 2>/dev/null
+            return 1
+        fi
+
+        # Obvious staleness only: if the recorded owner pid is gone, clear it.
+        if [ -f "$LOCKDIR/owner" ]; then
+            local opid
+            opid=$(cut -d'|' -f1 "$LOCKDIR/owner" 2>/dev/null)
+            case "$opid" in
+                ''|*[!0-9]*) : ;;
+                *) [ -d "/proc/$opid" ] || {
+                       rm -f "$LOCKDIR/owner" "$LOCKDIR/init" 2>/dev/null
+                       rmdir "$LOCKDIR" 2>/dev/null
+                       continue
+                   } ;;
+            esac
+        fi
+
+        sleep 0.5
+        i=$((i + 1))
+    done
+    return 1
+}
+
+release_lock() {
+    [ "$LOCK_HELD" = 1 ] || return 0
+    if [ -f "$LOCKDIR/owner" ]; then
+        local opid otok
+        opid=$(cut -d'|' -f1 "$LOCKDIR/owner" 2>/dev/null)
+        otok=$(cut -d'|' -f2 "$LOCKDIR/owner" 2>/dev/null)
+        if [ "$opid" != "$$" ] || [ "$otok" != "$TOKEN" ]; then
+            return 0   # not ours any more — never tear down someone else's
+        fi
+    fi
+    rm -f "$LOCKDIR/owner" "$LOCKDIR/init" "$LOCKDIR"/owner.tmp.* 2>/dev/null
+    rmdir "$LOCKDIR" 2>/dev/null
+    LOCK_HELD=0
+}
+
+acquire_lock || :   # best effort: proceed unlocked rather than fail
+
+"$REAL" "$@"
+rc=$?
+
+release_lock
+exit $rc
