@@ -352,3 +352,31 @@ holds the lease, and nothing when it does not.
 Tier 3 deployed, 6 in the 9 min after). The budget is warn-only; the overruns are AT
 lock contention, not a new fault. Not proven either way with n=6 — re-measure before
 treating the rate as a regression.
+
+## Added 2026-10-22 (later) — the QMI reader is now SHIPPED, not borrowed
+
+| Item | Where on the device |
+| --- | --- |
+| `qmicli` + `libqmi-glib.so.5` + `libqrtr-glib.so.0` | `/usrdata/qmanager/lib/qmi/{bin,lib}` — from `dependencies/qmi/` in the repo |
+| Resolver order | explicit `QM_QMI_BIN` → shipped copy → `/data/gp/qmi` (greenpacket's) |
+
+Before this, the neighbour live view read greenpacket's `/data/gp/qmi/bin/qmicli`.
+A fresh device has no such path, so `qm_qmi_available` returned false and the live
+view degraded to "unavailable". Detailed Metrics was never affected — it uses
+`ubus modemd` + AT, not QMI.
+
+Only three files ship. `libc`, `libglib-2.0`, `libgio-2.0` and `libgobject-2.0` are
+already in the base firmware at `/usr/lib`. The vendor dir is 2.8 MB only because it
+also carries `qmi-band-helper`, `qmi-cell-lock-probe` and `qmi-nr-ncell-probe`, none
+of which QManager uses. Payload: **2.7 MB**.
+
+`libqmi-glib` and `libqrtr-glib` are LGPL-2.1-or-later and ship as **separate,
+dynamically linked `.so` files** so they stay user-replaceable — that is what keeps
+redistribution compliant. Do not statically fold them into one binary. Attribution
+is in `dependencies/NOTICE`; `qmicli` itself is the owner's own build, not a vendor
+artifact.
+
+Verified after the switch: live view returns 11 cells with serving PCI 104 /
+`registered: true` / carrier Jazz using only the shipped copy, `.phy` populates after
+its first Tier-3 cycle (~2 min after a poller restart — it is 15 cycles, not 15 s),
+and the vendor `/data/gp/qmi/bin` is untouched.
