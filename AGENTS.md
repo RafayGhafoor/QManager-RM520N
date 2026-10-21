@@ -27,9 +27,9 @@ Anything that *can* be met by extending the backend must still be.
    presenting PHY depth and a range trend; a metric group cannot be rendered
    without components.
    `app/cellular/detailed-metrics/**`,
-   `components/cellular/detailed-metrics/**`, `hooks/use-detailed-metrics.ts`,
-   `lib/metric-glossary.ts`, `types/detailed-metrics.ts`,
-   `public/locales/*/cellular.json`. Recorded in
+   `components/cellular/detailed-metrics/**`, `components/app-sidebar.tsx` (one nav
+   entry), `hooks/use-detailed-metrics.ts`, `lib/metric-glossary.ts`,
+   `types/detailed-metrics.ts`, `public/locales/*/{cellular,sidebar}.json`. Recorded in
    [`docs/specs/detailed-metrics-parity.md`](./docs/specs/detailed-metrics-parity.md)
    → "Branch scope".
 

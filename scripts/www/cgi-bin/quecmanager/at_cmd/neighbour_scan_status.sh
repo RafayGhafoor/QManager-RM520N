@@ -18,13 +18,17 @@
 #
 # Response (range=last — the last completed scan, plus its age):
 #   {"success":true,"range":"last","generated_at":<epoch|null>,"age_s":<int|null>,
-#    "registered":<bool>,"carrier":<string|null>,
+#    "registered":<bool|null>,"carrier":<string|null>,
+#      `registered` is THREE-valued: true/false/null. null means "no sample, so
+#      unknown" and must never render as false — asserting "not registered" when
+#      nothing was measured is a claim the modem never made. (Found at edge-case
+#      close-out: ?range=now with no live file returned false.)
 #    "serving":{"pci","earfcn","rsrp","rsrq","rssi"}|null,
 #    "cells":[<the scan result rows, unchanged>]}
 #
 # Response (range=now — renews the live lease, serves the live sample):
 #   {"success":true,"range":"now","live_at":<epoch|null>,"age_s":<int|null>,
-#    "registered":<bool>,"carrier":<string|null>,
+#    "registered":<bool|null>,"carrier":<string|null>,
 #    "serving":{"pci","earfcn","rsrp","rsrq","rssi","sinr"}|null,
 #    "cells":[{"type","rat","earfcn","pci","rsrp","rsrq","rssi","serving","source"}]}
 #
@@ -81,7 +85,7 @@ handle_range_now() {
         | {success: true, range: "now",
            live_at: (if $live == null then null else ($live.at | floor) end),
            age_s: (if $live == null then null else ($now - ($live.at | floor)) end),
-           registered: ($live.registered == true),
+           registered: (if ($live.registered | type) == "boolean" then $live.registered else null end),
            carrier: (if ($live.carrier | type) == "string" then $live.carrier else null end),
            serving: (if ($live.serving | type) == "object" then $live.serving else null end),
            cells: (if ($live.cells | type) == "array" then $live.cells else [] end)}' 2>/dev/null)
@@ -91,7 +95,7 @@ handle_range_now() {
     else
         # Constant payload, no jq: a device whose jq bootstrap failed must not
         # answer this endpoint with an empty body.
-        printf '%s\n' '{"success":true,"range":"now","live_at":null,"age_s":null,"registered":false,"carrier":null,"serving":null,"cells":[]}'
+        printf '%s\n' '{"success":true,"range":"now","live_at":null,"age_s":null,"registered":null,"carrier":null,"serving":null,"cells":[]}'
     fi
 }
 
@@ -142,7 +146,7 @@ handle_range_last() {
     if [ -n "$resp" ]; then
         printf '%s\n' "$resp"
     else
-        printf '%s\n' '{"success":true,"range":"last","generated_at":null,"age_s":null,"registered":false,"carrier":null,"serving":null,"cells":[]}'
+        printf '%s\n' '{"success":true,"range":"last","generated_at":null,"age_s":null,"registered":null,"carrier":null,"serving":null,"cells":[]}'
     fi
 }
 
