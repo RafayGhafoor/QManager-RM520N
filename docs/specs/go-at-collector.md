@@ -191,6 +191,79 @@ that gets believed later.
 fd plus a terminator matcher — no serial configuration, no `tcsetattr`, no rate
 negotiation. That is a few hundred lines of Go, not a serial-stack port.
 
+## Module layout — portable to another modem
+
+The binary lives in its own tree so a second modem is a new file in
+`internal/platform`, not a fork of the codebase.
+
+```
+go/
+├── go.mod                      module qmanager/atd  (own module; no repo-wide dep)
+├── README.md                   build, cross-compile, test, deploy
+├── cmd/qmanager-atd/main.go    flags, wiring, signal handling — NO parsing, NO I/O policy
+├── internal/atdev/             the transport
+│   ├── dev.go                  open /dev/at_mdm0, raw fd, no termios (ENOTTY confirmed)
+│   ├── lock.go                 flock on /tmp/qmanager_at.lock, 20 s / 45 s ceilings
+│   ├── command.go              drain, settle, terminator set, per-command timeout
+│   └── retry.go                read-only retry allowlist; setters are never replayed
+├── internal/atparse/           one file per response family, each with a fixture
+│   ├── serving.go  neighbours.go  ca.go  phy.go  temp.go  sim.go  ca_info.go
+├── internal/platform/          THE PORTABILITY SEAM
+│   ├── platform.go             interface: CommandSet() + Capabilities() + Envelope()
+│   ├── rg520neb.go             this device: 9 working PHY commands, tx_pwr/pathloss absent
+│   └── rm520n.go               declared, unverified — must be probed before use
+├── internal/state/             atomic JSON writers + schema (one file per target)
+└── internal/schedule/          tier cadences, lease-gated live tick
+```
+
+**Rules that keep it portable:**
+- `cmd/` holds no parsing and no device knowledge.
+- Every device-specific fact — which commands exist, their field layout, their
+  timeout, the sentinel for "not reported" — lives behind `internal/platform`.
+- `atparse` never inspects a modem name; it parses a response it is handed.
+- No `os/exec`. No `qcmd`. No shell. That is the entire point.
+- Zero cgo: `CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7`.
+
+## Test strategy — and why this is an allowed exception
+
+`qm-orchestrate` hard rail 8 bans test harnesses (`scripts/test/`, `*.test.*`,
+assertion scripts). **Go unit tests on the build machine are authorised by the owner
+and do not violate it**, for three reasons, recorded so this is not argued again:
+
+1. They live under `go/`, are `*_test.go`, and **never ship** — the device never sees
+   them.
+2. They run on the build machine against **captured device fixtures**, which is the
+   only cheap proof for the parsers. The parsers are the highest-risk code here: a
+   mis-split field silently shows the wrong RSRP, and no page-load proof catches it.
+3. Rail 8's own wording targets device-side assertion scripts. Nothing about a Go
+   table test contradicts "proof is a run or a page load" for the *deployed* artifact.
+
+**Required tests:**
+
+| Test | Proves |
+| --- | --- |
+| Parser table tests | Each `atparse` function against a captured real response, **including a row with a missing field** (`null`, not `0`). |
+| `atdev` terminator tests | `OK`, `ERROR`, `+CME ERROR:`, no-terminator timeout, partial line. |
+| Retry-allowlist tests | A query-shaped command retries; a setter **never** does. |
+| Platform tests | `rg520neb` declares `lte_tx_pwr`/`nr5g_pathloss` absent, and the collector **never emits them**. |
+| Schema golden tests | Each state file's rendered JSON matches a golden fixture byte-for-byte after one simulated cycle. |
+| `go test -cover` | Reported in the PR; parsers and `atdev` held to ≥ 80 %. |
+
+## Coverage — nothing may be lost
+
+A separate matrix, [`go-at-collector-coverage.md`](./go-at-collector-coverage.md),
+enumerates every field the shell poller writes today and must be filled in as the
+collector is built. **The switch is not allowed until it is 100 % checked.** The
+inventory to match is measured, not guessed:
+
+| Surface | Size |
+| --- | --- |
+| `/tmp/qmanager_status.json` | 18 top-level keys, **265 leaf paths** |
+| `qmanager_signal_history.json` row | 7 keys: `ts, lte_rsrp, lte_rsrq, lte_sinr, nr_rsrp, nr_rsrq, nr_sinr` |
+| `qmanager_ping_history.json` row | 7 keys: `ts, lat, avg, min, max, loss, jit` |
+| `qmanager_events.json` row | 4 keys: `timestamp, type, severity, message` |
+| Files written | 8 (`status`, `signal_history`, `ping_history`, `events`, `pci_state`, `neighbours_live`, `watchcat`, `sim_failover`) |
+
 ## The decision this needs first — hard rule 3
 
 Rule 3 says *"every call goes through `qcmd`"*, and its stated purpose is that **only
