@@ -2620,5 +2620,139 @@
       "applying": "Applicazione del blocco BTS {{leg}}…",
       "refreshing": "Rilettura dello stato del blocco BTS…"
     }
+  },
+  "detailed_metrics": {
+    "page": {
+      "title": "Metriche dettagliate",
+      "description": "Il livello fisico che il modem sta usando adesso — qualità del canale, livelli MIMO, codifica e beam — e come questi numeri si sono mossi nell'intervallo scelto."
+    },
+    "range": {
+      "now": "Live",
+      "h1": "1h",
+      "h24": "24h",
+      "d7": "7g"
+    },
+    "range_aria": "Intervallo dati",
+    "stale": "Non aggiornato",
+    "not_reported_by_modem": "Non riportato da questo modem",
+    "hint_label": "Informazioni su {{metric}}",
+    "reporting_range": "Intervallo di riporto {{range}}",
+    "better": {
+      "high": "Più alto è meglio",
+      "low": "Più basso è meglio",
+      "neither": "Nessuna direzione migliore"
+    },
+    "group": {
+      "registration": {
+        "title": "Registrazione",
+        "description": "A chi è agganciato il modem. I valori di segnale sono riportati per le celle che la radio riesce a sentire, quindi è questa sezione a dire se il modem è davvero collegato."
+      },
+      "lte": {
+        "title": "LTE",
+        "description": "Il ramo 4G: potenza riportata, qualità del canale e ciò che lo scheduler sta usando."
+      },
+      "nr": {
+        "title": "NR",
+        "description": "Il ramo 5G: potenza riportata, qualità del canale e ciò che lo scheduler sta usando."
+      },
+      "ca": {
+        "title": "Aggregazione di portante",
+        "description": "Le portanti che la rete sta aggregando per questo modem. Un valore zero è una lettura normale da fermo, non un guasto."
+      },
+      "beams": {
+        "title": "Beam SSB",
+        "description": "I beam SSB trasmessi dalla cella di servizio, dal più forte. È l'unica fonte di celle vicine NR che funziona su questo modulo."
+      },
+      "distributions": {
+        "title": "Distribuzioni",
+        "description": "La serie archiviata per un pannello nell'intervallo scelto, e come i suoi campioni si distribuiscono in quell'intervallo."
+      }
+    },
+    "metric": {
+      "registered": "Registrato",
+      "carrier": "Operatore",
+      "rat": "Tecnologia di accesso radio",
+      "rrc_state": "Codice di stato RRC",
+      "cqi": "CQI",
+      "ri": "RI (livelli riportati)",
+      "pmi": "PMI",
+      "mimo_layers": "Livelli MIMO",
+      "tm_mode": "Modo di trasmissione",
+      "ul_mcs": "UL MCS",
+      "dl_mcs": "DL MCS",
+      "tx_power": "Potenza TX",
+      "pathloss": "Pathloss",
+      "beam": "Beam",
+      "lte_carriers": "Portanti LTE",
+      "nr_carriers": "Portanti NR",
+      "total_bandwidth": "Larghezza di banda totale",
+      "carrier_components": "Portanti aggregate"
+    },
+    "panel": {
+      "rsrp": "RSRP",
+      "sinr": "SINR",
+      "rsrq": "RSRQ",
+      "rssi": "RSSI",
+      "temp": "Temperatura",
+      "cqi": "CQI",
+      "rank": "Rank (livelli MIMO)",
+      "mcs": "MCS",
+      "tx_power": "Potenza TX",
+      "total_cells": "Celle rilevate"
+    },
+    "registered_yes": "Registrato",
+    "registered_no": "Non registrato",
+    "ca": {
+      "no_carriers": "Nessuna portante aggregata in questo momento."
+    },
+    "beams": {
+      "empty_title": "Nessun beam SSB riportato",
+      "empty_body": "Il modem non ha rilevato beam SSB nell'ultima lettura. È normale quando la radio è inattiva o durante un handover."
+    },
+    "distributions": {
+      "panel_label": "Pannello",
+      "now_title": "Nessun archivio nell'intervallo live",
+      "now_body": "L'intervallo live mostra solo i valori attuali. Scegli un intervallo per vedere l'andamento archiviato.",
+      "missing_title": "Nessuna copertura d'archivio",
+      "missing_body": "L'archivio non contiene ancora nulla per nessun pannello in questo intervallo.",
+      "no_samples_title": "Nessun campione in questo intervallo",
+      "no_samples": "L'archivio ha righe per {{panel}} in questo intervallo, ma sono tutte vuote.",
+      "caption": "{{samples}} campioni archiviati, divisi in cinque bande uguali."
+    },
+    "notice_title": "Non in aggiornamento",
+    "notice_body": "L'ultima lettura è fallita, quindi questi valori sono gli ultimi arrivati.",
+    "error_title": "Impossibile leggere le metriche",
+    "error_body": "L'endpoint non ha risposto. Verifica che il modem e il poller siano attivi.",
+    "retry": "Riprova",
+    "glossary": {
+      "rsrp": "Reference Signal Received Power: la potenza media dei segnali di riferimento della cella all'antenna. È il valore che segue la distanza e il puntamento dell'antenna.",
+      "rsrq": "Reference Signal Received Quality: potenza del segnale rispetto all'interferenza sullo stesso canale. Cala quando una cella vicina forte compete con quella di servizio.",
+      "sinr": "Signal to interference plus noise: quanto il segnale utile sta sopra il rumore di fondo. È il miglior indicatore singolo della velocità ottenibile.",
+      "rssi": "Received Signal Strength Indicator: potenza totale a banda larga nel canale, interferenza e rumore compresi. Sale con l'interferenza oltre che con il segnale, quindi va letto come valore grossolano.",
+      "cqi": "Channel Quality Indicator: la modulazione e codifica che il modem chiede alla rete, 0-15. È una richiesta derivata dal canale, non una sua misura.",
+      "ri": "Rank Indicator: quanti livelli MIMO indipendenti il modem può supportare adesso. Più livelli trasportano più dati finché il canale resta pulito.",
+      "pmi": "Precoding Matrix Index: i pesi di beamforming che il modem raccomanda alla stazione base. La scala la fissa il firmware, non lo standard, quindi va letto come indice opaco.",
+      "mimo_layers": "Il numero di livelli MIMO che trasportano attualmente i dati di questa radio, come riportato dal modem.",
+      "ul_mcs": "Indice Modulation and Coding Scheme in uplink: un indice più alto porta più bit per simbolo e richiede un segnale più pulito.",
+      "dl_mcs": "Indice Modulation and Coding Scheme in downlink: un indice più alto porta più bit per simbolo e richiede un segnale più pulito.",
+      "mcs": "L'indice di modulazione e codifica in uso sul collegamento di servizio; il valore archiviato segue la radio che stava servendo.",
+      "tx_power": "Potenza di trasmissione che il modem sta usando adesso. Poca potenza vicino alla cella e molta al bordo cella sono entrambe normali, quindi non c'è un verso migliore.",
+      "tm_mode": "Il numero di modo di trasmissione in downlink del modem per LTE. Diversi modi sono in uso normale, quindi il numero da solo non è un giudizio.",
+      "rrc_state": "Il codice numerico di stato RRC del modem, come lo riporta il firmware. Questa installazione non decodifica il codice, quindi va letto come stato grezzo.",
+      "rat": "La tecnologia di accesso radio della cella di servizio, riportata insieme allo stato RRC.",
+      "registered": "Se il modem è agganciato alla rete. Il solo segnale non può dirlo: la radio riporta ciò che riesce a sentire, non ciò a cui è collegata.",
+      "carrier": "Il nome dell'operatore riportato dalla rete per l'aggancio attuale.",
+      "lte_tx_power_absent": "Potenza di trasmissione LTE. La lettura non viene proprio inviata: AT+QNWCFG=\"lte_tx_pwr\" risponde ERROR sul firmware di questo modulo, quindi chiedere farebbe solo perdere tempo al modem.",
+      "nr_pathloss_absent": "Pathloss NR. La lettura non viene proprio inviata: AT+QNWCFG=\"nr5g_pathloss\" risponde ERROR sul firmware di questo modulo, quindi chiedere farebbe solo perdere tempo al modem.",
+      "ca_lte_carriers": "Quante portanti componenti LTE sono aggregate adesso, compresa quella primaria.",
+      "ca_nr_carriers": "Quante portanti componenti NR sono aggregate adesso.",
+      "ca_total_bandwidth": "La larghezza di banda aggregata di tutte le portanti in uso. Più spettro alza la velocità di punta; non dice nulla sulla qualità del segnale.",
+      "ca_component": "Una portante nell'aggregato: la sua banda, la sua ampiezza e la sua lettura di segnale.",
+      "beam": "L'id del beam SSB su cui la cella trasmette. I beam coprono settori, quindi un id che cambia può indicare un cambio di settore dentro la stessa cella.",
+      "pci": "Physical Cell ID: l'identità della cella a cui appartiene un beam. Due righe con lo stesso PCI sono la stessa cella.",
+      "rank": "Il numero di livelli MIMO nel tempo, come archiviato.",
+      "temperature": "Il sensore di temperatura del modulo stesso. Letture alte prolungate limitano la radio prima che qualcosa smetta visibilmente di funzionare.",
+      "total_cells": "Quante celle il poller riusciva a vedere in ogni intervallo. Risponde a \"la radio sentiva qualcosa\", non a \"era agganciata\"."
+    }
   }
 }

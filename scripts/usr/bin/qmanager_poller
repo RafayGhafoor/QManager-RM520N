@@ -16,6 +16,14 @@
 #                                         AT+QNWCFG="*_time_advance",
 #                                         AT+QNWCFG="*_mimo_layers" (network-mode-gated),
 #                                         AT+CGCONTRDP, AT+QMAP="WWAN"
+#   Tier 3 (PHY):    Every TIER3_EVERY cycles (~60s) — PHY layer via
+#                    lib/qmanager/phy_metrics.sh: one `ubus call modemd status`
+#                    (no AT lock) + TWO compound AT reads (CQI/RI/PMI, MIMO
+#                    layers, MCS, TM mode, RRC state, NR TX power, SSB beams).
+#                    Published as `phy` in the status cache and appended to
+#                    /usrdata/qmanager/metrics/YYYY-MM-DD.csv.
+#                    Runs AFTER the cycle budget timer (see main), so it can
+#                    never move the Tier-1 measurement.
 #
 #   AT+QCAINFO is TIER 1, not Tier 2. Its read sits at the top of the cycle body
 #   (see below), ABOVE the Tier 2 gate, and is unconditional. Earlier revisions of
@@ -44,6 +52,7 @@
 #   /usr/lib/qmanager/parse_at.sh  — AT command response parsers
 #   /usr/lib/qmanager/events.sh    — Network event detection
 #   /usr/lib/qmanager/qmi_read.sh  — Read-only QMI (neighbour cells / signal)
+#   /usr/lib/qmanager/phy_metrics.sh — Read-only PHY layer (CQI/RI/MCS/beams) + archive
 #
 # Install location: /usr/bin/qmanager_poller
 # =============================================================================
@@ -59,6 +68,11 @@ TIER2_REFRESH_FLAG="/tmp/qmanager_tier2_refresh"
 POLL_INTERVAL=2        # seconds between Tier 1 cycles
 TIER1_5_EVERY=5        # Tier 1.5 (per-antenna signal) runs every N cycles (10s)
 TIER2_EVERY=15         # Tier 2 runs every N cycles
+# Tier 3 (PHY depth) cadence, in cycles LIKE the two above, not in seconds:
+# a cycle is 3.7-4.0s measured (see the header), NOT the 2s POLL_INTERVAL, so 15
+# cycles is the ~60s the spec asks for. Tunable: the only outside cost per run is
+# two AT lock holds in `phy_metrics.sh`, and the interval is the knob for it.
+TIER3_EVERY=15
 CYCLE_TIME_BUDGET=10   # seconds; warn if poll_cycle exceeds this
 
 # resolve_network_iface — the netdev whose /proc/net/dev byte counters feed the
@@ -144,6 +158,11 @@ neigh_live_warn_at=0           # epoch of the last live-read warning
 # Signal history (NDJSON file for chart data)
 SIGNAL_HISTORY_FILE="/tmp/qmanager_signal_history.json"
 SIGNAL_HISTORY_MAX=180 # 30 min at 10s intervals
+
+# PHY depth (Tier 3) — the last assembled snapshot, or empty until the first
+# Tier-3 pass. write_cache publishes it as `phy` and OMITS the key while it is
+# empty, so a boot before the first Tier-3 pass has today's cache shape exactly.
+phy_json=""
 
 # Ping history (NDJSON file for latency chart data)
 PING_HISTORY_FILE="/tmp/qmanager_ping_history.json"
@@ -540,6 +559,20 @@ fi
     qm_qmi_signal()       { return 2; }
     qm_qmi_registration() { return 2; }
     qm_qmi_band()         { return 2; }
+}
+
+# Read-only PHY reader (Tier 3). NON-FATAL for the same reason as the QMI lib
+# above: losing it costs the PHY fields and the durable archive, and the cache
+# then has no `phy` key at all — which is exactly the pre-feature shape, not a
+# broken one. The fallbacks make every entry point fail closed, so Tier 3 simply
+# never publishes and every other tier is untouched.
+. /usr/lib/qmanager/phy_metrics.sh 2>/dev/null || {
+    qlog_warn "phy_metrics.sh not found, Tier 3 (PHY depth) disabled"
+    qm_phy_available()             { return 1; }
+    qm_phy_modemd()                { return 2; }
+    qm_phy_at()                    { return 3; }
+    qm_phy_snapshot()              { return 4; }
+    qm_phy_archive_row()           { return 3; }
 }
 
 # =============================================================================
@@ -1506,6 +1539,92 @@ append_ping_history() {
 }
 
 # =============================================================================
+# TIER 3: PHY DEPTH (every TIER3_EVERY cycles, ~60s)
+# =============================================================================
+# CQI, RI, PMI, MIMO layers, TM mode, UL/DL MCS, NR TX power, RRC state and the
+# SSB beam table — the physical layer none of the tiers above read. All of the
+# reading lives in lib/qmanager/phy_metrics.sh (two compound AT commands at
+# most, plus one `ubus call modemd status` which takes no AT lock); this function
+# is only the composition and the publishing.
+#
+# WHY IT IS CALLED FROM main() AND NOT FROM THE CYCLE BODY: it holds the AT
+# flock for ~1.2s, and `poll_cycle exceeded budget` has to keep meaning what it
+# has always meant (Tier-1/AT slowness). Running it past the budget timer is the
+# same placement the neighbour live tick uses, for the same reason. The cost is
+# that the values reach /tmp/qmanager_status.json on the NEXT write_cache (~4s
+# later), which is well inside one Tier-3 interval and never observable as
+# stale by a browser polling at Tier-1 cadence.
+#
+# Freshness contract (spec R1): a field that this pass could not read is
+# published as null — never 0 (0 is a measurement) and never the previous
+# cycle's value, because a stale CQI presented as current is a lie the UI cannot
+# detect.
+poll_tier3() {
+    local md="{}" at="{}" ctx snap cells ok
+
+    # Never during a scan. The flag is this daemon's existing marker for "another
+    # AT consumer owns the port" (cell scan, neighbour scan, tower lock work),
+    # and Tier 3 is the one thing here that could queue behind it for 20s.
+    if [ -f "$LONG_FLAG" ]; then
+        return 0
+    fi
+
+    # The poller's own serving-cell figures, so the snapshot's RSRP/RSRQ/RSSI/SINR
+    # match the cards above it instead of being a second reading of the same
+    # thing. `:-null` covers the empty-string default of every one of these vars.
+    ctx=$(jq -cn \
+        --argjson lr "${lte_rsrp:-null}" --argjson lq "${lte_rsrq:-null}" \
+        --argjson li "${lte_rssi:-null}" --argjson ls "${lte_sinr:-null}" \
+        --argjson nr "${nr_rsrp:-null}" --argjson nq "${nr_rsrq:-null}" \
+        --argjson ns "${nr_sinr:-null}" --arg car "${t2_carrier:-}" \
+        '{lte_rsrp:$lr, lte_rsrq:$lq, lte_rssi:$li, lte_sinr:$ls,
+          nr_rsrp:$nr, nr_rsrq:$nq, nr_sinr:$ns, carrier:$car}' 2>/dev/null)
+
+    # Gate on a real modemd answer, not on a binary's presence (hard rule 8).
+    # With the vendor modem daemon not answering, the AT half cannot populate the
+    # fields this pass exists for, so it would spend two lock holds for nothing.
+    # Both reads are skipped, and the null-filled snapshot below still publishes:
+    # the UI then shows "—" rather than the previous cycle's values as current.
+    if qm_phy_available; then
+        md=$(qm_phy_modemd) || md="{}"
+        [ "$md" = "{}" ] && qlog_debug "phy: modemd read failed"
+
+        at=$(qm_phy_at "$network_type") || at="{}"
+        [ "$at" = "{}" ] && qlog_debug "phy: AT read failed (network_type=${network_type:-unknown})"
+    else
+        qlog_debug "phy: ubus/modemd unavailable — Tier 3 publishes nulls"
+    fi
+
+    snap=$(qm_phy_snapshot "$md" "$at" "$ctx")
+    # Never hand an unvalidated string to write_cache: it goes in as --argjson,
+    # so one malformed byte would fail the WHOLE status-cache write and freeze
+    # every page that reads it. The previous snapshot is kept instead.
+    if [ -z "$snap" ] || ! printf '%s' "$snap" | jq -e . >/dev/null 2>&1; then
+        qlog_warn "phy: snapshot is not valid JSON — keeping the previous one"
+        return 1
+    fi
+    phy_json="$snap"
+
+    # Nothing read at all: publish the nulls, but do not archive a row of them —
+    # a minute-by-minute record of "the modem said nothing" is not a trend, and
+    # 30 days of it would bury the data on either side.
+    if [ "$md" = "{}" ] && [ "$at" = "{}" ]; then
+        return 1
+    fi
+
+    # Durable trend row (spec R3). total_cells is the number of carrier
+    # components the modem is aggregating — the rows the CA card shows — and is
+    # null when that read produced nothing, because "0 cells" is not a possible
+    # state for an attached modem.
+    cells=$(printf '%s' "${t2_carrier_components:-[]}" \
+        | jq -r 'if type == "array" and length > 0 then length else null end' 2>/dev/null)
+    qm_phy_archive_row "$snap" "${t2_temperature:-null}" "${cells:-null}"
+    ok=$?
+    [ "$ok" -eq 0 ] || qlog_debug "phy: archive row not written (status ${ok})"
+    return 0
+}
+
+# =============================================================================
 # TIER 2: WARM DATA (every N cycles)
 # =============================================================================
 
@@ -2315,6 +2434,7 @@ write_cache() {
         --argjson du_last_rst  "${du_last_reset_ts:-0}" \
         --argjson du_modem_rst "${du_modem_reset_count:-0}" \
         --arg     du_orient    "${orientation:-normal}" \
+        --argjson phy          "${phy_json:-null}" \
         '{
             timestamp: $timestamp,
             system_state: $system_state,
@@ -2459,7 +2579,7 @@ write_cache() {
                     end
                 )
             }
-        }' > "$CACHE_TMP"
+        } + (if $phy == null then {} else {phy: $phy} end)' > "$CACHE_TMP"
 
     mv "$CACHE_TMP" "$CACHE_FILE"
 }
@@ -2739,6 +2859,15 @@ main() {
         if [ "$cycle_duration" -gt "$CYCLE_TIME_BUDGET" ]; then
             qlog_warn "poll_cycle exceeded budget: ${cycle_duration}s > ${CYCLE_TIME_BUDGET}s"
         fi
+        # Tier 3 — PHY depth (~60s), deliberately AFTER cycle_end for the same
+        # reason as the neighbour live tick below: it is the one block that holds
+        # the AT lock for ~1.2s by itself, and the budget warning has to keep
+        # meaning Tier-1/AT slowness. `LONG_FLAG` (a scan holding the port) is
+        # checked inside poll_tier3, so a scan cycle skips it entirely.
+        if [ "$cycle_count" -gt 0 ] && [ $((cycle_count % TIER3_EVERY)) -eq 0 ]; then
+            poll_tier3
+        fi
+
         # Neighbour live tick — deliberately AFTER cycle_end, not inside the
         # cycle body: it is the one thing here that can block on something other
         # than the AT port, and running it past the budget timer keeps

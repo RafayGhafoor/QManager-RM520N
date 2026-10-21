@@ -42,6 +42,14 @@ const navCellular: NavItem[] = [
       { t_key: "antenna_alignment", url: "/cellular/antenna-alignment" },
     ],
   },
+  // A leaf with no sub-routes: the PHY page is a destination, not a section.
+  // Its glyph is `stacked_line_chart`, which is already in the icon subset —
+  // see components/ui/material-symbol-names.ts, no `bun run icons:subset`.
+  {
+    t_key: "detailed_metrics",
+    url: "/cellular/detailed-metrics",
+    icon: "stacked_line_chart",
+  },
   {
     t_key: "sms_center",
     url: "/cellular/sms",

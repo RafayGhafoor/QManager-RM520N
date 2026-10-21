@@ -11,6 +11,7 @@
     "cellular_information": "Informazioni rete mobile",
     "antenna_statistics": "Statistiche dell'antenna",
     "antenna_alignment": "Allineamento dell'antenna",
+    "detailed_metrics": "Metriche dettagliate",
     "sms_center": "Centro SMS",
     "sms_forwarding": "Inoltro SMS",
     "custom_profiles": "Profili personalizzati",

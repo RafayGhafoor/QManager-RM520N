@@ -11,6 +11,7 @@
     "cellular_information": "蜂窝网络信息",
     "antenna_statistics": "天线统计",
     "antenna_alignment": "天线对准",
+    "detailed_metrics": "详细指标",
     "sms_center": "短信中心",
     "sms_forwarding": "短信转发",
     "custom_profiles": "自定义配置",

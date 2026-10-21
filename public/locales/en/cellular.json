@@ -2620,5 +2620,139 @@
       "applying": "Applying the {{leg}} tower lock…",
       "refreshing": "Re-reading tower lock state…"
     }
+  },
+  "detailed_metrics": {
+    "page": {
+      "title": "Detailed Metrics",
+      "description": "The physical layer the modem is using right now — channel quality, MIMO layers, coding and beams — and how those numbers moved over the selected range."
+    },
+    "range": {
+      "now": "Live",
+      "h1": "1h",
+      "h24": "24h",
+      "d7": "7d"
+    },
+    "range_aria": "Data range",
+    "stale": "Stale",
+    "not_reported_by_modem": "Not reported by this modem",
+    "hint_label": "About {{metric}}",
+    "reporting_range": "Reporting range {{range}}",
+    "better": {
+      "high": "Higher is better",
+      "low": "Lower is better",
+      "neither": "No better direction"
+    },
+    "group": {
+      "registration": {
+        "title": "Registration",
+        "description": "Who the modem is attached to. Signal figures are reported for cells the radio can hear, so this is what says whether it is actually joined."
+      },
+      "lte": {
+        "title": "LTE",
+        "description": "The 4G leg: reported power, channel quality, and what the scheduler is using."
+      },
+      "nr": {
+        "title": "NR",
+        "description": "The 5G leg: reported power, channel quality, and what the scheduler is using."
+      },
+      "ca": {
+        "title": "Carrier Aggregation",
+        "description": "The carriers the network is aggregating for this modem. A count of zero is a normal idle reading, not a fault."
+      },
+      "beams": {
+        "title": "SSB Beams",
+        "description": "The SSB beams the serving cell is transmitting, strongest first. This is the only working NR-neighbour source on this module."
+      },
+      "distributions": {
+        "title": "Distributions",
+        "description": "The archived series for one panel over the selected range, and how its samples were spread across that range."
+      }
+    },
+    "metric": {
+      "registered": "Registered",
+      "carrier": "Operator",
+      "rat": "Radio access technology",
+      "rrc_state": "RRC state code",
+      "cqi": "CQI",
+      "ri": "RI (layers reported)",
+      "pmi": "PMI",
+      "mimo_layers": "MIMO layers",
+      "tm_mode": "Transmit mode",
+      "ul_mcs": "UL MCS",
+      "dl_mcs": "DL MCS",
+      "tx_power": "TX power",
+      "pathloss": "Pathloss",
+      "beam": "Beam",
+      "lte_carriers": "LTE carriers",
+      "nr_carriers": "NR carriers",
+      "total_bandwidth": "Total bandwidth",
+      "carrier_components": "Aggregated carriers"
+    },
+    "panel": {
+      "rsrp": "RSRP",
+      "sinr": "SINR",
+      "rsrq": "RSRQ",
+      "rssi": "RSSI",
+      "temp": "Temperature",
+      "cqi": "CQI",
+      "rank": "Rank (MIMO layers)",
+      "mcs": "MCS",
+      "tx_power": "TX power",
+      "total_cells": "Cells seen"
+    },
+    "registered_yes": "Registered",
+    "registered_no": "Not registered",
+    "ca": {
+      "no_carriers": "No carriers aggregated right now."
+    },
+    "beams": {
+      "empty_title": "No SSB beams reported",
+      "empty_body": "The modem detected no SSB beam in the last read. That is usual while the radio is idle or between handovers."
+    },
+    "distributions": {
+      "panel_label": "Panel",
+      "now_title": "No archive in the live range",
+      "now_body": "The live range reads current values only. Choose a range to see the archived trend.",
+      "missing_title": "No archive coverage",
+      "missing_body": "The archive holds nothing for any panel in this range yet.",
+      "no_samples_title": "No samples in this range",
+      "no_samples": "The archive has rows for {{panel}} in this range, but every one of them is empty.",
+      "caption": "{{samples}} archived samples, split into five equal bands."
+    },
+    "notice_title": "Not updating",
+    "notice_body": "The last read failed, so these figures are the last ones that arrived.",
+    "error_title": "Cannot read the metrics",
+    "error_body": "The endpoint did not answer. Check that the modem and the poller are running.",
+    "retry": "Try again",
+    "glossary": {
+      "rsrp": "Reference Signal Received Power: the average power of the cell's reference signals at the antenna. It is the figure that tracks distance and antenna aim.",
+      "rsrq": "Reference Signal Received Quality: signal power against the interference on the same channel. It falls when a strong neighbour competes with the serving cell.",
+      "sinr": "Signal to interference plus noise: how far the wanted signal sits above the noise floor. It is the best single predictor of throughput.",
+      "rssi": "Received Signal Strength Indicator: total wideband power in the channel, interference and noise included. It rises with interference as well as with signal, so read it as coarse.",
+      "cqi": "Channel Quality Indicator: the modulation and coding the modem is asking the network for, 0-15. It is a request derived from the channel, not a measurement of it.",
+      "ri": "Rank Indicator: how many independent MIMO layers the modem can support right now. More layers carry more data while the channel stays clean.",
+      "pmi": "Precoding Matrix Index: the beamforming weights the modem recommends to the base station. Its scale is set by the firmware rather than the standard, so treat it as an opaque index.",
+      "mimo_layers": "The number of MIMO layers currently carrying this radio's data, as the modem reports it.",
+      "ul_mcs": "Uplink Modulation and Coding Scheme index: a higher index packs more bits into each symbol and needs a cleaner signal to survive.",
+      "dl_mcs": "Downlink Modulation and Coding Scheme index: a higher index packs more bits into each symbol and needs a cleaner signal to survive.",
+      "mcs": "The modulation and coding index in use for the serving link; the archived value follows whichever radio was serving.",
+      "tx_power": "Transmit power the modem is driving right now. Little power near the cell and much at cell edge are both normal, so there is no good end.",
+      "tm_mode": "The modem's downlink transmit-mode number for LTE. Several modes are in normal use, so the number on its own is not a verdict.",
+      "rrc_state": "The modem's own numeric RRC state code, as the firmware reports it. This deployment does not decode the code, so read it as a raw state.",
+      "rat": "The radio access technology of the serving cell, reported alongside the RRC state.",
+      "registered": "Whether the modem is attached to the network. Signal alone cannot say: the radio reports what it can hear, not what it has joined.",
+      "carrier": "The operator name the network reports for the current attach.",
+      "lte_tx_power_absent": "LTE transmit power. The read is not issued at all: AT+QNWCFG=\"lte_tx_pwr\" answers ERROR on this module's firmware, so asking would only spend time on the modem.",
+      "nr_pathloss_absent": "NR pathloss. The read is not issued at all: AT+QNWCFG=\"nr5g_pathloss\" answers ERROR on this module's firmware, so asking would only spend time on the modem.",
+      "ca_lte_carriers": "How many LTE component carriers are aggregated right now, including the primary one.",
+      "ca_nr_carriers": "How many NR component carriers are aggregated right now.",
+      "ca_total_bandwidth": "The aggregated bandwidth across every carrier in use. More spectrum raises peak throughput; it says nothing about signal quality.",
+      "ca_component": "One carrier in the aggregate: its band, its width and its own signal reading.",
+      "beam": "The SSB beam id the cell is transmitting on. Beams cover sectors, so a changing id can mean a change of sector inside one cell.",
+      "pci": "Physical Cell ID: the identity of the cell a beam belongs to. Two rows sharing a PCI are the same cell.",
+      "rank": "The MIMO layer count over time, as archived.",
+      "temperature": "The module's own temperature sensor. Sustained high readings throttle the radio before anything visibly fails.",
+      "total_cells": "How many cells the poller could see in each bucket. It answers \"was the radio hearing anything\", not \"was it attached\"."
+    }
   }
 }

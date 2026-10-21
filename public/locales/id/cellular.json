@@ -2620,5 +2620,139 @@
       "applying": "Menerapkan kunci tower {{leg}}…",
       "refreshing": "Membaca ulang status kunci tower…"
     }
+  },
+  "detailed_metrics": {
+    "page": {
+      "title": "Metrik Rinci",
+      "description": "Lapisan fisik yang sedang dipakai modem — kualitas kanal, lapisan MIMO, pengkodean, dan beam — serta bagaimana angka tersebut bergerak pada rentang yang dipilih."
+    },
+    "range": {
+      "now": "Langsung",
+      "h1": "1j",
+      "h24": "24j",
+      "d7": "7h"
+    },
+    "range_aria": "Rentang data",
+    "stale": "Basi",
+    "not_reported_by_modem": "Tidak dilaporkan oleh modem ini",
+    "hint_label": "Tentang {{metric}}",
+    "reporting_range": "Rentang pelaporan {{range}}",
+    "better": {
+      "high": "Semakin tinggi semakin baik",
+      "low": "Semakin rendah semakin baik",
+      "neither": "Tidak ada arah yang lebih baik"
+    },
+    "group": {
+      "registration": {
+        "title": "Registrasi",
+        "description": "Jaringan tempat modem terdaftar. Angka sinyal dilaporkan untuk sel yang dapat didengar radio, jadi bagian inilah yang menyatakan apakah modem benar-benar terhubung."
+      },
+      "lte": {
+        "title": "LTE",
+        "description": "Sisi 4G: daya yang dilaporkan, kualitas kanal, dan apa yang dipakai penjadwal."
+      },
+      "nr": {
+        "title": "NR",
+        "description": "Sisi 5G: daya yang dilaporkan, kualitas kanal, dan apa yang dipakai penjadwal."
+      },
+      "ca": {
+        "title": "Agregasi Carrier",
+        "description": "Carrier yang diagregasikan jaringan untuk modem ini. Angka nol adalah pembacaan normal saat menganggur, bukan gangguan."
+      },
+      "beams": {
+        "title": "Beam SSB",
+        "description": "Beam SSB yang dipancarkan sel pelayan, terkuat lebih dulu. Ini satu-satunya sumber tetangga NR yang bekerja pada modul ini."
+      },
+      "distributions": {
+        "title": "Distribusi",
+        "description": "Deret arsip untuk satu panel pada rentang terpilih, dan bagaimana sampelnya tersebar di seluruh rentang itu."
+      }
+    },
+    "metric": {
+      "registered": "Terdaftar",
+      "carrier": "Operator",
+      "rat": "Teknologi akses radio",
+      "rrc_state": "Kode status RRC",
+      "cqi": "CQI",
+      "ri": "RI (lapisan dilaporkan)",
+      "pmi": "PMI",
+      "mimo_layers": "Lapisan MIMO",
+      "tm_mode": "Mode transmisi",
+      "ul_mcs": "UL MCS",
+      "dl_mcs": "DL MCS",
+      "tx_power": "Daya TX",
+      "pathloss": "Pathloss",
+      "beam": "Beam",
+      "lte_carriers": "Carrier LTE",
+      "nr_carriers": "Carrier NR",
+      "total_bandwidth": "Lebar pita total",
+      "carrier_components": "Carrier teragregasi"
+    },
+    "panel": {
+      "rsrp": "RSRP",
+      "sinr": "SINR",
+      "rsrq": "RSRQ",
+      "rssi": "RSSI",
+      "temp": "Suhu",
+      "cqi": "CQI",
+      "rank": "Rank (lapisan MIMO)",
+      "mcs": "MCS",
+      "tx_power": "Daya TX",
+      "total_cells": "Sel terlihat"
+    },
+    "registered_yes": "Terdaftar",
+    "registered_no": "Tidak terdaftar",
+    "ca": {
+      "no_carriers": "Tidak ada carrier yang diagregasikan saat ini."
+    },
+    "beams": {
+      "empty_title": "Tidak ada beam SSB yang dilaporkan",
+      "empty_body": "Modem tidak mendeteksi beam SSB pada pembacaan terakhir. Hal ini normal saat radio menganggur atau saat perpindahan sel."
+    },
+    "distributions": {
+      "panel_label": "Panel",
+      "now_title": "Tidak ada arsip pada rentang langsung",
+      "now_body": "Rentang langsung hanya menampilkan nilai saat ini. Pilih rentang untuk melihat tren arsip.",
+      "missing_title": "Tidak ada cakupan arsip",
+      "missing_body": "Arsip belum berisi apa pun untuk panel mana pun pada rentang ini.",
+      "no_samples_title": "Tidak ada sampel pada rentang ini",
+      "no_samples": "Arsip memiliki baris untuk {{panel}} pada rentang ini, tetapi semuanya kosong.",
+      "caption": "{{samples}} sampel arsip, dibagi menjadi lima pita sama."
+    },
+    "notice_title": "Tidak diperbarui",
+    "notice_body": "Pembacaan terakhir gagal, jadi angka ini adalah angka terakhir yang diterima.",
+    "error_title": "Tidak dapat membaca metrik",
+    "error_body": "Endpoint tidak menjawab. Periksa apakah modem dan poller berjalan.",
+    "retry": "Coba lagi",
+    "glossary": {
+      "rsrp": "Reference Signal Received Power: daya rata-rata sinyal referensi sel di antena. Inilah angka yang mengikuti jarak dan arah antena.",
+      "rsrq": "Reference Signal Received Quality: daya sinyal dibandingkan interferensi pada kanal yang sama. Nilainya turun ketika sel tetangga yang kuat bersaing dengan sel pelayan.",
+      "sinr": "Signal to interference plus noise: seberapa tinggi sinyal yang diinginkan di atas derau. Ini prediktor throughput tunggal yang paling baik.",
+      "rssi": "Received Signal Strength Indicator: total daya pita lebar pada kanal, termasuk interferensi dan derau. Nilainya naik karena interferensi maupun sinyal, jadi anggap sebagai perkiraan kasar.",
+      "cqi": "Channel Quality Indicator: modulasi dan pengkodean yang diminta modem kepada jaringan, 0-15. Ini permintaan yang diturunkan dari kanal, bukan pengukuran kanal itu sendiri.",
+      "ri": "Rank Indicator: berapa banyak lapisan MIMO independen yang dapat didukung modem saat ini. Semakin banyak lapisan, semakin banyak data selama kanal tetap bersih.",
+      "pmi": "Precoding Matrix Index: bobot beamforming yang direkomendasikan modem ke stasiun basis. Skalanya ditentukan firmware, bukan standar, jadi perlakukan sebagai indeks yang tidak transparan.",
+      "mimo_layers": "Jumlah lapisan MIMO yang saat ini membawa data radio ini, sesuai laporan modem.",
+      "ul_mcs": "Indeks Modulation and Coding Scheme uplink: indeks lebih tinggi memuat lebih banyak bit per simbol dan memerlukan sinyal yang lebih bersih.",
+      "dl_mcs": "Indeks Modulation and Coding Scheme downlink: indeks lebih tinggi memuat lebih banyak bit per simbol dan memerlukan sinyal yang lebih bersih.",
+      "mcs": "Indeks modulasi dan pengkodean yang dipakai tautan pelayan; nilai arsip mengikuti radio mana pun yang sedang melayani.",
+      "tx_power": "Daya pancar yang sedang dipakai modem saat ini. Daya kecil di dekat sel dan besar di tepi sel keduanya normal, jadi tidak ada arah yang lebih baik.",
+      "tm_mode": "Nomor mode transmisi downlink modem untuk LTE. Beberapa mode dipakai secara normal, jadi angka ini sendiri bukan penilaian.",
+      "rrc_state": "Kode status RRC numerik milik modem, sesuai laporan firmware. Pemasangan ini tidak menerjemahkan kodenya, jadi bacalah sebagai status mentah.",
+      "rat": "Teknologi akses radio sel pelayan, dilaporkan bersama status RRC.",
+      "registered": "Apakah modem terhubung ke jaringan. Sinyal saja tidak dapat menyatakannya: radio melaporkan apa yang dapat didengar, bukan apa yang diikutinya.",
+      "carrier": "Nama operator yang dilaporkan jaringan untuk koneksi saat ini.",
+      "lte_tx_power_absent": "Daya pancar LTE. Perintah ini tidak pernah dikirim: AT+QNWCFG=\"lte_tx_pwr\" menjawab ERROR pada firmware modul ini, jadi bertanya hanya membuang waktu modem.",
+      "nr_pathloss_absent": "Pathloss NR. Perintah ini tidak pernah dikirim: AT+QNWCFG=\"nr5g_pathloss\" menjawab ERROR pada firmware modul ini, jadi bertanya hanya membuang waktu modem.",
+      "ca_lte_carriers": "Berapa banyak carrier komponen LTE yang diagregasikan saat ini, termasuk yang primer.",
+      "ca_nr_carriers": "Berapa banyak carrier komponen NR yang diagregasikan saat ini.",
+      "ca_total_bandwidth": "Total lebar pita dari seluruh carrier yang dipakai. Spektrum lebih lebar menaikkan throughput puncak; itu tidak menyatakan apa pun tentang kualitas sinyal.",
+      "ca_component": "Satu carrier dalam agregat: bandnya, lebarnya, dan pembacaan sinyalnya sendiri.",
+      "beam": "Id beam SSB yang sedang dipancarkan sel. Beam mencakup sektor, jadi id yang berubah bisa berarti perubahan sektor di dalam satu sel.",
+      "pci": "Physical Cell ID: identitas sel tempat sebuah beam berada. Dua baris dengan PCI sama adalah sel yang sama.",
+      "rank": "Jumlah lapisan MIMO dari waktu ke waktu, sesuai arsip.",
+      "temperature": "Sensor suhu modul itu sendiri. Pembacaan tinggi yang berlangsung lama menurunkan kinerja radio sebelum ada yang terlihat gagal.",
+      "total_cells": "Berapa banyak sel yang dapat dilihat poller pada setiap bucket. Ini menjawab \"apakah radio mendengar sesuatu\", bukan \"apakah radio terhubung\"."
+    }
   }
 }
