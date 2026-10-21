@@ -55,7 +55,8 @@ MODE=${1:-apply}
 # Units started at boot. Adding to this list is the ONLY change needed to bring
 # a new QManager unit up at boot — the hook is additive, so an already-hooked
 # device picks up the new line without losing the existing ones.
-UNITS="qmanager-httpd.service qmanager-poller.service qmanager-ping.service"
+UNITS="qmanager-httpd.service qmanager-poller.service qmanager-ping.service
+qmanager-dpi.service qmanager-dpi-ensure.timer"
 
 [ -f "$TURIN" ] || { echo "ERROR: $TURIN not found" >&2; exit 1; }
 
@@ -164,6 +165,10 @@ echo "        validating 'sh -n': OK"
 
 if grep -q -- "start_service_async qmanager-ping.service" "$TURIN"; then
     echo "        (qmanager-ping = the Latency Monitor / reachability daemon)"
+fi
+if grep -q -- "start_service_async qmanager-dpi.service" "$TURIN"; then
+    echo "        (qmanager-dpi + its ensure timer = Traffic Engine / QUIC rules;"
+    echo "         the timer re-asserts the rules after QCMAP re-dials)"
 fi
 echo
 echo "NOTE: only a real reboot proves this. After reboot, check:"

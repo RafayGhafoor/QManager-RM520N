@@ -1,0 +1,24 @@
+# /etc/systemd/system/qmanager-dpi-ensure.service
+#
+# Deployment unit for the GreenPacket O5A Pro (see deploy/README.md).
+#
+# QCMAP flushes the iptables nat table on every re-dial, which silently drops
+# the Traffic Engine's REDIRECT rule; the QUIC REJECT lives in filter/FORWARD
+# and is re-asserted here too. The payload self-gates: when the feature is
+# disabled it exits 0 doing nothing, so the timer can stay unconditionally
+# armed.
+#
+# Deployment differences: relocated ExecStart, PATH that includes the QManager
+# bin dir (the helper needs jq and iptables), and no qmanager-setup.service
+# dependency (that unit does not exist here).
+[Unit]
+Description=QManager Traffic Engine ensure (rule re-assert)
+
+[Service]
+Type=oneshot
+Environment=PATH=/usrdata/qmanager/bin:/usr/local/sbin:/usr/local/bin:/usr/bin:/usr/sbin:/bin:/sbin
+ExecStart=/usrdata/qmanager/bin/qmanager_dpi_run --ensure
+RemainAfterExit=no
+
+[Install]
+WantedBy=multi-user.target

@@ -397,8 +397,12 @@ if [ "$REQUEST_METHOD" = "GET" ]; then
     printf '%s' "$raw_msgs" | jq empty 2>/dev/null || raw_msgs="[]"
 
     # 2. Merge multi-part messages into single entries, storage-aware.
-    #    - Group key is sender + reference + storage so ME index 0 and SM
-    #      index 0 never collide into one merged message.
+    #    - Group key is sender + reference. STORAGE IS DELIBERATELY NOT part of
+    #      the key: the parts of one concatenated SMS can land in different
+    #      memories (ME vs SIM), and including storage kept those parts as
+    #      separate fragments instead of one message. Index collision between
+    #      the pools cannot happen here because index is not in the key at all;
+    #      each part keeps its own storage for delete to target.
     #    - Singles have NO "reference" key at all (confirmed against live
     #      sms_tool -j output — not merely total<=1), so they pass through
     #      via select(has("reference") | not).
@@ -416,13 +420,19 @@ if [ "$REQUEST_METHOD" = "GET" ]; then
             {indexes: [.index], sender, content, timestamp, storage}
         ] as $singles |
         ([.[] | select(has("reference"))] |
-            group_by(.sender + "|" + (.reference | tostring) + "|" + .storage) |
+            group_by(.sender + "|" + (.reference | tostring)) |
             [.[] | sort_by(.part) | {
                 indexes: [.[].index],
                 sender: .[0].sender,
                 content: ([.[].content] | join("")),
                 timestamp: .[0].timestamp,
-                storage: .[0].storage
+                storage: .[0].storage,
+                # Exposed so a fragmented message can be labelled rather than
+                # silently shown as if it were the whole text. Parts are only
+                # what is STILL STORED: this modem keeps some segments and
+                # drops others, so parts_received < total is normal, not a bug.
+                parts_received: ([.[] | .part] | unique | length),
+                parts_total: (.[0].total // null)
             }]
         ) as $merged |
         ($singles + $merged)

@@ -37,7 +37,42 @@ if [ -z "$src" ] && [ "$zn" = "UTC" ]; then
     done
 fi
 
-[ -z "$src" ] && { printf '{"success":false,"error":"zone_not_found","detail":"No zoneinfo data for %s"}\n' "$zn"; exit 1; }
+# No TZif for this zone. On the O5A Pro that is the NORMAL case, not an error:
+# the firmware ships no /usr/share/zoneinfo at all and no Entware, so there is
+# no TZif tree to copy from and /etc/localtime can never be installed. The
+# device still has to show local time, and its busybox date DOES honour a POSIX
+# TZ string in the TZ environment variable (measured: TZ=PKT-5 date -> "... PKT").
+#
+# So fall back to the POSIX string the settings row already persists. It is
+# written to /etc/TZ for the tools that read it, and to /etc/qmanager/tz.posix,
+# which cgi_base.sh exports as TZ for every CGI process (busybox here ignores
+# /etc/TZ, so the env var is the only mechanism that actually works).
+if [ -z "$src" ]; then
+    posix_tz="${2:-}"
+    if [ -n "$posix_tz" ]; then
+        case "$posix_tz" in
+            # Reject anything that is not a plain POSIX TZ token. A crafted
+            # value cannot execute code through TZ, but it can point at a file
+            # path, and this string is written into /etc.
+            *[!A-Za-z0-9+-,:/._-]*)
+                printf '{"success":false,"error":"invalid_posix_tz","detail":"Unsafe POSIX TZ string"}\n'
+                exit 1 ;;
+        esac
+
+        printf '%s\n' "$posix_tz" > /etc/TZ 2>/dev/null || \
+            { printf '{"success":false,"error":"write_failed","detail":"/etc/TZ not writable"}\n'; exit 1; }
+
+        # State dir for cgi_base.sh to read. /etc/qmanager exists post-install;
+        # tolerate its absence rather than failing the apply.
+        [ -d /etc/qmanager ] && printf '%s\n' "$posix_tz" > /etc/qmanager/tz.posix 2>/dev/null
+
+        printf '{"success":true,"zonename":"%s","source":"posix_tz","tz":"%s"}\n' "$zn" "$posix_tz"
+        exit 0
+    fi
+
+    printf '{"success":false,"error":"zone_not_found","detail":"No zoneinfo data for %s and no POSIX TZ supplied"}\n' "$zn"
+    exit 1
+fi
 
 # Magic-byte check — the real security backstop. Confirms the resolved path
 # is an actual TZif file (not, say, a traversal target or arbitrary file).

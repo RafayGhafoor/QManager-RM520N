@@ -115,7 +115,7 @@ bun run build            # static export -> out/   (no SSR; the device cannot ru
 sh deploy/qm_pathfix.sh       # rewrite /usr/lib/qmanager -> /usrdata/qmanager/lib
 sh deploy/qm_boot_hook.sh     # insert the boot start-lines into turin_web.sh
 qm_serve.sh start             # busybox httpd on :8080
-systemctl restart qmanager-httpd qmanager-poller qmanager-ping
+systemctl restart qmanager-httpd qmanager-poller qmanager-ping qmanager-dpi
 ```
 
 `deploy/qm_pathfix.sh` must be re-run after **every** redeploy of the backend,
@@ -129,7 +129,9 @@ QManager owns; `/usr/bin/timeout`, `flock`, `env` etc. must stay untouched.
 curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8080/         # 200
 curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8080/setup/   # 200
 curl -s http://127.0.0.1:8080/cgi-bin/quecmanager/public/overview.sh    # JSON
-systemctl is-active qmanager-httpd qmanager-poller qmanager-ping       # active active active
+systemctl is-active qmanager-httpd qmanager-poller qmanager-ping qmanager-dpi   # all active
+systemctl is-active qmanager-dpi-ensure.timer                                  # active
+jq -r '\(.device.temperature) \(.network.carrier) \(.network.wan_ipv4)' /tmp/qmanager_status.json
 jq '.device.model, .device.temperature, .network.type, .network.carrier, .network.apn, .network.wan_ipv4' /tmp/qmanager_status.json
 # RG520N-EB, temperature C, 5G-NSA, Jazz, internet, assigned WAN IPv4
 jq '{reachable,last_rtt_ms}' /tmp/qmanager_ping.json                    # true + measured RTT
@@ -143,6 +145,12 @@ jq '{reachable,last_rtt_ms}' /tmp/qmanager_ping.json                    # true +
 #   Priority   -> GET  /cgi-bin/quecmanager/cellular/network_priority.sh
 #   Languages  -> GET  /cgi-bin/quecmanager/system/language-packs/list.sh?manifest_url=...
 #   Traffic    -> POST /cgi-bin/quecmanager/network/video_optimizer.sh {"action":"install"}
+#   Engine     -> GET  .../video_optimizer.sh?action=status   (want status=running,
+#                 domains_loaded>0, force_tcp_active=true)
+#   Clock      -> GET  .../system/settings.sh  (want timezone_applied=true and a
+#                 non-UTC effective_offset; see the tz note in deploy/README.md)
+#   SMS        -> multipart rows carry parts_received/parts_total; got<total is
+#                 normal because the modem drops segments
 # Both need a session cookie; log in via POST /cgi-bin/quecmanager/auth/login.sh
 
 # The vendor stack must still be healthy after any change:

@@ -74,7 +74,9 @@ sys_set_timezone() {
     fi
 
     # Apply to running system via the root helper (www-data cannot write /etc directly).
-    if sudo -n /usr/bin/qmanager_timezone_apply "$zn" >/dev/null 2>&1; then
+    # "$tz" is passed as the POSIX fallback: this firmware ships no tzdata, so
+    # the helper cannot install a TZif and must apply the POSIX string instead.
+    if sudo -n /usr/bin/qmanager_timezone_apply "$zn" "$tz" >/dev/null 2>&1; then
         status="applied"
     else
         status="failed"
@@ -122,7 +124,17 @@ sys_get_effective_tz() {
     if [ -n "$tzdir" ]; then
         expected_offset=$(TZDIR="$tzdir" TZ="$configured_zn" date +%z 2>/dev/null)
     else
-        expected_offset=""
+        # No tzdata on this firmware (measured: /usr/share/zoneinfo absent).
+        # Without this arm, expected_offset is ALWAYS empty, so `applied` is
+        # permanently 0 and the UI shows the clock as drifted no matter what
+        # the user picks. The stored POSIX string is enough to compute the
+        # offset busybox would use, which is what "applied" must compare.
+        local _posix_tz
+        _posix_tz=$(sys_get_timezone)
+        case "$_posix_tz" in
+            ''|UTC0|UCT0|UTC) expected_offset="+0000" ;;
+            *) expected_offset=$(TZ="$_posix_tz" date +%z 2>/dev/null) ;;
+        esac
     fi
 
     if [ -n "$expected_offset" ] && [ "$live_offset" = "$expected_offset" ]; then

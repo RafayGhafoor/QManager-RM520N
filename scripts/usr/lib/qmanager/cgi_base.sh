@@ -35,6 +35,25 @@ if [ -z "${CURL_CA_BUNDLE:-}" ] && [ -f /usrdata/qmanager/etc/cacert.pem ]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Timezone for CGI processes
+# ---------------------------------------------------------------------------
+# This firmware ships NO /usr/share/zoneinfo and its busybox ignores /etc/TZ, so
+# installing a TZif or writing /etc/TZ cannot change the clock. The TZ
+# ENVIRONMENT VARIABLE holding a POSIX string is the only mechanism that works
+# (measured: `TZ=PKT-5 date` -> "... PKT"). qmanager_timezone_apply writes that
+# string to /etc/qmanager/tz.posix on every apply; exporting it here makes every
+# CGI's `date` report local time, which is what the System Settings clock band
+# reads for its live offset/abbreviation.
+if [ -z "${TZ:-}" ] && [ -r /etc/qmanager/tz.posix ]; then
+    _qm_tz=$(cat /etc/qmanager/tz.posix 2>/dev/null)
+    case "$_qm_tz" in
+        ''|*[!A-Za-z0-9+-,:/._-]*) : ;;
+        *) TZ="$_qm_tz"; export TZ ;;
+    esac
+    unset _qm_tz
+fi
+
+# ---------------------------------------------------------------------------
 # Logging — source qlog.sh with no-op fallbacks if library is missing
 # ---------------------------------------------------------------------------
 . /usr/lib/qmanager/qlog.sh 2>/dev/null || {

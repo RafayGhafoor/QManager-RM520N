@@ -1,0 +1,21 @@
+# /etc/systemd/system/qmanager-dpi-ensure.timer
+#
+# Deployment unit for the GreenPacket O5A Pro (see deploy/README.md).
+#
+# MONOTONIC ONLY (OnBootSec + OnUnitActiveSec, never OnCalendar). This SoC has
+# no battery-backed RTC: it boots at Jan 1970 and the modem's time daemon steps
+# the clock a few seconds in, so every armed OnCalendar timer misfires twice.
+# A monotonic schedule is immune by construction. Same reason applies to the
+# auto-update timer in this deployment.
+#
+# Always armed; the payload self-gates on feature enablement.
+[Unit]
+Description=QManager Traffic Engine periodic rule re-assert
+
+[Timer]
+OnBootSec=60
+OnUnitActiveSec=60
+Unit=qmanager-dpi-ensure.service
+
+[Install]
+WantedBy=timers.target

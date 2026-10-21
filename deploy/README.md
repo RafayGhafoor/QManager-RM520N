@@ -34,6 +34,8 @@ bind-mounted along with `/etc`, `/data`, `/cache`, `/persist`). Nothing outside
 | `qmanager-httpd.service` | systemd unit: web UI. |
 | `qmanager-poller.service` | systemd unit: modem data poller (fills `/tmp/qmanager_status.json`). |
 | `qmanager-ping.service` | systemd unit: ping/reachability daemon. Fills `/tmp/qmanager_ping.json`; required for Latency Monitor and the Internet tile. |
+| `qmanager-dpi.service` | systemd unit: Traffic Engine (`tpws`). Without it the engine can be installed *and enabled* and still never run — the UI then reports `engine_start_failed` while `binary_installed` is true. |
+| `qmanager-dpi-ensure.service` / `.timer` | Re-asserts the engine's `nat REDIRECT` and the QUIC REJECT every 60 s: QCMAP flushes the nat table on each re-dial. Monotonic schedule only (no RTC on this SoC). |
 
 ## The AT path (the non-obvious part)
 
@@ -129,13 +131,25 @@ tar czf - -C deploy qmanager-httpd.service qmanager-poller.service qmanager-ping
   'tar xzf - -C /etc/systemd/system && chmod 644 /etc/systemd/system/qmanager-*.service && \
    systemctl daemon-reload && systemctl enable qmanager-httpd.service qmanager-poller.service qmanager-ping.service'
 
+# 5b. Traffic Engine units (engine + the 60s rule re-assert timer)
+tar czf - -C deploy qmanager-dpi.service qmanager-dpi-ensure.service qmanager-dpi-ensure.timer | ssh root@<device> \
+  'tar xzf - -C /etc/systemd/system && chmod 644 /etc/systemd/system/qmanager-dpi*.service /etc/systemd/system/qmanager-dpi-ensure.timer && \
+   systemctl daemon-reload && systemctl enable qmanager-dpi.service qmanager-dpi-ensure.timer'
+
 # 6. Boot wiring — `enable` alone does NOT survive this firmware's boot
 #    transaction (see qm_boot_hook.sh). This is what actually starts them.
 tar czf - -C deploy qm_boot_hook.sh | ssh root@<device> \
   'tar xzf - -C /tmp && sh /tmp/qm_boot_hook.sh'
 
 # 7. Start now (and reboot to prove the boot path)
-ssh root@<device> 'systemctl start qmanager-httpd.service qmanager-poller.service qmanager-ping.service'
+ssh root@<device> 'systemctl start qmanager-httpd.service qmanager-poller.service qmanager-ping.service qmanager-dpi.service qmanager-dpi-ensure.timer'
+
+# 8. Traffic Engine bypass hostlist
+#    qmanager_setup seeds /etc/qmanager/video_domains.txt ONLY when it does not
+#    exist, so a partially-populated file survives forever and the engine then
+#    silently bypasses almost nothing. Verify it lists the video CDNs that
+#    actually carry streams — youtube.com alone is not enough:
+ssh root@<device> 'grep -cE "^(youtube|googlevideo|ytimg|nflxvideo|fbcdn)" /etc/qmanager/video_domains.txt'   # expect >= 4
 ```
 
 Then browse to `http://<device-lan-ip>:8080/` and complete first-run setup.
@@ -185,6 +199,47 @@ systemctl show -p ActiveEnterTimestamp --value qmanager-httpd qmanager-poller
 * `qmanager-ping.service` must be deployed and started. Without it, every ping
   history sample is null, the Latency Monitor reports 100% loss, and the
   `Internet` tile can claim unreachable despite a working WAN.
+* **`qmanager-dpi.service` must be deployed too.** Upstream ships it; if it is
+  missing the Traffic Engine installs and enables but never runs, and the UI
+  reports `engine_start_failed` with `binary_installed: true`. The engine needs
+  `Environment=PATH` including `/usrdata/qmanager/bin` (its helper shells out to
+  `jq` and `iptables`, and neither `/usrdata/qmanager/bin` nor `/usr/sbin` is on
+  systemd's default PATH here).
+* **QUIC is handled separately from the engine.** `tpws` only desyncs TCP, so
+  outbound UDP/443 (QUIC) is untouched by it; the *Force TCP* toggle installs a
+  `REJECT --reject-with icmp-port-unreachable` for `-i bridge0 -p udp --dport 443`
+  in filter/FORWARD so QUIC-first apps fall back to TCP where the bypass applies.
+  Verified live with live counters on that rule (`6 packets / 7668 bytes`
+  rejected) and the vendor's `GP_HTTP2` rule sitting behind it.
+* **`/etc/qmanager/video_domains.txt` is only seeded once.** The engine bypasses
+  exactly the hosts it lists. A file that was created early with one or two
+  entries never gains the rest, so YouTube *video* (`googlevideo.com`) stays
+  unmanaged even though the engine is running. Keep the full default set
+  (`youtube.com`, `googlevideo.com`, `ytimg.com`, `ggpht.com`, `youtu.be`,
+  `fbcdn.net`, `nflxvideo.net`, ...) — the deployment had only 2 lines.
+* **Timezone: this firmware has no tzdata and its busybox ignores `/etc/TZ`.**
+  `/usr/share/zoneinfo` does not exist, so `/etc/localtime` can never be
+  installed and the old apply path failed with `zone_not_found`, leaving the
+  clock on UTC with the UI correctly reporting it as *drifted*. The only working
+  mechanism is the `TZ` environment variable holding a POSIX string
+  (`TZ=PKT-5 date` → `... PKT`). `qmanager_timezone_apply` now takes the POSIX
+  string as a second argument, writes `/etc/TZ` + `/etc/qmanager/tz.posix`, and
+  `cgi_base.sh` exports `TZ` from that file; `sys_get_effective_tz` computes the
+  expected offset from the same string when no tzdata exists. Verified:
+  set `Asia/Dubai` → `+0400/GST`, set `Asia/Karachi` → `+0500/PKT`, both `applied`.
+* **SMS multipart messages are assembled by the CGI, but only from what is still
+  stored.** The modem keeps each segment of a concatenated SMS as its own row and
+  drops some of them; `/etc/qmanager/...` is not involved. Messages therefore
+  carry `parts_received` / `parts_total`, and `parts_received < parts_total` is
+  normal (measured: several messages retain only part 2/3 or 3/3). A message that
+  looks truncated in the UI is usually a fragment whose siblings the modem no
+  longer holds — not a parser bug. Fully retained sets do reassemble (measured:
+  a 4-part message joined to 229 characters).
+* **Dashboard memory/storage are correct.** Memory is `MemTotal − MemAvailable`
+  (`/proc/meminfo`), i.e. 131 MB of 178 MB on this unit; storage is `statfs` of
+  `/usrdata` (187 MB total / 102 MB used / 81 MB free). Note `/usrdata` and
+  `/data` share the same ubifs volume, and busybox `df` mislabels that mount
+  point, so trust `statfs`/the cache rather than `df`.
 * QManager's health check has expected deployment deviations (root-run CGI,
   no lighttpd/tty/console, no firewall/setup units); see `memory.md`. Do not
   "fix" the `smd11`/dialout/sudoers checks: this deployment uses `at_mdm0` and
