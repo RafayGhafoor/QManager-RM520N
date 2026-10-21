@@ -8,6 +8,13 @@ Scope: this branch is **deployment-only**. The application code (`app/`,
 `components/`, `lib/`, `types/`, `hooks/`) tracks upstream QManager and should
 not be modified here — the product-specific work lives in `deploy/`.
 
+**One recorded exception:** the speedtest favourite-server control
+(`components/dashboard/speedtest-dialog.tsx`, `hooks/use-speedtest.ts`,
+`types/speedtest.ts`, `public/locales/en/dashboard.json`). A favourite needs a
+control in the UI, so it could not live in `deploy/` alone. Treat this as the
+only app-layer change on this branch: keep it minimal, and prefer extending the
+backend if a future need can be met without touching app code.
+
 ## Sibling project — the source of truth for device conventions
 
 `/Users/emumba/Downloads/projects/greenpacket-o5a` (repo `greenpacket-o5a`,
@@ -174,10 +181,15 @@ contention — check which `AT_DEV` the shim is using.
   for `/dev/smd11`, which never appears for CGI.
 - `/tmp/qmanager_status.json` is tmpfs — it is the poller cache and is
   regenerated on poller start. Never treat it as durable state.
-- The RG520N-EB reports LTE timing advance as **1808**, above the 3GPP TA index
-  ceiling of 1282; the poller normalises anything above 1282 by /16 (NTA -> index)
-  so the dashboard's distance formula gets what it expects. Cell Distance is blank
-  only when no timing advance has ever been read.
+- **LTE Cell Distance is intentionally blank on this firmware.** The modem reports
+  `lte_time_advance=1968` (stable across samples) while `nr5g_time_advance=25600`
+  -> ~2.0 km, and the owner confirms the tower is at most 2.5 km away. Under 3GPP
+  the LTE figure means ~9.6 km, which the ground truth rules out, and no
+  spec-justified reading of 1968 gives ~2 km (as an index it exceeds the 1282
+  ceiling; as N_TA it is 9.6 km). The raw value is published unchanged and the
+  dashboard's range check declines to render it. Do NOT reintroduce a scale factor
+  to force a plausible number — an earlier /16 guess was disproved by the owner.
+  NR distance is trustworthy and does render.
 - Shipping a UI change from this branch needs `bun install --frozen-lockfile`,
   `bun run build`, then extracting `out/` INTO `/usrdata/qmanager/www` (never
   replace that directory — `cgi-bin` lives inside it).

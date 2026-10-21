@@ -1587,20 +1587,21 @@ poll_tier2() {
     # Same reason as the NR group above: never blank a good reading on a
     # transient empty response.
 
-    # Normalise an out-of-range LTE timing advance.
+    # NOTE — the LTE timing advance from THIS firmware is not trustworthy as a
+    # plain 3GPP N_TA, so it is deliberately NOT rescaled here.
     #
-    # 3GPP TS 36.213 caps the LTE TA INDEX at 1282 (~100 km of round trip). The
-    # RG520N-EB reports 1808 here, which therefore CANNOT be an index — it is the
-    # same quantity in Ts units (NTA), where NTA = 16 x index. Both readings
-    # agree once converted: 1808/16 = 113 -> ~8.8 km, which is also exactly what
-    # NTA x 4.883 m gives. Treating it as an index instead would paint 141 km.
-    # The dashboard's own formula multiplies by 16, so hand it an index.
-    # Values already within the legal index range are left untouched (no change
-    # in behaviour for firmware that reports the index directly).
-    case "$lte_ta" in
-        ''|*[!0-9]*) : ;;
-        *) [ "$lte_ta" -gt 1282 ] && lte_ta=$(( (lte_ta + 8) / 16 )) ;;
-    esac
+    # Measured on the O5A Pro, stable across samples: lte_time_advance=1968 while
+    # nr5g_time_advance=25600. Under the standard formulas that is ~9.6 km for the
+    # LTE anchor and ~2.0 km for the NR cell. The owner confirmed the tower is at
+    # most 2.5 km away, which rules out the LTE figure, and no 3GPP-justified
+    # reading of 1968 produces ~2 km (as an index it is above the 1282 ceiling; as
+    # N_TA it is 9.6 km). An earlier revision divided values above 1282 by 16 to
+    # force a plausible number — that was a guess, and the ground truth disproved
+    # it, so it is gone. The raw value is published as-is and the dashboard's own
+    # range check decides whether it can render a distance.
+    #
+    # If a future Quectel manual documents this field, revisit here rather than
+    # reintroducing a fudge factor.
 }
 
 # =============================================================================

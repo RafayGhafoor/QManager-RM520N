@@ -230,22 +230,25 @@ The transport now drains stale bytes before each capture and strips leading blan
 
 ### Round 3 — speedtest favourite, cell distance
 
-- **Cell Distance (LTE) was blank for two independent reasons.** (a) The poller's
-  Tier-2 group 3 had an `else lte_ta=""` branch, so ANY transient empty AT reply
-  (lock timeout, dropped command) erased a good reading until the next Tier 2
-  pass, 15 cycles later. Removed for both the LTE and NR groups: an empty reply
-  is "no answer", not "this cell has no timing advance", and the UI already gates
-  these figures on `modem_reachable`. (b) The value the RG520N-EB reports is
-  **1808**, while 3GPP TS 36.213 caps the TA *index* at 1282 — so it cannot be an
-  index; it is the same quantity in Ts (NTA = 16 x index). The dashboard formula
-  multiplies by 16, so the poller now normalises values above 1282 by dividing by
-  16 (1808 -> 113). Both readings agree once converted (~8.8 km), and treating it
-  as an index would have painted 141 km. Values already inside the legal index
-  range are untouched, so firmware that reports an index is unaffected. Live:
-  `.lte.ta=113` (~8.8 km) and `.nr.ta=29696` (~2.3 km).
-  The exact unit of `lte_time_advance` is NOT documented in the material found
-  online; the 1282 ceiling is what makes the inference safe. If a future manual
-  contradicts it, revisit the normalisation rather than the formula.
+- **Cell Distance: the NR figure is good, the LTE figure is not.** Two separate
+  findings. (a) A real bug, fixed: Tier-2 group 3 had `else lte_ta=""`, so any
+  single empty AT reply (lock timeout, dropped command) erased a good reading
+  until the next Tier 2 pass, 15 cycles later. Removed for both the LTE and NR
+  groups — an empty reply means "no answer", not "no timing advance", and the UI
+  already gates these on `modem_reachable`. (b) The LTE *value* is unusable on
+  this firmware. Measured stable across samples: `lte_time_advance=1968`,
+  `nr5g_time_advance=25600-26112`. Under 3GPP that is ~9.6 km (LTE) vs ~2.0 km
+  (NR), and the owner confirmed the tower is at most 2.5 km away — so the NR
+  reading is right and the LTE one cannot be. No spec-justified reading of 1968
+  yields ~2 km: as a TA index it exceeds the 1282 ceiling, as N_TA it is 9.6 km.
+  An intermediate revision divided values above 1282 by 16 (1968 -> 123) to force
+  a plausible ~9.6 km, which the ground truth disproved; that guess has been
+  reverted. The poller now publishes the raw value and the dashboard's own range
+  check declines to render it, so LTE distance shows blank while NR renders ~2 km.
+  Revisit only with a Quectel manual for `lte_time_advance`; do not add a fudge
+  factor. (Aside: 1968 happens to be almost exactly the NR distance in metres,
+  which is a coincidence worth remembering if a manual ever suggests the field is
+  a distance rather than a timing offset.)
 - **Speedtest favourite server.** `speedtest_servers.sh` now accepts POST
   `{action:"set_favourite"|"clear_favourite"}` and returns `favourite` alongside
   the list; it is persisted as `speedtest.favourite_id` / `favourite_name` in
