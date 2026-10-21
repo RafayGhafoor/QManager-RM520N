@@ -1,0 +1,33 @@
+[Unit]
+Description=QManager AT Broker (Rust) — owns /dev/at_mdm0, serialises AT
+Documentation=https://github.com/RafayGhafoor/QManager-RM520N
+# The broker must own the port before anything polls it, so a caller's FIRST
+# AT call already goes through the socket instead of racing a cold broker.
+# Upstream expresses the same ordering as START=98 vs the poller's 99.
+Before=qmanager-poller.service
+StartLimitIntervalSec=3600
+# Same reasoning as the poller: this firmware SIGTERMs services during
+# memory-pressure sweeps, and a broker parked in `failed` for an hour would
+# point every AT caller at an absent socket. It must keep coming back.
+StartLimitBurst=20
+
+[Service]
+Type=simple
+Environment=PATH=/usrdata/qmanager/bin:/usr/bin:/bin:/sbin:/usr/sbin
+# The AT device is compiled with an /dev/at_mdm0 default and honours AT_DEV, the
+# same variable deploy/atcli_smd11 uses. Set it explicitly so the deployment
+# states the port rather than inheriting it.
+Environment=AT_DEV=/dev/at_mdm0
+ExecStart=/usrdata/qmanager/bin/qmanager_atd
+# It opens the AT port and binds a root-only socket; a failure here is real.
+Restart=always
+RestartSec=5s
+TimeoutStopSec=10
+# The socket lives in /var/run (tmpfs, verified writable on this device). It is
+# removed on stop so a stopped broker is never mistaken for a live one.
+ExecStopPost=/bin/rm -f /var/run/qmanager_atd.sock /var/run/qmanager_atd.proto /var/run/qmanager_atd.proto.new
+# Hard rule 9: this unit must NOT be enabled by default. The broker is an
+# opt-in transport until it has been smoke-tested on the unit it runs on —
+# see docs/reference/at-broker.md "Enabling it on the O5A".
+[Install]
+WantedBy=multi-user.target

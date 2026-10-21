@@ -380,3 +380,33 @@ Verified after the switch: live view returns 11 cells with serving PCI 104 /
 `registered: true` / carrier Jazz using only the shipped copy, `.phy` populates after
 its first Tier-3 cycle (~2 min after a poller restart — it is 15 cycles, not 15 s),
 and the vendor `/data/gp/qmi/bin` is untouched.
+
+## Added 2026-10-22 (later) — the Rust AT broker: built, NOT deployed
+
+`native/qmanager_atd/` is the Rust AT broker ported from the owner's
+`suncomm-x75-live-neighbours` branch, plus `deploy/qmanager-atd.service`.
+**Nothing is installed or running on the device** — this records the state so the
+next session does not assume otherwise.
+
+| Item | State |
+| --- | --- |
+| Source | vendored, 16 modules, ~7,300 lines, `libc` only |
+| Built artifact | `armv7-unknown-linux-musleabihf`, **513,000 B**, static, stripped, no `INTERP`, `qmanager_atd 0.2.0 proto=2` |
+| O5A deltas | `AT_DEV` → `/dev/at_mdm0`; lock → `/tmp/qmanager_at.lock`; pid → `/tmp/qmanager_at.pid`; lock mode 0666; lock waits **20/45 s**; `BUILTIN_LONG` trimmed to QSCAN/QSCANFREQ/QFOTADL; restart via `systemctl restart qmanager-atd.service` |
+| On the device | **nothing.** No binary, no unit, no symlink, no socket |
+| `qcmd` | still the shell gatekeeper — unchanged, and CGIs must stay on it (the Rust client's `ERROR` returns rc 0, not 1) |
+| `qsms` | **must not be installed here** — SMS stays on `/dev/smd7` via `bin/sms_tool` under the vendor radio lock |
+| Boot hook | deliberately **not** added, because the unit is opt-in; it becomes mandatory with a proven reboot once adopted |
+
+Why it is not deployed: the unit left the network (the workstation moved to
+192.168.6.x / 192.168.88.x) before the binary could be shipped, so the smoke test,
+the socket gate and the after-benchmark never ran. Enablement procedure and the
+gate that must pass first: `docs/reference/at-broker.md` §"Enabling it on the O5A".
+
+Baseline captured **before** any deploy, so the "before" is not lost (60 s window,
+idle, no scan, `/proc`-only harness incl. reaped children): box **66.16 %** of one
+core, `qmanager_poller` **16.90 %**, `qmanager_ping` **2.27 %**, **113 forks/s**,
+QManager RSS **3.4 MB**, device memory used **133 MB** of 182 MB.
+Toolchain note: this crate needs `rustup` + `armv7-unknown-linux-musleabihf`;
+Homebrew `cargo` alone has no cross target. Host `cargo test` cannot run on macOS
+(Linux-only `libc::SO_PEERCRED`) — the gate is a cross-build plus an on-device run.

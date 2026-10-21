@@ -99,6 +99,14 @@ already caused a failed install:
    exception: `bin/sms_tool` wraps the vendored binary, defaults
    the device to `/dev/smd7`, and takes the vendor radio lock itself, because
    SMS storage is not visible on at_mdm0.
+
+   **The Rust broker is a second writer on the same lock, not a second lock.**
+   `native/qmanager_atd` is compiled against `/tmp/qmanager_at.lock` and opens the
+   device from `AT_DEV` (default `/dev/at_mdm0`), so `qcmd`-and-broker serialise
+   correctly. If it is ever changed to a different lock path, every caller above
+   stops serialising with it and this rule is broken. Its `qsms` mode is **not**
+   installed here: it uses the AT device, and SMS must stay on `/dev/smd7` under
+   the vendor radio lock. See [`docs/reference/at-broker.md`](./docs/reference/at-broker.md).
 4. **Do not "fix" the remaining health-check failures.** `perm.smd11`,
    `perm.www_dialout`, `sudo.list`, `svc.lighttpd`, `net.lighttpd_listen`,
    `svc.console`/`bin.ttyd`, `svc.firewall` and `svc.setup` are expected
@@ -241,6 +249,36 @@ Rules that make the pair meaningful:
    constants are measured: `/bin/true` costs 2.40 ms (RM520N-GL) / 4.95 ms
    (RG501Q-EU), and `jq` costs 4.3x a normal applet. At 1 Hz, 30 extra forks/second
    is a real cost — say what it is.
+
+### 1a. Any change made *for performance* is unmeasured until both numbers exist
+
+This is the version of rule 1 that applies outside a new feature, and it is
+mandatory, not preferred. Fork removal, a `jq` → `printf` rewrite, a cache/TTL, a
+new binary on a hot path, a cadence change — each is a **performance change** and
+ships with:
+
+- **Before and after, captured with the same harness, on the same unit, over the
+  same window, under the same conditions.** No after-number without a
+  before-number, and no figure carried over from another run or another device.
+- **CPU as a share of one core, memory in kB/MB, and the delta** — plus, for
+  anything that changes process creation, the **fork rate**
+  (`/proc/stat`'s `processes` counter over the window). Fork rate is the metric a
+  transport change actually moves; aggregate CPU also moves for unrelated reasons
+  and must not be used as a proxy for it.
+- **A row in the benchmark table of the plan and the reference doc**, in the same
+  commit as the change. A commit that makes something faster and does not say by
+  how much is an opinion, and the next agent cannot tell a regression from an
+  improvement.
+- **The honest caveat when the win does not transfer.** Upstream measured one `jq`
+  at 150-200 ms on its SoC; it is **11.1 ms** here
+  ([`poller-cpu-profile.md`](./docs/reference/poller-cpu-profile.md)). Port a
+  "1096 -> 66 ms" commit verbatim and the real effect is ~35 -> ~5 ms. Port the
+  mechanism, re-measure the magnitude, and record ours — never quote theirs.
+
+If the device is unreachable and the "after" cannot be taken, the change may be
+built and reviewed but **must be labelled unmeasured** in its docs and must not be
+enabled by default on the device. `docs/reference/at-broker.md` is the worked
+example of that state.
 
 ### 2. Edge cases are validated at close-out, not up front
 

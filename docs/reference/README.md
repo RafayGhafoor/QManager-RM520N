@@ -90,6 +90,7 @@ This file is the **router**. One row per reference doc, and each row lists only 
 
 | Doc | Triggers | Scope |
 | --- | --- | --- |
+| [at-broker.md](at-broker.md) | `qmanager_atd`, `native/qmanager_atd/`, `qcmd`/`qsms` as one binary under three names, `AT_DEV`, `/var/run/qmanager_atd.sock` / `.proto`, `deploy/qmanager-atd.service`, the socket→in-process fallback, the broker's rc-vs-text `ERROR` contract, or any change to the AT lock path | RG520N |
 | [at-command-transport.md](at-command-transport.md) | Any AT path — `atcli_smd11`, `qcmd`, `/dev/smd11`, `/tmp/qmanager_at.lock`, `sms_tool`, `flock` serialization, detecting a `qcmd` failure, AT URCs and `AT+QURCCFG` | Both |
 | [auth-rate-limiting.md](auth-rate-limiting.md) | `cgi_auth.sh`, `auth/check.sh`, `qm_get_rate_limit_status`, `/tmp/qmanager_auth_attempts.json`, the login lockout ladder | RM520N |
 | [gui-installer.md](gui-installer.md) | `installer-gui/`, `bridge.py`, `core/dpapi.py`, `prefs.py`, `wrap_command`, `__QM_RC=`, `stage_payload`, `tokens.css`, the frozen PyInstaller build | Both |

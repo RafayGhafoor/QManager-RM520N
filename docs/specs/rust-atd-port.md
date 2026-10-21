@@ -1,10 +1,45 @@
 # SPEC: port upstream's Rust `qmanager_atd` to the O5A
 
-**Status:** Proposal, 2026-10-22. **Blocked on two owner decisions** (§Decisions).
+**Status:** Proposal, 2026-10-22. **D1 and D2 are now RESOLVED and the port is
+built** — see `§Resolution` below and
+[`../reference/at-broker.md`](../reference/at-broker.md) (the built subsystem) and
+[`../plans/2026-10-22-x75-sync.md`](../plans/2026-10-22-x75-sync.md) (the work
+record). Device verification is still outstanding.
 **Supersedes:** [`go-at-collector.md`](./go-at-collector.md) — writing a Go collector
 next to an existing tested Rust one is duplicate effort.
 **Coverage companion:** [`go-at-collector-coverage.md`](./go-at-collector-coverage.md)
 — still valid; it describes **output parity**, not language.
+
+## §Resolution (2026-10-22, after reading the implementation)
+
+The proposal above was written from upstream's *source*, before this branch could
+see it running. Four of its assumptions did not survive contact with the code.
+They are corrected here rather than edited away, because a port that repeats them
+will fail the same way.
+
+1. **D1 → option B, confirmed for a reason the spec did not know.** The Rust
+   client returns **rc 0 with `ERROR` in stdout**; this deployment's `qcmd`
+   contract is **rc 1 with empty stdout**. Option A would make ~40 callers report
+   rejected writes as applied. The *poller* is safe because `qcmd_exec()` tests
+   `$?` and then text-matches `*ERROR*`, so it lands on the same branch either
+   way. That asymmetry is what makes B correct rather than merely cautious.
+2. **There is no engine switch to read.** Upstream shipped a two-engine
+   `quecmanager.at.engine` setting and then deleted it (`5cd87391`): `qcmd` is
+   unconditionally a symlink to `qmanager_atd`. So the deployment selects the
+   transport by **which file the symlink points at**, with **no frontend change
+   at all** — which is what keeps this inside this branch's scope rule.
+3. **The target was wrong.** The committed binary is **aarch64**; this device is
+   `armv7l`. The port needed a new `armv7-unknown-linux-musleabihf` target, and
+   the binary is **513 KB, not ~200 KB**, with **16 modules, not 13**.
+4. **The parity corpus cannot be the acceptance test (R5).** `tests/parity/`
+   exercises `parse.rs`, which is compile-dead in the shipped binary and has no
+   `--parse-only` mode to drive it. R5 is therefore met by an on-device
+   before/after **command** table, not by `expected.txt`.
+
+Also settled by probe: `/var/lock` **is** writable on this device, so moving the
+lock to `/tmp/qmanager_at.lock` is a *serialisation* requirement (joining the ~40
+existing callers), not a filesystem workaround. R2's termios concern is moot — the
+crate never calls termios.
 
 ## Background
 

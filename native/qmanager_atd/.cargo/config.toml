@@ -1,0 +1,17 @@
+# Static musl targets only: musl ships self-contained CRT objects, so rust-lld
+# links a fully static binary without needing a cross gcc.
+#
+# The upstream device (Suncomm X75, RM551E-GL) is aarch64. The GreenPacket O5A
+# Pro (RG520N-EB, SDX6X) is 32-bit: `uname -m` reports `armv7l`, and both
+# binaries already committed for it (`dependencies/atcli_smd11`,
+# `dependencies/sms_tool`) are ELF 32-bit ARM EABI5. Hence the extra stanza.
+#
+# No `[build] target` is set on purpose: pinning a default here would break
+# `cargo test` on the host, which is how the parity and unit tests run.
+[target.aarch64-unknown-linux-musl]
+linker = "rust-lld"
+rustflags = ["-C", "target-feature=+crt-static"]
+
+[target.armv7-unknown-linux-musleabihf]
+linker = "rust-lld"
+rustflags = ["-C", "target-feature=+crt-static"]

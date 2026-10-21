@@ -1537,6 +1537,24 @@ Notes that matter for a port:
   entire compound response on `*ERROR*`, so keep groups small.
 - **Unverified on RM520N-GL.** Do not assume either presence or absence there; re-probe.
 
+### RG520N-EB (GreenPacket O5A Pro) — platform facts a port must not assume
+
+Measured 2026-10-22 on the O5A Pro. Each of these decides whether a fix written
+for another unit is a **fix**, a **no-op**, or a **regression** here.
+
+| Fact | RG520N-EB (O5A Pro) | Why it matters |
+| --- | --- | --- |
+| Architecture | **`armv7l`** (32-bit), kernel `5.4.210-perf`, 1 core | Upstream binaries are `aarch64`. `dependencies/atcli_smd11` and `sms_tool` are ELF 32-bit ARM EABI5, so any new native binary needs `armv7-unknown-linux-musleabihf` |
+| `CONFIG_HZ` | **100** (measured: 1973 ticks / 20.06 s of `/proc/uptime`) | A CPU-utilisation formula must use 100, **not** upstream's 250 — otherwise every published percentage is 2.5× wrong |
+| Thermal zones | **42 zones, none named `cpu-thermal`** — `modem-*`, `mdmss-*`, `cpuss-*`, `aoss-*`, `pmx65_tz`, values in millidegrees with `-273000` as the absent sentinel | A fix that adds `cpu-thermal` to the allowlist is inert here, and this branch deliberately filters to `modem-*` |
+| `/var/lock` writable | **yes** | So the AT lock living in `/tmp` is a *serialisation* requirement, not a filesystem one. Do not "simplify" it back to `/var/lock` |
+| `/var/run`, `/run`, `/tmp` writable | **all yes** | A unix socket in `/var/run` is viable |
+| `/etc/TZ` present | **yes** | musl's local-time path works for a static binary |
+| `tr -d '[:space:]'` | **expands the class correctly** (prints `abc`) | The `' \t\r\n'` rewrite is a no-op here; this BusyBox is not affected |
+| `stat` applet | **present at `/bin/stat`**, `stat -c %Y` / `stat -c '%a'` work | `date -r` rewrites are no-ops; there is **no** latent `stat` defect here, unlike the X75 |
+| `date -r FILE +%s` | **works** | as above |
+| `awk` `x = x (cond) a` | **BROKEN — "Call to undefined function"** | A real hazard on this busybox awk, already documented and avoided twice in this tree (`phy_metrics.sh:391`, `qmi_read.sh:275`). Build the separator into its own variable |
+
 ### ⚠️ `+CGCONTRDP` is quoted on SDX65 and bare on SDX55 — and only `+CGCONTRDP`
 
 **Short version: the same AT command, on the same SIM, wraps its fields in double
