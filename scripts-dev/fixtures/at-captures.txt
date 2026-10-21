@@ -1,0 +1,62 @@
+### AT+QENG="servingcell"
++QENG: "servingcell","NOCONN"
++QENG: "LTE","FDD",410,01,2E38917,104,250,1,3,3,D857,-77,-6,-55,17,11,190,-
++QENG: "NR5G-NSA",410,01,47,-60,26,-11,509070,41,7,1
+
+OK
+### AT+QCAINFO
++QCAINFO: "PCC",250,50,"LTE BAND 1",1,104,-77,-6,-56,15
++QCAINFO: "SCC",1850,100,"LTE BAND 3",1,104,-76,-20,-47,0,0,-,-
++QCAINFO: "SCC",509070,7,"NR5G BAND 41",47,-67,-11,2576
+
+OK
+### AT+QNWCFG="lte_csi"
++QNWCFG: "lte_csi",1,0,10,0
+
+OK
+### AT+QNWCFG="nr5g_csi"
++QNWCFG: "nr5g_csi",0,2,14,39
+
+OK
+### AT+QNWCFG="lte_ulMCS"
++QNWCFG: "lte_ulMCS",1,28,3
+
+OK
+### AT+QNWCFG="nr5g_dlMCS"
+ERROR: command_failed
+### AT+QNWCFG="nr5g_mimo_layers"
++QNWCFG: "nr5g_mimo_layers",1,2
+
+OK
+### AT+QNWCFG="rrc_state"
++QNWCFG: "rrc_state",1,"LTE",4
+
+OK
+### AT+QNWCFG="nr5g_tx_pwr"
++QNWCFG: "nr5g_tx_pwr",1,4,-11,11,-11
+
+OK
+### AT+QNWCFG="ssb_beam_id"
++QNWCFG: "ssb_beam_id",1,6,6,-67,-11,47
++QNWCFG: "ssb_beam_id",1,6,5,-71,-11,47
++QNWCFG: "ssb_beam_id",1,6,4,-80,-11,47
++QNWCFG: "ssb_beam_id",1,6,0,-83,-14,47
++QNWCFG: "ssb_beam_id",1,6,0,-86,-14,45
++QNWCFG: "ssb_beam_id",1,6,0,-88,-18,49
++QNWCFG: "ssb_beam_id",1,6,4,-95,-22,59
+
+OK
+### AT+QTEMP
+ERROR: command_failed
+### AT+CGMM
+ERROR: command_failed
+### AT+QRSRP;+QRSRQ;+QSINR
++QRSRP: -88,-77,-140,-140,LTE
++QRSRP: -67,-69,-67,-60,NR5G
+
++QRSRQ: -10,-10,-10,-10,NR5G
+
++QSINR: 4,14,-32768,-32768,LTE
++QSINR: 24,26,-20,-20,NR5G
+
+OK
