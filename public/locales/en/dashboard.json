@@ -313,7 +313,9 @@
     "time_minutes_ago": "{{count}} min ago",
     "time_hours_ago": "{{count}} hr ago",
     "time_days_ago": "{{count}} d ago",
-    "server_option": "{{name}} — {{location}}, {{country}}"
+    "server_option": "{{name}} — {{location}}, {{country}}",
+    "favourite_aria": "Pin this server for future speed tests",
+    "favourite_pinned_note": "Pinned server is used automatically"
   },
   "ca": {
     "title": "Carrier Aggregation",

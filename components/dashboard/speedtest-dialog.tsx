@@ -370,6 +370,8 @@ function IdleBody({
   serversError,
   onSelectServer,
   onRefreshServers,
+  favouriteServer,
+  onToggleFavourite,
   onStart,
 }: {
   t: (key: string, opts?: Record<string, unknown>) => string;
@@ -380,6 +382,8 @@ function IdleBody({
   serversError: boolean;
   onSelectServer: (id: number | null) => void;
   onRefreshServers: () => void;
+  favouriteServer: { id: number; name: string } | null;
+  onToggleFavourite: (id: number, name: string) => void;
   onStart: () => void;
 }) {
   // `isAvailable === null` is the availability check still in flight. The CTA
@@ -495,6 +499,9 @@ function IdleBody({
                 selected={selectedServer === null}
                 label={t("speedtest.server_automatic")}
                 onSelect={() => onSelectServer(null)}
+                isFavourite={false}
+                onToggleFavourite={() => onToggleFavourite(-1, "")}
+                favouriteLabel={t("speedtest.server_automatic")}
               />
               {servers.map((s) => (
                 <ServerOption
@@ -506,6 +513,18 @@ function IdleBody({
                     country: s.country,
                   })}
                   onSelect={() => onSelectServer(s.id)}
+                  isFavourite={favouriteServer?.id === s.id}
+                  onToggleFavourite={() =>
+                    onToggleFavourite(
+                      s.id,
+                      t("speedtest.server_option", {
+                        name: s.name,
+                        location: s.location,
+                        country: s.country,
+                      }),
+                    )
+                  }
+                  favouriteLabel={t("speedtest.favourite_aria")}
                 />
               ))}
             </DropdownMenuContent>
@@ -551,10 +570,16 @@ function ServerOption({
   selected,
   label,
   onSelect,
+  isFavourite,
+  onToggleFavourite,
+  favouriteLabel,
 }: {
   selected: boolean;
   label: string;
   onSelect: () => void;
+  isFavourite: boolean;
+  onToggleFavourite: () => void;
+  favouriteLabel: string;
 }) {
   return (
     <DropdownMenuItem
@@ -562,6 +587,38 @@ function ServerOption({
       className="rounded-field gap-2 px-3 py-2 text-[13px]"
     >
       <span className="min-w-0 flex-1 truncate">{label}</span>
+      {/*
+        The star lives INSIDE the menu item but must not select it, so the click
+        is stopped here. Pinning is what makes the next run reuse this server
+        without opening the picker at all (the device falls back to the pinned
+        id when a start request carries none).
+      */}
+      <button
+        type="button"
+        aria-label={favouriteLabel}
+        aria-pressed={isFavourite}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onToggleFavourite();
+        }}
+        onPointerDown={(e) => e.stopPropagation()}
+        className={cn(
+          "grid size-[22px] flex-none place-items-center rounded-pill transition-colors duration-[var(--duration-quick)] ease-out",
+          isFavourite
+            ? "text-primary"
+            : "text-on-surface-variant hover:text-on-surface",
+        )}
+      >
+        {/* "favorite" is the star in the shipped Material subset; a plain
+            "star" is not in the icon font and would render as nothing. */}
+        <MaterialSymbol
+          name="favorite"
+          size={15}
+          filled={isFavourite}
+          className={cn(!isFavourite && "opacity-60")}
+        />
+      </button>
       {selected ? (
         <MaterialSymbol
           name="check"
@@ -1058,6 +1115,8 @@ export function SpeedtestDialog({ open, onOpenChange }: SpeedtestDialogProps) {
     refreshStatus,
     fetchServers,
     setSelectedServer,
+    favouriteServer,
+    setFavouriteServer,
   } = useSpeedtest();
 
   // On open: re-attach to any run already in flight, and refresh the list.
@@ -1201,6 +1260,13 @@ export function SpeedtestDialog({ open, onOpenChange }: SpeedtestDialogProps) {
                 serversError={serversError}
                 onSelectServer={setSelectedServer}
                 onRefreshServers={fetchServers}
+                favouriteServer={favouriteServer}
+                onToggleFavourite={(id, name) =>
+                  setFavouriteServer(
+                    favouriteServer?.id === id ? null : id,
+                    name,
+                  )
+                }
                 onStart={start}
               />
             ) : null}

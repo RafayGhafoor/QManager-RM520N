@@ -160,8 +160,20 @@ export interface SpeedtestCheckResponse {
 export interface SpeedtestServersResponse {
   success: boolean;
   servers?: SpeedtestServerEntry[];
+  /**
+   * The server the user pinned, or null. Persisted device-side, so the same
+   * server is used on every later run without re-picking it — the backend also
+   * falls back to it when a start request carries no server_id.
+   */
+  favourite?: SpeedtestFavourite;
   error?: string;
   detail?: string;
+}
+
+/** A pinned speedtest server. `name` is the label shown back to the user. */
+export interface SpeedtestFavourite {
+  id: number;
+  name: string;
 }
 
 /** POST /cgi-bin/.../speedtest_start.sh */

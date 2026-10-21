@@ -9,6 +9,7 @@ import type {
   SpeedtestProgressLine,
   SpeedtestServerEntry,
   SpeedtestServersResponse,
+  SpeedtestFavourite,
 } from "@/types/speedtest";
 
 // =============================================================================
@@ -130,6 +131,14 @@ export interface UseSpeedtestReturn {
   fetchServers: () => Promise<void>;
   /** Set server selection (null = automatic) */
   setSelectedServer: (id: number | null) => void;
+  /** The pinned server, or null when the user has not pinned one */
+  favouriteServer: SpeedtestFavourite | null;
+  /**
+   * Pin or unpin a server. Passing null clears the favourite. Persisted on the
+   * device, and the backend uses it automatically when a start request carries
+   * no server_id, so a pinned server is reused even from another browser.
+   */
+  setFavouriteServer: (id: number | null, name?: string) => Promise<void>;
 }
 
 export function useSpeedtest(
@@ -148,6 +157,8 @@ export function useSpeedtest(
   const [phaseFigures, setPhaseFigures] = useState<SpeedtestPhaseFigures>({});
   const [servers, setServers] = useState<SpeedtestServerEntry[]>([]);
   const [selectedServer, setSelectedServer] = useState<number | null>(null);
+  const [favouriteServer, setFavouriteServerState] =
+    useState<SpeedtestFavourite | null>(null);
   const [isLoadingServers, setIsLoadingServers] = useState(false);
   const [serversError, setServersError] = useState(false);
 
@@ -223,6 +234,12 @@ export function useSpeedtest(
       if (!mountedRef.current) return;
       if (data.success && data.servers) {
         setServers(data.servers);
+        // A pinned server becomes the effective selection, which is the whole
+        // point of pinning it: the next run reuses it without the user opening
+        // this list. An explicit choice made in this session still wins.
+        const fav = data.favourite ?? null;
+        setFavouriteServerState(fav);
+        if (fav) setSelectedServer((cur) => (cur === null ? fav.id : cur));
       } else {
         setServersError(true);
       }
@@ -232,6 +249,40 @@ export function useSpeedtest(
       if (mountedRef.current) setIsLoadingServers(false);
     }
   }, []);
+
+  // ---------------------------------------------------------------------------
+  // Favourite server
+  //
+  // The star flips locally only after the device confirms, because a star that
+  // silently failed to persist would lie about the next run using that server.
+  // ---------------------------------------------------------------------------
+  const setFavouriteServer = useCallback(
+    async (id: number | null, name?: string) => {
+      try {
+        const body =
+          id === null
+            ? { action: "clear_favourite" }
+            : { action: "set_favourite", server_id: id, name: name ?? "" };
+        const resp = await authFetch(`${CGI_BASE}/speedtest_servers.sh`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        if (!resp.ok) return;
+        const data = await resp.json();
+        if (!data?.success || !mountedRef.current) return;
+        const next: SpeedtestFavourite | null = data.favourite ?? null;
+        setFavouriteServerState(next);
+        // Pinning selects it immediately; unpinning falls back to automatic
+        // rather than leaving a now-unpinned id as the selection.
+        if (next) setSelectedServer(next.id);
+        else setSelectedServer((cur) => (cur === id ? null : cur));
+      } catch {
+        /* leave the previous state: the device is the source of truth */
+      }
+    },
+    [],
+  );
 
   // ---------------------------------------------------------------------------
   // Phase application, with the ping floor
@@ -493,6 +544,8 @@ export function useSpeedtest(
     refreshStatus,
     fetchServers,
     setSelectedServer,
+    favouriteServer,
+    setFavouriteServer,
   };
 }
 

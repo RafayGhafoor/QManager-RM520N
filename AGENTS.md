@@ -140,7 +140,9 @@ jq '{reachable,last_rtt_ms}' /tmp/qmanager_ping.json                    # true +
 /usrdata/qmanager/bin/qcmd 'AT+CGMM'                                     # RG520N-EB + OK
 
 # Feature-level checks (these are the ones that broke before):
-#   Speed Test -> GET  /cgi-bin/quecmanager/at_cmd/speedtest_servers.sh   (needs Ookla)
+#   Speed Test -> GET  /cgi-bin/quecmanager/at_cmd/speedtest_servers.sh   (needs Ookla;
+#                 returns `favourite` too — POST {action:"set_favourite"|"clear_favourite"}
+#                 pins a server, and speedtest_start.sh reuses it when no server_id is sent)
 #   SMS        -> GET  /cgi-bin/quecmanager/cellular/sms.sh               (needs sms_tool;
 #                 multipart rows carry parts_received/parts_total, and got<total is
 #                 normal because the modem drops segments)
@@ -172,6 +174,13 @@ contention — check which `AT_DEV` the shim is using.
   for `/dev/smd11`, which never appears for CGI.
 - `/tmp/qmanager_status.json` is tmpfs — it is the poller cache and is
   regenerated on poller start. Never treat it as durable state.
+- The RG520N-EB reports LTE timing advance as **1808**, above the 3GPP TA index
+  ceiling of 1282; the poller normalises anything above 1282 by /16 (NTA -> index)
+  so the dashboard's distance formula gets what it expects. Cell Distance is blank
+  only when no timing advance has ever been read.
+- Shipping a UI change from this branch needs `bun install --frozen-lockfile`,
+  `bun run build`, then extracting `out/` INTO `/usrdata/qmanager/www` (never
+  replace that directory — `cgi-bin` lives inside it).
 - `device/about` and Connection Details use the kernel-derived `bridge0` LAN
   gateway, default-route WAN address, and public-IP probe. The modem identification
   remains truthful (`Quectel RG520N-EB`); product branding belongs in the

@@ -1565,9 +1565,12 @@ poll_tier2() {
     if [ -n "$result" ]; then
         parse_time_advance "$result"
         parse_mimo "" "$result"
-    else
-        nr_ta=""
     fi
+    # NO else-branch resetting nr_ta to "". An empty result means the modem did
+    # not answer (AT lock timeout or a dropped command), which is NOT the same as
+    # "this cell has no timing advance". Clearing it blanked the dashboard's Cell
+    # Distance rows until the next Tier 2 pass (15 cycles). The UI already gates
+    # these figures on modem_reachable, so a stale-but-real value is correct.
     sleep "$SIP_DELAY"
 
     # --- Group 3: LTE timing + MIMO ---
@@ -1580,9 +1583,24 @@ poll_tier2() {
     if [ -n "$result" ]; then
         parse_time_advance "$result"
         parse_mimo "$result" ""
-    else
-        lte_ta=""
     fi
+    # Same reason as the NR group above: never blank a good reading on a
+    # transient empty response.
+
+    # Normalise an out-of-range LTE timing advance.
+    #
+    # 3GPP TS 36.213 caps the LTE TA INDEX at 1282 (~100 km of round trip). The
+    # RG520N-EB reports 1808 here, which therefore CANNOT be an index — it is the
+    # same quantity in Ts units (NTA), where NTA = 16 x index. Both readings
+    # agree once converted: 1808/16 = 113 -> ~8.8 km, which is also exactly what
+    # NTA x 4.883 m gives. Treating it as an index instead would paint 141 km.
+    # The dashboard's own formula multiplies by 16, so hand it an index.
+    # Values already within the legal index range are left untouched (no change
+    # in behaviour for firmware that reports the index directly).
+    case "$lte_ta" in
+        ''|*[!0-9]*) : ;;
+        *) [ "$lte_ta" -gt 1282 ] && lte_ta=$(( (lte_ta + 8) / 16 )) ;;
+    esac
 }
 
 # =============================================================================

@@ -228,6 +228,51 @@ The transport now drains stale bytes before each capture and strips leading blan
 - **Engine verification:** the built-in `verify` action completes through the bypass (55.8 Mbps without → 51.9 Mbps with, `throttled: false`) — the path works, and this carrier showed no throttling to defeat.
 - **Device clock was unreachable by design on this firmware:** there is no `/usr/share/zoneinfo` at all and busybox ignores `/etc/TZ`, so `qmanager_timezone_apply` always failed `zone_not_found` and `/etc/localtime` was never created; the UI correctly showed the zone as *drifted* on UTC. Fixed by applying the POSIX string the config already stores: the helper accepts it as a second argument and writes `/etc/TZ` + `/etc/qmanager/tz.posix`, `cgi_base.sh` exports `TZ`, and `sys_get_effective_tz` derives the expected offset from it instead of from missing tzdata. Verified `Asia/Dubai` → `+0400/GST` and back to `Asia/Karachi` → `+0500/PKT`, both `applied: true`.
 
+### Round 3 — speedtest favourite, cell distance
+
+- **Cell Distance (LTE) was blank for two independent reasons.** (a) The poller's
+  Tier-2 group 3 had an `else lte_ta=""` branch, so ANY transient empty AT reply
+  (lock timeout, dropped command) erased a good reading until the next Tier 2
+  pass, 15 cycles later. Removed for both the LTE and NR groups: an empty reply
+  is "no answer", not "this cell has no timing advance", and the UI already gates
+  these figures on `modem_reachable`. (b) The value the RG520N-EB reports is
+  **1808**, while 3GPP TS 36.213 caps the TA *index* at 1282 — so it cannot be an
+  index; it is the same quantity in Ts (NTA = 16 x index). The dashboard formula
+  multiplies by 16, so the poller now normalises values above 1282 by dividing by
+  16 (1808 -> 113). Both readings agree once converted (~8.8 km), and treating it
+  as an index would have painted 141 km. Values already inside the legal index
+  range are untouched, so firmware that reports an index is unaffected. Live:
+  `.lte.ta=113` (~8.8 km) and `.nr.ta=29696` (~2.3 km).
+  The exact unit of `lte_time_advance` is NOT documented in the material found
+  online; the 1282 ceiling is what makes the inference safe. If a future manual
+  contradicts it, revisit the normalisation rather than the formula.
+- **Speedtest favourite server.** `speedtest_servers.sh` now accepts POST
+  `{action:"set_favourite"|"clear_favourite"}` and returns `favourite` alongside
+  the list; it is persisted as `speedtest.favourite_id` / `favourite_name` in
+  `/etc/qmanager/qmanager.conf` (NOT config.json — `qm_config_get/set` use
+  `QM_CONFIG=/etc/qmanager/qmanager.conf`). `speedtest_start.sh` falls back to the
+  favourite whenever the request carries no `server_id`, so the pinned server is
+  used on every later run — including from another browser — while an explicit
+  pick still wins. The dialog gained a star per row (Material `favorite`, since
+  `star` is not in the shipped icon subset) and auto-selects the pinned server
+  when the list loads. Gotcha: this endpoint was GET-only and never called
+  `cgi_read_post`, so `$POST_DATA` was empty and every action answered
+  `unknown_action` until that call was added.
+- **Shipping a UI change from this branch.** App files are normally off-limits
+  here, but a favourite needs a control. The procedure that works: `bun install
+  --frozen-lockfile`, `bun run build` (static export -> `out/`), then
+  `tar czf - -C out . | ssh ... 'tar xzf - -C /usrdata/qmanager/www'`. Extract
+  INTO `www` rather than replacing it — `www/cgi-bin` lives inside that tree and
+  a replace would delete every endpoint. `bunx tsc --noEmit` is NOT a usable
+  check here without `node_modules` (it reports "cannot find module react" for
+  the whole tree); the build is the real gate.
+
+### Live verification snapshot (round 3)
+
+Cell distance populated (`lte.ta=113`, `nr.ta=29696`); speedtest favourite
+round-trips set -> GET -> persisted in `qmanager.conf`; new bundle live (its
+chunk carries the star's aria string); UI `/` 200 and vendor `:80` 200.
+
 ### Live verification snapshot (round 2)
 
 All five units active (`qmanager-httpd`, `-poller`, `-ping`, `-dpi`, `-dpi-ensure.timer`); boot hook carries 5 start lines and is idempotent; APN profile 1 = `internet/ipv4/up` with DNS; Network Priority = `NR5G:LTE`; SMS = 24 rows → 19 logical messages with multipart metadata; DPI `running` with 21 domains and tpws on `:989`; clock `PKT +0500 applied`; QManager `:8080` and vendor `:80` both HTTP 200.

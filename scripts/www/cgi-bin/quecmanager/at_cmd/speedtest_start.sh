@@ -47,6 +47,24 @@ case "$SERVER_ID" in
     ''|*[!0-9]*) SERVER_ID="" ;;
 esac
 
+# --- Fall back to the user's favourite server -------------------------------
+# "Automatic" in the UI sends no server_id, so without this the device picked a
+# nearby server afresh on every run and the favourite could only ever be honoured
+# by re-selecting it by hand each time. An explicit server_id always wins.
+if [ -z "$SERVER_ID" ]; then
+    . /usr/lib/qmanager/config.sh 2>/dev/null || {
+        qm_config_get() { printf '%s' "${3:-}"; }
+    }
+    _fav=$(qm_config_get speedtest favourite_id "")
+    case "$_fav" in
+        ''|*[!0-9]*) : ;;
+        *)
+            SERVER_ID="$_fav"
+            qlog_info "Speedtest using favourite server id=$SERVER_ID"
+            ;;
+    esac
+fi
+
 # --- Check: speedtest-cli installed? -----------------------------------------
 if ! command -v speedtest >/dev/null 2>&1; then
     qlog_error "Speedtest binary not found"
