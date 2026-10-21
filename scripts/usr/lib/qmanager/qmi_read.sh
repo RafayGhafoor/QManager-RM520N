@@ -57,8 +57,28 @@
 [ -n "${_QM_QMI_READ_LOADED:-}" ] && return 0
 _QM_QMI_READ_LOADED=1
 
-QM_QMI_BIN="${QM_QMI_BIN:-/data/gp/qmi/bin/qmicli}"
-QM_QMI_LIBDIR="${QM_QMI_LIBDIR:-/data/gp/qmi/lib}"
+# Resolution order, so this works on a FRESH device as well as beside greenpacket:
+#   1. explicit QM_QMI_BIN / QM_QMI_LIBDIR
+#   2. the shipped copy   /usrdata/qmanager/lib/qmi/{bin,lib}   (dependencies/qmi/)
+#   3. greenpacket's copy /data/gp/qmi/{bin,lib}                (if installed)
+# The shipped copy exists because a fresh install cannot otherwise run QMI at all,
+# and the neighbour live view is the feature that needs it. See dependencies/NOTICE
+# for the LGPL terms that require the two libs to stay separate, replaceable .so files.
+QM_QMI_BIN="${QM_QMI_BIN:-}"
+QM_QMI_LIBDIR="${QM_QMI_LIBDIR:-}"
+if [ -z "$QM_QMI_BIN" ]; then
+    for _qmc in /usrdata/qmanager/lib/qmi/bin/qmicli /data/gp/qmi/bin/qmicli; do
+        if [ -x "$_qmc" ]; then
+            QM_QMI_BIN="$_qmc"
+            QM_QMI_LIBDIR="${_qmc%/bin/qmicli}/lib"
+            break
+        fi
+    done
+fi
+# Nothing found: keep the canonical shipped path so the error message names the
+# place it SHOULD be, not a vendor path that will never exist on a fresh device.
+[ -n "$QM_QMI_BIN" ] || QM_QMI_BIN=/usrdata/qmanager/lib/qmi/bin/qmicli
+[ -n "$QM_QMI_LIBDIR" ] || QM_QMI_LIBDIR="${QM_QMI_BIN%/bin/qmicli}/lib"
 QM_QMI_DEV="${QM_QMI_DEV:-qrtr://3}"
 QM_QMI_TIMEOUT="${QM_QMI_TIMEOUT:-5}"
 

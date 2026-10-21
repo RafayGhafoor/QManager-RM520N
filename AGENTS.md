@@ -124,10 +124,18 @@ already caused a failed install:
    the `RDY` URC, which was observed baking `"model": "RDY"` into the cache for a
    whole boot. `deploy/qm_wait_modem.sh` is the `ExecStartPre` for that reason,
    and it calls `qcmd` (not `atcli_smd11`) so it honours the AT flock.
-9. **Do not ship third-party binaries in git.** `deploy/.gitignore` excludes the
-   static `jq`; it is fetched at deploy time (see `deploy/README.md`). The Ookla
-   `speedtest` binary and `sms_tool.bin` are likewise deploy-time payloads, not
-   repo content.
+9. **Know which binaries are committed and which are fetched.** Do not add a new
+   third-party binary to git without deciding this explicitly.
+   - **Committed**, because a fresh install cannot work without them and they are
+     small: `dependencies/atcli_smd11`, `dependencies/sms_tool`,
+     `dependencies/jq.ipk`, `dependencies/dropbear*.ipk`, and
+     **`dependencies/qmi/`** (qmicli + libqmi-glib + libqrtr-glib, ~2.7 MB — the
+     neighbour live view has no other source on a fresh device). Attribution lives
+     in `dependencies/NOTICE`; the two QMI libraries are LGPL-2.1 and **must stay
+     separate, replaceable `.so` files**, never folded into one static binary.
+   - **Fetched at deploy time** (`deploy/README.md`), because they are large or
+     licence-sensitive: the static `jq` binary (gitignored in `deploy/.gitignore`)
+     and the Ookla `speedtest` binary.
 10. **Do not commit secrets or subscriber identifiers.** No IMEI/IMSI/ICCID, no
     passwords, no `auth.json` copies. The device is left in `setup_required`
     state so the owner sets their own password.

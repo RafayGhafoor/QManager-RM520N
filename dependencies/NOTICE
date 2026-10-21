@@ -25,3 +25,37 @@ modifications (see `dependencies/sms_tool.patch`, applied to `sms_main.c`) are:
 
 No other changes were made. A copy of the Apache License 2.0 is available at the
 URL above. This binary is redistributed under the terms of that license.
+
+--------------------------------------------------------------------------------
+qmi/ — qmicli, libqmi-glib, libqrtr-glib
+--------------------------------------------------------------------------------
+Provenance:   BUILT BY THE PROJECT OWNER on 2026-10-13 (not supplied by the
+              device vendor). Cross-built for armhf; `file` reports
+              "ELF 32-bit LSB pie executable, ARM, EABI5, dynamically linked".
+              Bytes taken verbatim from the owner's build tree.
+
+Derived from: libqmi   <https://gitlab.freedesktop.org/mobile-broadband/libqmi>
+              libqrtr-glib <https://gitlab.freedesktop.org/mobile-broadband/libqrtr-glib>
+License:      GNU Lesser General Public License, version 2.1 or later
+              <https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html>
+
+Why these three files and nothing else:
+
+  bin/qmicli                  the only tool QManager runs
+  lib/libqmi-glib.so.5.10.0   NEEDED by qmicli; not present in base firmware
+  lib/libqrtr-glib.so.0.0.0   NEEDED by libqmi-glib; not present in base firmware
+
+qmicli's other dependencies — libc, libglib-2.0, libgio-2.0, libgobject-2.0 —
+are already in the base firmware at /usr/lib and are deliberately NOT bundled.
+The vendor directory this was copied from also carries qmi-band-helper,
+qmi-cell-lock-probe and qmi-nr-ncell-probe; QManager uses none of them, so they
+are not shipped.
+
+LGPL compliance note: the two libraries are shipped as SEPARATE shared objects
+and are dynamically linked, so they remain user-replaceable — this is what keeps
+redistribution compliant. Do not fold them into a single statically linked
+binary. QManager's own code is not derived from libqmi and links nothing
+statically against it.
+
+Sources are available from the URLs above; for a copy contact the project owner.
+A copy of the LGPL-2.1 is at the URL above.

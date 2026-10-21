@@ -70,6 +70,7 @@ own OK/ERROR text parsing. Override the port with `AT_DEV=...`.
 | `jq` | `jqlang/jq` release `jq-linux-armhf` (1.7.1) | Not on the device; used everywhere. |
 | `speedtest` | Ookla: `https://install.speedtest.net/app/cli/ookla-speedtest-1.2.0-linux-armhf.tgz` | Powers the Speed Test page. Must be **Ookla's** CLI, not Python `speedtest-cli`: QManager passes `--accept-license --accept-gdpr -f json -p yes --progress-update-interval=250`. Statically linked (musl), so no glibc dependency. |
 | `sms_tool.bin` | `dependencies/sms_tool` in this repo | Vendored, static ARM. Kept as `.bin` because `deploy/sms_tool` is the wrapper that supplies `-d` and the radio lock. |
+| `qmicli` + `libqmi-glib.so.5` + `libqrtr-glib.so.0` | `dependencies/qmi/` in this repo | **Committed**, not fetched — a fresh device has no `/data/gp/qmi`, and without it the neighbour live view cannot run. Built by the project owner; libqmi/libqrtr are LGPL-2.1 so the two libraries ship as separate replaceable `.so` files (`dependencies/NOTICE`). ~2.7 MB. |
 
 Tailscale is **not** a payload: `/usrdata/tailscale` is a symlink to the product
 stack's `/data/tailscale`, so the ~64 MB of binaries and the single login state
@@ -112,6 +113,15 @@ curl -fsSL -o /tmp/ookla.tgz \
   cp /tmp/ookla/speedtest stage/bin/speedtest && chmod +x stage/bin/speedtest )
 cp dependencies/sms_tool stage/bin/sms_tool.bin && chmod +x stage/bin/sms_tool.bin
 cp deploy/sms_tool stage/bin/sms_tool && chmod +x stage/bin/sms_tool
+
+# 3d. QMI reader — qmicli plus its two libraries (see "Third-party payloads").
+#     Shipped because a FRESH device has no /data/gp/qmi: without this, the
+#     neighbour live view cannot run at all. libglib/libgio come from the base
+#     firmware and are deliberately not bundled. Keep the two libs as separate
+#     .so files — LGPL-2.1 requires them to stay replaceable (dependencies/NOTICE).
+mkdir -p stage/lib/qmi
+cp -a dependencies/qmi/bin dependencies/qmi/lib stage/lib/qmi/
+cp -a dependencies/NOTICE stage/lib/qmi/NOTICE
 
 # 4. Ship it and relocate the paths
 tar czf - -C stage . | ssh root@<device> 'mkdir -p /usrdata/qmanager && tar xzf - -C /usrdata/qmanager'
