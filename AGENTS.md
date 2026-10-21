@@ -263,6 +263,31 @@ radio, or leave the modem offline are checked **at the gate, before merge**, not
 close-out — a radio write that fails mid-sequence is not a late-found nit. Everything
 else waits for the end.
 
+## Git remotes and branches
+
+`origin` is the **owner's fork**, not upstream — the repo *name* is identical to
+upstream's, which is exactly how this gets misjudged. Verify before ever pushing:
+
+```bash
+gh auth status                                              # must be RafayGhafoor (active)
+gh repo view RafayGhafoor/QManager-RM520N \
+  --json isFork,parent,viewerPermission                     # isFork true, parent dr-dolomite, ADMIN
+```
+
+| Remote | What it is | Push? |
+| --- | --- | --- |
+| `origin` → `git@github.com:RafayGhafoor/QManager-RM520N.git` | The owner's **fork** of `dr-dolomite/QManager-RM520N` (verified 2026-10-22: `isFork: true`, `viewerPermission: ADMIN`) | **Yes** — SSH, authenticated as RafayGhafoor |
+| `dr-dolomite/QManager-RM520N` | Upstream, a third party's repo. **Not** configured as a remote | **Never** |
+
+| Branch | Role |
+| --- | --- |
+| `greenpacket` | This deployment layer. Feature branches start here. |
+| `development` | Upstream's integration base. Not the base for deployment work. |
+| `main` | The fork's default branch. **Never pushed by an agent** — release is the owner's explicit act (`qm-orchestrate` rail 13). |
+| `feat/<slug>` | Feature work off `greenpacket`; push with `git push -u origin feat/<slug>`. |
+
+Never force-push a shared branch, and never push `main`.
+
 ## Build & deploy
 
 Full procedure: `deploy/README.md`. Summary:
