@@ -8,7 +8,7 @@ Scope: this branch is **deployment-only**. The application code (`app/`,
 `components/`, `lib/`, `types/`, `hooks/`) tracks upstream QManager and should
 not be modified here — the product-specific work lives in `deploy/`.
 
-**Two recorded exceptions.** The criterion in both cases is the same: the feature
+**Three recorded exceptions.** The criterion is the same in every case: the feature
 needs a control the backend cannot provide, so it could not live in `deploy/` alone.
 Anything that *can* be met by extending the backend must still be.
 
@@ -23,6 +23,15 @@ Anything that *can* be met by extending the backend must still be.
    Authorised by the owner, recorded in
    [`docs/specs/neighbour-live-aim.md`](./docs/specs/neighbour-live-aim.md) →
    "Authorisation to touch the app layer".
+3. **Detailed Metrics page** (2026-10-22, owner authorised R1–R6) — one new route
+   presenting PHY depth and a range trend; a metric group cannot be rendered
+   without components.
+   `app/cellular/detailed-metrics/**`,
+   `components/cellular/detailed-metrics/**`, `hooks/use-detailed-metrics.ts`,
+   `lib/metric-glossary.ts`, `types/detailed-metrics.ts`,
+   `public/locales/*/cellular.json`. Recorded in
+   [`docs/specs/detailed-metrics-parity.md`](./docs/specs/detailed-metrics-parity.md)
+   → "Branch scope".
 
 Keep any such change minimal, add it here when you make it, and prefer extending
 the backend if a future need can be met without touching app code. An app-layer

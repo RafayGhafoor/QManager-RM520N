@@ -1,6 +1,8 @@
 # SPEC: Detailed Metrics parity — PHY depth + range trend
 
-**Status:** Draft for approval, 2026-10-22. Lightweight spec — falsifiable
+**Status:** **Approved 2026-10-22** — the owner authorised R1–R6 (backend *and* the
+page), so the app-layer exception this spec needed is granted and recorded in
+`AGENTS.md` → "Two recorded exceptions", item 3. Lightweight spec — falsifiable
 requirements, in-scope/out-of-scope explicit, acceptance criteria as pass/fail.
 
 **Background:** QManager's radio surfaces show the *RRC-visible* layer (band, PCI,
@@ -89,6 +91,11 @@ over a selectable range, built entirely from primitives that already exist here.
 - **Histograms as a new visualisation primitive.** Reuse `MetricBar` for the
   decayed CQI/rank distributions rather than building a histogram component for one
   card.
+- **LTE TX power and NR pathloss are permanently absent on this device.** Both
+  commands answer `ERROR: command_failed` on RG520N-EB (measured 2026-10-22). Shown
+  as unavailable rather than retried; a port to another modem re-probes them
+  (`platform-matrix.md`). Reason: an always-failing command costs a lock hold every
+  cycle for nothing.
 - **NR neighbours over QMI.** Not available — `gp-qmi.sh:157-166` discards the
   `5GNR` section. NR neighbours stay an AT read; see `docs/reference/qmi-transport.md`.
 - **Per-neighbour SINR, neighbour history, CSV export of the trend.** Not requested,
@@ -102,21 +109,51 @@ over a selectable range, built entirely from primitives that already exist here.
 
 ## Requirements
 
-### R1 — Poller Tier 3 block
+### R1 — PHY depth: two sources, measured
 
-- **Target:** `scripts/usr/bin/qmanager_poller` gains `poll_phy()` on the existing
-  tier scheduler, cadence `TIER3_EVERY`, separately tunable and defaulting to ~60 s.
+**The gate question is answered — measured on this unit 2026-10-22, not assumed.**
+
+The cheap half is **not AT at all**. `ubus call modemd status` already carries `cqi`,
+`nr_cqi`, `lte_rank`, `nr_rank`, `lte_dl_tx_mode`, `bandwidth`, `NR_bandwidth`,
+`regStat`, `regName`, `rat` and both signal sets — one call, **no AT lock, no qmicli
+fork**. The precise half is AT, because modemd's own cache is coarse: greenpacket's
+awk records `nr5g_ulMCS` moving 22->21->19 across six reads while modemd sat still.
+
+| Field | Source | Command / key | Measured answer |
+| --- | --- | --- | --- |
+| CQI, NR-CQI, rank, TM mode, bandwidths, reg state/name | **ubus modemd** | `cqi`, `nr_cqi`, `lte_rank`, `nr_rank`, `lte_dl_tx_mode`, `bandwidth`, `NR_bandwidth`, `regStat`, `regName` | present |
+| RI / CQI / PMI (LTE) | AT | `AT+QNWCFG="lte_csi"` | `3,0,9,0` |
+| RI / CQI / PMI (NR) | AT | `AT+QNWCFG="nr5g_csi"` | `13,4,10,20` |
+| UL MCS (LTE / NR), DL MCS (NR) | AT | `lte_ulMCS`, `nr5g_ulMCS`, `nr5g_dlMCS` | `1,3,1` / `1,26,4` / `1,24,3` |
+| MIMO layers (LTE / NR) | AT | `lte_mimo_layers`, `nr5g_mimo_layers` | `1,1` / `1,2` |
+| RRC state + RAT | AT | `AT+QNWCFG="rrc_state"` | `1,"LTE",4` |
+| SSB beams | AT | `AT+QNWCFG="ssb_beam_id"` | 6 beams, e.g. `6,-67,-11,47` |
+| TX power (NR) | AT | `AT+QNWCFG="nr5g_tx_pwr"` | `1,2,-10,18,-10` |
+| **TX power (LTE)** | AT | `AT+QNWCFG="lte_tx_pwr"` | **`ERROR: command_failed`** — absent on RG520N-EB |
+| **NR pathloss** | AT | `AT+QNWCFG="nr5g_pathloss"` | **`ERROR: command_failed`** — absent on RG520N-EB |
+
+All working commands already answer enabled (they return data, not `,0`), so **no
+enable-writes**: `AT+QNWCFG="…",1` is a setter, and this spec issues no setters.
+
+- **Target:** `scripts/usr/lib/qmanager/phy_metrics.sh` (new) + a Tier 3 block in
+  `scripts/usr/bin/qmanager_poller`.
 - **Acceptance:**
-  - [ ] `poll_phy()` issues only read-only commands; it appears in the shim's
-    read-only retry allowlist, never in a retry-authorized setter path.
-  - [ ] Every command goes through `qcmd` (hard rule 3). No direct `atcli_smd11`.
-  - [ ] A Tier-3 overrun logs one warning and does **not** delay Tier 1: measured
-    Tier-1 cycle stays within its pre-change range (`POLL_INTERVAL` 2 s, observed
-    3.7–4.0 s).
-  - [ ] A command that answers `ERROR` sets its fields to `null` and leaves the
-    previous values untouched; it does not blank the group.
-  - [ ] The snapshot grows by < 4 KB on a typical LTE+NR NSA attachment.
-  - [ ] With Tier 3 disabled by config, the snapshot is byte-identical to today's.
+  - [ ] Tier 3 cadence ~60 s, separately tunable, and **never delays Tier 1**
+    (measured Tier-1 cycle stays 3.7-4.0 s).
+  - [ ] Only the nine working commands are issued. `lte_tx_pwr` and `nr5g_pathloss`
+    are **not sent at all** — a command that always errors is a wasted lock hold,
+    not a degraded feature. Documented as absent with a glossary note.
+  - [ ] AT reads are **batched into at most two compound commands**, because eleven
+    separate `qcmd` calls would hold the flock for ~6 s. Two groups so one
+    transient `ERROR` costs half the fields, not all of them - `qcmd` rejects an
+    entire compound response on `*ERROR*`.
+  - [ ] modemd fields come from one `ubus call modemd status` per Tier 3.
+  - [ ] **Whitelist only.** `modemd status` also carries `imei`, `imsi` and `iccid`;
+    hard rule 10 forbids persisting or publishing them. The reader copies named
+    keys and ignores everything else - asserted by grep in review.
+  - [ ] Every field independent: one failing command leaves the others populated.
+  - [ ] Absent fields publish as `null`, never `0` and never a stale previous value.
+  - [ ] With Tier 3 disabled by config the snapshot is byte-identical to today's.
 
 ### R2 — SSB beam list
 
@@ -193,7 +230,7 @@ This branch is **deployment-only**: `app/`, `components/`, `lib/`, `types/` and
 spec is therefore **mostly out of scope for the branch that records it**, and that
 is stated here rather than discovered halfway through a build wave.
 
-`AGENTS.md` now records **one exception** and the criterion behind it: the
+`AGENTS.md` records the exception and the criterion behind it: the
 speedtest favourite-server control touches `components/`, `hooks/`, `types/` and a
 locale file, *because "a favourite needs a control in the UI, so it could not live
 in `deploy/` alone"*, and the rule is *"prefer extending the backend if a future
@@ -204,12 +241,12 @@ Applied to this spec, that test splits cleanly:
 | Part | Backend-only? | Status on this branch |
 | --- | --- | --- |
 | R1 poller Tier 3, R2 SSB beams, R3 archive, R4 `fetch_signal_history.sh?range=` | **Yes** | In scope. Build these regardless — they are what makes a later port cheap, and R4 is useful from the AT terminal and `curl` before any UI exists |
-| R5 the page, R6 glossary and stale chip | **No** — a metric group cannot be rendered without a component | Same shape as the recorded exception; needs the owner's explicit yes, not an agent's judgement |
+| R5 the page, R6 glossary and stale chip | **No** — a metric group cannot be rendered without a component | **AUTHORISED** 2026-10-22 by the owner (R1–R6). Recorded as exception 3 in `AGENTS.md` |
 
-So the decision this spec needs is not "is the UI allowed" in the abstract, it is
-the narrow one: *does the owner extend the recorded exception from one control to
-this page?* If the answer is no, R1–R4 still ship and the page waits for an
-upstream change — which is a better outcome than the whole feature stalling.
+The decision this spec needed — *does the owner extend the recorded exception from
+one control to this page?* — was answered **yes** on 2026-10-22, for the whole of
+R1–R6. The staging below still matters for build order: R1–R4 are the backend and
+must land before R5 can render anything.
 
 ### What the backend-only half already buys
 
