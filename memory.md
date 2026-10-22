@@ -531,3 +531,12 @@ Real boot 08:41:15 UTC (boot_id 3bff0e74-…, cause not recorded by us): WAN up
 32 s, QManager UI 39 s, first status 61 s, settled ~87 s (kernel uptime). Poller
 now logs `Boot data timing (s): …` and `first status published at kernel uptime`.
 See docs/reference/boot-timeline.md.
+
+## 2026-10-22 (later) — dpi-ensure is now a resident loop
+
+`qmanager-dpi-ensure.service` runs `qmanager_dpi_run --ensure-loop` (Type=simple,
+Restart=always); `.timer` fires it once (OnBootSec=60). dmesg no longer gets 3
+lines a minute; `qmanager.log` only logs a real rule re-insert. Previous timer kept
+at `/usrdata/qmanager/backup/qmanager-dpi-ensure.timer.pre-loop`; lib/bin backup
+`backup/pre-dpi-ensure-quiet-20261022-105623.tgz`. Boot start not yet proven by a
+reboot.

@@ -4,7 +4,7 @@
 # =============================================================================
 # The single entry point for the Traffic Engine process lifecycle. Runs as
 # root via qmanager-dpi.service (systemd). Also invoked by the
-# qmanager-dpi-ensure.timer oneshot and by nothing else — CGI reaches the
+# qmanager-dpi-ensure.service loop and by nothing else — CGI reaches the
 # engine through systemd, never through this binary directly.
 #
 # Modes:
@@ -16,10 +16,12 @@
 #   --ensure   — re-assert the REDIRECT rule (QCMAP flushes iptables on every
 #                re-dial), but ONLY over a proven-live listener. Enabled with
 #                nothing listening drains the rule first, then attempts a
-#                restart; an UNKNOWN listener state changes nothing. Runs every
-#                60s from qmanager-dpi-ensure.timer. Always exits 0 when the
-#                feature is disabled — the timer is unconditionally armed and
-#                its payload self-gates.
+#                restart; an UNKNOWN listener state changes nothing. One pass,
+#                then exit 0 (also when the feature is disabled — the payload
+#                self-gates).
+#   --ensure-loop — the same pass every DPI_ENSURE_PERIOD (60) s, forever.
+#                What qmanager-dpi-ensure.service runs (resident, started once
+#                by its timer) — see that unit for why it is not a oneshot.
 #   --rule-up   — ExecStartPost: wait for tpws to bind, then apply the rule.
 #                ALWAYS exits 0 (see the verb for why a non-zero is unsafe).
 #   --rule-down — ExecStopPost: drain the rule. Fires on a clean stop, a crash,
@@ -68,57 +70,88 @@ _dpi_reconcile_argv() {
     fi
 }
 
+# One ensure pass (the body of --ensure). A function so the resident loop
+# below can run it without a process per pass.
+_dpi_ensure_pass() {
+    DPI_MODE_CACHE=""   # re-read config every pass; the cache is per pass only
+    # QUIC handling is independent of the engine: reconcile the
+    # Force-TCP rule against config and purge any legacy DSCP-marking
+    # rule (upgrade migration) on EVERY pass, engine on or off — the
+    # timer is unconditionally armed and QCMAP flushes iptables on every
+    # re-dial, so the force-TCP rule must self-heal even when no engine
+    # mode is enabled.
+    # Mode read once for the whole pass (it was read three times, 2 jq each).
+    DPI_MODE_CACHE=$(dpi_active_mode)
+    dpi_reconcile_force_tcp
+    dpi_purge_legacy_dscp_rule
+    if dpi_is_enabled; then
+        dpi_listener_present
+        case "$?" in
+            0)
+                # Engine proven live — the ONLY state allowed to assert the
+                # rule. This is the QCMAP re-dial self-heal: a flush leaves
+                # the engine listening with the rule gone, and this restores
+                # it within 60s.
+                # Log only a REAL re-assert. This used to log on every pass
+                # although dpi_apply_rule is a no-op when the rule is there:
+                # one line a minute, over half of /tmp/qmanager.log, which
+                # pushed real events out of the 256 KB rotation and hid the
+                # one fact worth knowing — when QCMAP actually flushed it.
+                if dpi_apply_rule; then
+                    [ "$DPI_RULE_INSERTED" = "1" ] && \
+                        qlog_info "ensure: REDIRECT rule was missing (iptables flushed?) — re-inserted (mode=$DPI_MODE_CACHE)"
+                else
+                    qlog_warn "ensure: REDIRECT rule apply failed"
+                fi
+                _dpi_reconcile_argv
+                ;;
+            1)
+                # A mode is enabled but nothing is listening. Drain FIRST so
+                # the LAN is never redirected at a dead port, THEN try to
+                # bring the engine back. Deliberately no reset-failed: a
+                # 60s reset would void the unit's hour backoff and hold
+                # NRestarts at 0, the only fault signal with journald masked.
+                dpi_remove_rule
+                # svc_restart, NOT svc_start. tpws may be ALIVE yet bound to
+                # the wrong address (a LAN subnet or IP-passthrough change),
+                # and start is a no-op on an active unit — the same defect
+                # that let a mode switch keep the old argv. start would log
+                # a recovery it never attempted and repeat every 60s forever.
+                if svc_restart qmanager-dpi; then
+                    qlog_warn "ensure: engine not listening with a mode enabled — rule drained, engine restarted"
+                else
+                    qlog_error "ensure: engine not listening and restart failed — rule left off (state: $(${_SYSTEMCTL:-systemctl} show qmanager-dpi -p Result -p NRestarts --value 2>/dev/null | tr '\n' ' '))"
+                fi
+                ;;
+            *)
+                # Unknown is not absent. Acting on an unreadable /proc/net/tcp
+                # would drain a working rule and restart a healthy engine.
+                qlog_warn "ensure: listener state unknown — rule and engine left untouched"
+                ;;
+        esac
+    fi
+}
+
+# Seconds between passes in --ensure-loop. 60 s is the self-heal bound the
+# timer gave; the loop keeps it.
+DPI_ENSURE_PERIOD="${DPI_ENSURE_PERIOD:-60}"
+case "$DPI_ENSURE_PERIOD" in ''|*[!0-9]*|0) DPI_ENSURE_PERIOD=60 ;; esac
+
 case "$cmd" in
     --ensure)
-        # QUIC handling is independent of the engine: reconcile the
-        # Force-TCP rule against config and purge any legacy DSCP-marking
-        # rule (upgrade migration) on EVERY pass, engine on or off — the
-        # timer is unconditionally armed and QCMAP flushes iptables on every
-        # re-dial, so the force-TCP rule must self-heal even when no engine
-        # mode is enabled.
-        dpi_reconcile_force_tcp
-        dpi_purge_legacy_dscp_rule
-        if dpi_is_enabled; then
-            dpi_listener_present
-            case "$?" in
-                0)
-                    # Engine proven live — the ONLY state allowed to assert the
-                    # rule. This is the QCMAP re-dial self-heal: a flush leaves
-                    # the engine listening with the rule gone, and this restores
-                    # it within 60s.
-                    if dpi_apply_rule; then
-                        qlog_info "ensure: REDIRECT rule re-asserted (mode=$(dpi_active_mode))"
-                    else
-                        qlog_warn "ensure: REDIRECT rule apply failed"
-                    fi
-                    _dpi_reconcile_argv
-                    ;;
-                1)
-                    # A mode is enabled but nothing is listening. Drain FIRST so
-                    # the LAN is never redirected at a dead port, THEN try to
-                    # bring the engine back. Deliberately no reset-failed: a
-                    # 60s reset would void the unit's hour backoff and hold
-                    # NRestarts at 0, the only fault signal with journald masked.
-                    dpi_remove_rule
-                    # svc_restart, NOT svc_start. tpws may be ALIVE yet bound to
-                    # the wrong address (a LAN subnet or IP-passthrough change),
-                    # and start is a no-op on an active unit — the same defect
-                    # that let a mode switch keep the old argv. start would log
-                    # a recovery it never attempted and repeat every 60s forever.
-                    if svc_restart qmanager-dpi; then
-                        qlog_warn "ensure: engine not listening with a mode enabled — rule drained, engine restarted"
-                    else
-                        qlog_error "ensure: engine not listening and restart failed — rule left off (state: $(${_SYSTEMCTL:-systemctl} show qmanager-dpi -p Result -p NRestarts --value 2>/dev/null | tr '\n' ' '))"
-                    fi
-                    ;;
-                *)
-                    # Unknown is not absent. Acting on an unreadable /proc/net/tcp
-                    # would drain a working rule and restart a healthy engine.
-                    qlog_warn "ensure: listener state unknown — rule and engine left untouched"
-                    ;;
-            esac
-        fi
+        _dpi_ensure_pass
         exit 0
+        ;;
+    --ensure-loop)
+        # Resident form of --ensure (qmanager-dpi-ensure.service, started once by
+        # its timer). As a timer-driven oneshot, every pass cost a unit start in
+        # PID 1 — three info lines in dmesg (180/h; LogLevelMax does NOT filter
+        # them on systemd 244 here, measured) and a fresh shell + 4 sourced libs.
+        qlog_info "ensure loop: started (every ${DPI_ENSURE_PERIOD}s)"
+        while :; do
+            _dpi_ensure_pass
+            sleep "$DPI_ENSURE_PERIOD"
+        done
         ;;
     --rule-up)
         # ExecStartPost. ALWAYS exits 0. Under Type=simple this runs on the

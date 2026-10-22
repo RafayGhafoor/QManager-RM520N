@@ -35,7 +35,7 @@ bind-mounted along with `/etc`, `/data`, `/cache`, `/persist`). Nothing outside
 | `qmanager-poller.service` | systemd unit: modem data poller (fills `/tmp/qmanager_status.json`). |
 | `qmanager-ping.service` | systemd unit: ping/reachability daemon. Fills `/tmp/qmanager_ping.json`; required for Latency Monitor and the Internet tile. |
 | `qmanager-dpi.service` | systemd unit: Traffic Engine (`tpws`). Without it the engine can be installed *and enabled* and still never run — the UI then reports `engine_start_failed` while `binary_installed` is true. |
-| `qmanager-dpi-ensure.service` / `.timer` | Re-asserts the engine's `nat REDIRECT` and the QUIC REJECT every 60 s: QCMAP flushes the nat table on each re-dial. Monotonic schedule only (no RTC on this SoC). |
+| `qmanager-dpi-ensure.service` / `.timer` | Re-asserts the engine's `nat REDIRECT` and the QUIC REJECT every 60 s: QCMAP flushes the nat table on each re-dial. **Since 2026-10-22 the service is a resident loop (`qmanager_dpi_run --ensure-loop`, `Restart=always`) and the timer fires it once (`OnBootSec=60`)** — a per-minute oneshot put 3 PID-1 lines a minute into dmesg. Monotonic schedule only (no RTC on this SoC). |
 
 ## The AT path (the non-obvious part)
 

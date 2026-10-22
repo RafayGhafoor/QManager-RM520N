@@ -101,6 +101,12 @@ DPI_VERIFY_PID="/tmp/qmanager_dpi_verify.pid"
 # =============================================================================
 dpi_active_mode() {
     local vo full
+    # A short-lived caller (qmanager_dpi_run --ensure) may pin the answer for
+    # its own run: the ensure pass used to ask three times, two jq each.
+    if [ -n "${DPI_MODE_CACHE:-}" ]; then
+        echo "$DPI_MODE_CACHE"
+        return
+    fi
     vo=$(qm_config_get video_optimizer enabled 0)
     full=$(qm_config_get full_bypass enabled 0)
     if [ "$vo" = "1" ]; then
@@ -230,7 +236,10 @@ dpi_packets_processed() {
 # matched by its full spec; -D failures are silenced.
 # Returns 0 on success (the -I exit status).
 # =============================================================================
+# Sets DPI_RULE_INSERTED=1 only when the rule was actually missing and has
+# been inserted, so a caller can tell a real re-assert from a no-op.
 dpi_apply_rule() {
+    DPI_RULE_INSERTED=0
     # The legacy drain runs BEFORE the idempotence check, not after: DPI_RULE_SIG
     # matches the old spec too, so an un-migrated rule would read as "present"
     # and the addrtype exclusion would never land.
@@ -247,6 +256,7 @@ dpi_apply_rule() {
             -j REDIRECT --to-ports "$DPI_PORT" 2>/dev/null || break
         i=$((i + 1))
     done
+    DPI_RULE_INSERTED=1
     run_iptables -w 5 -t nat -I PREROUTING $_DPI_RULE_MATCH \
         -j REDIRECT --to-ports "$DPI_PORT"
 }

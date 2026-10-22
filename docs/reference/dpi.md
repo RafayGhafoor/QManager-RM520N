@@ -97,7 +97,7 @@ The rule now has exactly three writers:
 | --- | --- | --- |
 | `ExecStartPost` | `qmanager_dpi_run --rule-up` | after tpws starts — waits up to 10s for a proven listener, then inserts |
 | `ExecStopPost` | `qmanager_dpi_run --rule-down` | every stop: clean stop, crash, and the attempt that trips `StartLimitBurst` |
-| `qmanager-dpi-ensure.timer` | `qmanager_dpi_run --ensure` | every 60s — re-asserts over a **proven-live** listener only (the QCMAP re-dial self-heal) |
+| `qmanager-dpi-ensure.timer` → `.service` | `qmanager_dpi_run --ensure-loop` (O5A; upstream: `--ensure` oneshot) | every 60s — re-asserts over a **proven-live** listener only (the QCMAP re-dial self-heal) |
 
 `dpi_apply_rule` is **gone from the `run` verb**. `run` also now fails (exit 1) when `dpi_build_args` is empty, which means `bridge0` has no address yet.
 
@@ -311,3 +311,51 @@ Handoff after the pass: pair 376 → 379, targets 399 → 401.
 - `hooks/use-video-optimizer.ts`, `hooks/use-full-bypass.ts`, `hooks/use-force-tcp.ts`, `hooks/use-cdn-hostlist.ts`
 
 `scripts/test/` was deleted 2026-09-03. It used to hold four harnesses covering this feature: `installer-teardown-lockstep.sh` (the uninstaller invokes every teardown-style verb), `dpi-rule-signature-port.sh` (`DPI_RULE_SIG` and the `_dpi_uninstall_run` teardown track `$DPI_PORT`), `dpi-uninstall-path-symmetry.sh` (the UI and full-device uninstall paths drain the same chains, and `--clear` drains all three rules the lib owns), and `traffic-engine-design-language.sh` (the re-authored surface, sections [0]–[30]). None of them are runnable any more — the invariants they pinned are documented at their call sites above; prove a touch to this feature by running it on the device and loading the Traffic Engine page.
+
+
+## O5A: the ensure pass is a resident loop, not a per-minute oneshot (2026-10-22)
+
+> **Scope:** `RG520N` (O5A Pro). Upstream/RM520N still ships the 60 s oneshot timer.
+
+**Why.** Owner report: dmesg full of
+`Starting/Succeeded/Started QManager Traffic Engine ensure (rule re-assert)` every
+60 s. PID 1 logs to the kernel ring on this firmware (`LogTarget=journal-or-kmsg`,
+journald masked), so each oneshot run cost **3 dmesg lines — 180/h, 4,320/day** —
+plus a unit start and a fresh shell sourcing four libraries. Separately, the pass
+logged `ensure: REDIRECT rule re-asserted` to `/tmp/qmanager.log` **every pass even
+when the rule was already present** (`dpi_apply_rule` is a no-op then): 132 of 251
+lines in the log, pushing real events out of the 256 KB rotation.
+
+**Negative result (do not retry):** `LogLevelMax=notice` on the oneshot unit was
+deployed and observed for 3 passes — the PID 1 lines kept coming. On this systemd
+244 it does not filter PID 1's own messages about the unit.
+
+**Built:**
+- `qmanager_dpi_run --ensure-loop` runs the unchanged pass every
+  `DPI_ENSURE_PERIOD` (60) s. `qmanager-dpi-ensure.service` is now `Type=simple`,
+  `Restart=always`, `RestartSec=60`, `StartLimitIntervalSec=0`; the timer keeps its
+  name (it is what `qm_boot_hook.sh` starts) and fires once with `OnBootSec=60`.
+- The info line is now emitted only when the rule was **actually missing** and was
+  re-inserted (`DPI_RULE_INSERTED` from `dpi_apply_rule`): `ensure: REDIRECT rule
+  was missing (iptables flushed?) — re-inserted`. That line is now evidence of a
+  real QCMAP flush.
+- The mode is read once per pass (`DPI_MODE_CACHE`) instead of three times (6 jq).
+
+**Measured (same unit, 2026-10-22):**
+
+| | Before | After |
+| --- | ---: | ---: |
+| dmesg lines from the ensure unit | 3 per minute | **0** over 4 min (one `Started` at loop start) |
+| `qmanager.log` lines from the pass | 1 per minute | only on a real re-insert |
+| CPU per pass | 212 ms (oneshot, excl. PID 1's unit start) | **132 ms** (loop, measured on its own cutime over 240 s) |
+| Resident memory | — | +772 kB RSS (one `sh`) |
+
+**Edges exercised:** rule deleted by hand → re-inserted after 28 s with the new log
+line; loop process killed → `activating auto-restart`, back after 60 s
+(`NRestarts=1`). **Not yet proven by a reboot** (hard rule 6): the hook starts the
+timer at ~39 s and `OnBootSec=60` should start the loop at 60 s, as the oneshot's
+first run did (61.6 s on the 08:41 boot).
+
+The remaining periodic dmesg lines are the vendor's `gp-*` timers (dns-health
+5 min, memwatch/prx-tunnel-alert 10 min, linecheck 15 min, tmpfs-cleanup 30 min) —
+the sibling product's units, not changed here.
