@@ -2233,7 +2233,9 @@
         "cancel": "Mantieni i messaggi",
         "deleting": "Eliminazione di tutto…",
         "progress_title": "Eliminazione di tutti i messaggi",
-        "progress_note": "Una eliminazione per memoria, serializzate dietro il lock AT condiviso."
+        "progress_note": "Una eliminazione per memoria, serializzate dietro il lock AT condiviso.",
+        "description_store": "Questa operazione cancella tutti i {{count}} messaggi dall'archivio del dispositivo, oltre a quelli ancora nel modem. I messaggi eliminati non possono essere recuperati e il modem non viene riavviato.",
+        "progress_note_store": "Una cancellazione per archivio, serializzata dietro il lock AT condiviso."
       },
       "delete_selected_confirm": {
         "title": "Elimina i messaggi selezionati",
@@ -2276,7 +2278,8 @@
       },
       "memory": {
         "me": "Memoria del modem",
-        "sm": "Memoria SIM"
+        "sm": "Memoria SIM",
+        "store": "Archivio messaggi"
       },
       "delete_progress": {
         "pending": "{{memory}} in coda",
@@ -2287,7 +2290,8 @@
         "count_pending_other": "{{count}} da rimuovere",
         "count_done_one": "{{count}} rimosso",
         "count_done_other": "{{count}} rimossi"
-      }
+      },
+      "description_store": "Messaggi letti dall'archivio messaggi di questo dispositivo. {{used}} conservati."
     },
     "compose": {
       "title": "Nuovo messaggio",
@@ -2419,6 +2423,9 @@
       "combined": {
         "label": "Archiviazione messaggi",
         "caption": "Slot usati su entrambe le memorie"
+      },
+      "store": {
+        "caption": "Conservati su questo dispositivo"
       }
     }
   },

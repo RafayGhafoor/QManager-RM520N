@@ -2233,7 +2233,9 @@
         "cancel": "保留訊息",
         "deleting": "正在全部刪除…",
         "progress_title": "正在刪除所有訊息",
-        "progress_note": "每個儲存區一次刪除操作，在共享 AT 鎖定後串列執行。"
+        "progress_note": "每個儲存區一次刪除操作，在共享 AT 鎖定後串列執行。",
+        "description_store": "這將清除裝置訊息儲存中的全部 {{count}} 則訊息，以及模組中仍保留的訊息。已刪除的訊息無法復原，模組不會重新啟動。",
+        "progress_note_store": "每個儲存執行一次刪除，並在共用 AT 鎖後依序執行。"
       },
       "delete_selected_confirm": {
         "title": "刪除選中的訊息",
@@ -2276,7 +2278,8 @@
       },
       "memory": {
         "me": "數據機記憶體",
-        "sm": "SIM 卡儲存"
+        "sm": "SIM 卡儲存",
+        "store": "訊息儲存"
       },
       "delete_progress": {
         "pending": "{{memory}} 已排入佇列",
@@ -2287,7 +2290,8 @@
         "count_pending_other": "待刪除 {{count}} 則",
         "count_done_one": "已刪除 {{count}} 則",
         "count_done_other": "已刪除 {{count}} 則"
-      }
+      },
+      "description_store": "訊息讀取自本裝置的訊息儲存。共保留 {{used}} 則。"
     },
     "compose": {
       "title": "新簡訊",
@@ -2419,6 +2423,9 @@
       "combined": {
         "label": "訊息儲存",
         "caption": "兩個儲存區共用的插槽"
+      },
+      "store": {
+        "caption": "保存在本裝置"
       }
     }
   },

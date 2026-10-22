@@ -540,3 +540,27 @@ lines a minute; `qmanager.log` only logs a real rule re-insert. Previous timer k
 at `/usrdata/qmanager/backup/qmanager-dpi-ensure.timer.pre-loop`; lib/bin backup
 `backup/pre-dpi-ensure-quiet-20261022-105623.tgz`. Boot start not yet proven by a
 reboot.
+
+## 2026-10-22 (later) — SMS Center now reads the device's own store
+
+The SMS page showed mid-sentence fragments ("vite", " per day incl. Tax") and 20
+rows. Cause: the inbox on this device is **`/data/turin/mifi_config.sqlite` →
+`sms_config`** (265 inbox rows + 301 sent, maintained by `/usr/sbin/smsd`), which
+is also what the vendor UI at `:80` is served from. The modem's `ME` memory is
+residue — `smsd` consumes each SMS into the store and clears the modem copy,
+leaving ~one orphaned segment per multi-part message (24 slots, newest
+10/21/26 18:56, vs 265 store rows through 10/22 16:09).
+
+`sms.sh` now reads the store first via `/usr/bin/sqlite3 -readonly -json` (3.33.0
+is already on the device — **no new binary was needed**) and falls back to the
+unchanged modem path when the store is absent/unreadable. Deployed: `www`
+(rebuild) + `cgi-bin/.../sms.sh`; previous CGI kept as
+`.../cellular/sms.sh.pre-smsstore`. `qm_pathfix.sh` re-run (5 patched).
+Measured: inbox GET 4026 → ~390 ms wall, 494 → ~285 ms CPU, 179.6 → ~19 forks.
+Device facts that must not be re-derived: `readed='1'` means **UNREAD**;
+`sms_pos` is TEXT (`'0'` inbox, `'1'` sent); vendor date/time are two
+`MM-DD-YYYY`/`HH:MM:SS` columns; `sqlite3 -json` prints **nothing** for an empty
+result set. Deletes now hit `sms_config` (`delete_all` takes a `.backup` into
+`/usrdata/qmanager/data/sms-store-backups/`, newest 3 kept) — a message deleted in
+QManager also disappears from the vendor UI, by design.
+Spec `docs/specs/sms-vendor-store.md`, plan `docs/plans/2026-10-22-sms-vendor-store.md`.

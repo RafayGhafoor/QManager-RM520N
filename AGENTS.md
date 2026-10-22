@@ -8,7 +8,7 @@ Scope: this branch is **deployment-only**. The application code (`app/`,
 `components/`, `lib/`, `types/`, `hooks/`) tracks upstream QManager and should
 not be modified here — the product-specific work lives in `deploy/`.
 
-**Three recorded exceptions.** The criterion is the same in every case: the feature
+**Four recorded exceptions.** The criterion is the same in every case: the feature
 needs a control the backend cannot provide, so it could not live in `deploy/` alone.
 Anything that *can* be met by extending the backend must still be.
 
@@ -32,6 +32,16 @@ Anything that *can* be met by extending the backend must still be.
    `types/detailed-metrics.ts`, `public/locales/*/{cellular,sidebar}.json`. Recorded in
    [`docs/specs/detailed-metrics-parity.md`](./docs/specs/detailed-metrics-parity.md)
    → "Branch scope".
+4. **SMS Center reads the device's own store** (2026-10-22, owner chose this
+   option — "A" — in the SMS rendering investigation) — the inbox on this device
+   lives in the vendor stack's `sms_config` table, and the page has to *say* which
+   store a row came from and offer to delete it, which a CGI response alone cannot
+   do once `storage` grows a third value.
+   `types/sms.ts`, `hooks/use-sms.ts`, `hooks/use-sms-read-state.ts`,
+   `components/cellular/sms/{inbox-card,delete-dialogs,summary-tiles}.tsx`,
+   `public/locales/*/cellular.json`. The read path itself is backend-only
+   (`scripts/www/cgi-bin/quecmanager/cellular/sms.sh`). Recorded in
+   [`docs/specs/sms-vendor-store.md`](./docs/specs/sms-vendor-store.md).
 
 Keep any such change minimal, add it here when you make it, and prefer extending
 the backend if a future need can be met without touching app code. An app-layer
@@ -424,6 +434,12 @@ contention — check which `AT_DEV` the shim is using.
   dashboard's range check declines to render it. Do NOT reintroduce a scale factor
   to force a plausible number — an earlier /16 guess was disproved by the owner.
   NR distance is trustworthy and does render.
+- **SMS: do not read the modem to answer "what is my inbox".** On this device the
+  inbox is `/data/turin/mifi_config.sqlite` → `sms_config` (written by the vendor's
+  `smsd`, and what the `:80` UI is served from); the modem's `ME` slots hold
+  leftover segments of messages the store already has whole. `sms.sh` reads the
+  store first and falls back to the modem — see
+  [`docs/reference/sms.md`](./docs/reference/sms.md#two-sources-one-inbox).
 - Shipping a UI change from this branch needs `bun install --frozen-lockfile`,
   `bun run build`, then extracting `out/` INTO `/usrdata/qmanager/www` (never
   replace that directory — `cgi-bin` lives inside it).

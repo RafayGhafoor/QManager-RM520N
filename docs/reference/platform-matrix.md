@@ -1555,6 +1555,32 @@ for another unit is a **fix**, a **no-op**, or a **regression** here.
 | `date -r FILE +%s` | **works** | as above |
 | `awk` `x = x (cond) a` | **BROKEN — "Call to undefined function"** | A real hazard on this busybox awk, already documented and avoided twice in this tree (`phy_metrics.sh:391`, `qmi_read.sh:275`). Build the separator into its own variable |
 
+### RG520N-EB (GreenPacket O5A Pro) — the vendor SMS store is the inbox, not the modem
+
+Measured 2026-10-22. This is the one SMS fact a port cannot inherit: on this
+device a **second, complete copy** of every message exists, and the modem copy is
+residue. Authoritative detail and the response shapes are in
+[`sms.md`](./sms.md#two-sources-one-inbox); the spec is
+[`../specs/sms-vendor-store.md`](../specs/sms-vendor-store.md).
+
+| Fact | RG520N-EB (O5A Pro) | Consequence |
+| --- | --- | --- |
+| `/data/turin/mifi_config.sqlite` → `sms_config` | **present, root-owned `rw-rw-r--`**, rollback-journal mode (header bytes 18/19 = `1,1`), no `-wal`/`-shm` | Read it with `sqlite3 -readonly`; a WAL-mode DB would have needed write access to its sidecar files, which a read-only open cannot assume |
+| `/usr/bin/sqlite3` | **present, 3.33.0**, supports `-readonly`, `-json`, `.backup`, `-cmd '.timeout N'` | No SQLite reader had to be bundled, so Hard rule 9's committed-vs-fetched decision never came up. Do not assume this binary on another product image |
+| `smsd` | `/usr/sbin/smsd` (also registers the ubus object `sms_ubusd` with a single `cmd`/`arg` method; its commands are not documented anywhere discoverable) | It is the store's writer **and** the reason the modem drains. Do not try to take SMS away from it |
+| `AT+CPMS?` | `"ME",24,255,"ME",24,255,"ME",24,255` | The modem holds 24 entries while the store held 265 — the count is not a message count |
+| `sms_config.sms_pos` | stored as TEXT: `'0'` = inbox, `'1'` = sent | Quote it in SQL (`sms_pos='0'`); also scope every delete by it, so a stale id cannot reach the outbox |
+| `sms_config.readed` | **inverted** — `'1'` = UNREAD, `'0'` = read | Verified against `memohigo`'s `UnreadMsgNum` (170) and a per-row `"Readed": false`. Getting this backwards inverts the whole unread tile |
+| `sms_config.smsdate` / `smstime` | `MM-DD-YYYY` and `HH:MM:SS`, in **two columns** | Not QManager's `"MM/DD/YY HH:MM:SS"`; `parseSmsTimestamp()` returns 0 for anything else, which sorts the inbox to the bottom |
+| `sms_config.number` | can be a real MSISDN (`+923154308207`) **or** alphanumeric with a trailing `@` (`JAZZ 5G@`) | The `@` is the alphanumeric type marker, not part of the name; it is emitted verbatim (the vendor UI does the same) |
+| `memohi.db` → `smsinbox` | **empty, 0 rows** | The Beego DB is not the store; `mifi_config.sqlite` is. Do not read the wrong one |
+| vendor admin credentials | `users.password` = `md5("admin")` in `mifi_config.sqlite` | Fleet-wide default. **Never** build a path that authenticates to `memohigo` to reach SMS; read the file |
+| `memohigo` `/web/v1/sms/inbox` | `ReadNum=50` hung the on-device SMS proxy and rebooted the router; `ReadNum<=20` answers instantly | From the sibling's measurement — if anything ever proxies it, page in ≤20s. QManager does not proxy it |
+
+Vanilla QManager on an RM520N-GL has none of this: there is no
+`/data/turin`, no `smsd`, and the modem path in `sms.sh` is the whole
+implementation.
+
 ### ⚠️ `+CGCONTRDP` is quoted on SDX65 and bare on SDX55 — and only `+CGCONTRDP`
 
 **Short version: the same AT command, on the same SIM, wraps its fields in double

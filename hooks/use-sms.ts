@@ -5,6 +5,7 @@ import { authFetch } from "@/lib/auth-fetch";
 import type {
   SmsMessage,
   SmsStorage,
+  SmsStorageKind,
   SmsInboxResponse,
   SmsActionResponse,
 } from "@/types/sms";
@@ -65,7 +66,10 @@ export interface UseSmsReturn {
   /** Delete a message by its storage indexes. Returns true on success.
    *  `storage` selects which modem memory (ME / SM) the indexes live in;
    *  the backend deletes one storage per call. */
-  deleteSms: (indexes: number[], storage: "ME" | "SM") => Promise<boolean>;
+  deleteSms: (
+    indexes: number[],
+    storage: SmsStorageKind,
+  ) => Promise<boolean>;
   /** Delete all messages. Returns true on success. */
   deleteAllSms: () => Promise<boolean>;
   /** Re-fetch inbox data. Pass true for silent (no loading skeleton). */
@@ -223,7 +227,7 @@ export function useSms(): UseSmsReturn {
   // Delete single message
   // ---------------------------------------------------------------------------
   const deleteSms = useCallback(
-    async (indexes: number[], storage: "ME" | "SM"): Promise<boolean> => {
+    async (indexes: number[], storage: SmsStorageKind): Promise<boolean> => {
       setError(null);
       setIsSaving(true);
 

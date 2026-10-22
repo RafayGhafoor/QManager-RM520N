@@ -168,6 +168,12 @@ export function SmsSummaryTiles({
   const me = storage?.me;
   const sm = storage?.sm;
   const hasSplit = !!me && !!sm;
+  // A store-backed inbox has no per-memory split and no capacity at all: it is
+  // one database, and its `used` is a MESSAGE COUNT, not slots. Drawing a
+  // capacity meter over it would be a confident lie about a number nobody
+  // reported, so that tile shows the count and says where it came from.
+  const store = storage?.store;
+  const isStore = !!store;
 
   // The modem clock has no timezone and the caption must not read as a
   // duration: `Date.now()` during render is a `react-hooks/purity` violation,
@@ -240,19 +246,28 @@ export function SmsSummaryTiles({
         // message cannot spill from one into the other — so it is never labelled
         // as a capacity. "Slots used across both memories" is the honest reading
         // of the only number this device gives us.
+        //
+        // The store variant is the same idea one step further: no capacity exists
+        // to divide by, so the tile carries the count alone.
         <Tile
           glyph="memory"
           label={t("sms.tiles.combined.label")}
           className={TILE_COMBINED_SPAN}
         >
-          <StorageMeter
-            used={storage?.used ?? 0}
-            total={storage?.total ?? 0}
-            baseTone="primary"
-            unknownLabel={t("sms.tiles.capacity_unknown")}
-          />
+          {isStore ? (
+            <span className={TILE_VALUE_TABULAR}>{store.used}</span>
+          ) : (
+            <StorageMeter
+              used={storage?.used ?? 0}
+              total={storage?.total ?? 0}
+              baseTone="primary"
+              unknownLabel={t("sms.tiles.capacity_unknown")}
+            />
+          )}
           <span className={cn("truncate", TILE_CAPTION)}>
-            {t("sms.tiles.combined.caption")}
+            {isStore
+              ? t("sms.tiles.store.caption")
+              : t("sms.tiles.combined.caption")}
           </span>
         </Tile>
       )}

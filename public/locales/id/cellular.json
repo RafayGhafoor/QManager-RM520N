@@ -2233,7 +2233,9 @@
         "cancel": "Simpan pesan",
         "deleting": "Menghapus semua…",
         "progress_title": "Menghapus semua pesan",
-        "progress_note": "Satu penghapusan per memori, diserialkan di belakang kunci AT bersama."
+        "progress_note": "Satu penghapusan per memori, diserialkan di belakang kunci AT bersama.",
+        "description_store": "Ini menghapus semua {{count}} pesan dari penyimpanan pesan perangkat, plus pesan yang masih ada di modem. Pesan yang dihapus tidak dapat dipulihkan, dan modem tidak di-reboot.",
+        "progress_note_store": "Satu penghapusan per penyimpanan, diserialkan di belakang kunci AT bersama."
       },
       "delete_selected_confirm": {
         "title": "Hapus pesan terpilih",
@@ -2276,7 +2278,8 @@
       },
       "memory": {
         "me": "Memori modem",
-        "sm": "Memori SIM"
+        "sm": "Memori SIM",
+        "store": "Penyimpanan pesan"
       },
       "delete_progress": {
         "pending": "{{memory}} dalam antrean",
@@ -2287,7 +2290,8 @@
         "count_pending_other": "{{count}} untuk dihapus",
         "count_done_one": "{{count}} dihapus",
         "count_done_other": "{{count}} dihapus"
-      }
+      },
+      "description_store": "Pesan dibaca dari penyimpanan pesan perangkat ini. {{used}} tersimpan."
     },
     "compose": {
       "title": "Pesan baru",
@@ -2419,6 +2423,9 @@
       "combined": {
         "label": "Penyimpanan pesan",
         "caption": "Slot terpakai di kedua memori"
+      },
+      "store": {
+        "caption": "Disimpan di perangkat ini"
       }
     }
   },

@@ -2233,7 +2233,9 @@
         "cancel": "保留消息",
         "deleting": "正在全部删除…",
         "progress_title": "正在删除所有消息",
-        "progress_note": "每个存储区一次删除操作，在共享 AT 锁后串行执行。"
+        "progress_note": "每个存储区一次删除操作，在共享 AT 锁后串行执行。",
+        "description_store": "这将清除设备消息存储中的全部 {{count}} 条消息，以及模块中仍保留的消息。已删除的消息无法恢复，模块不会重启。",
+        "progress_note_store": "每个存储执行一次删除，并在共享 AT 锁后串行执行。"
       },
       "delete_selected_confirm": {
         "title": "删除选中的消息",
@@ -2276,7 +2278,8 @@
       },
       "memory": {
         "me": "调制解调器内存",
-        "sm": "SIM 卡存储"
+        "sm": "SIM 卡存储",
+        "store": "消息存储"
       },
       "delete_progress": {
         "pending": "{{memory}} 已排队",
@@ -2287,7 +2290,8 @@
         "count_pending_other": "待删除 {{count}} 条",
         "count_done_one": "已删除 {{count}} 条",
         "count_done_other": "已删除 {{count}} 条"
-      }
+      },
+      "description_store": "消息读取自本设备的消息存储。共保留 {{used}} 条。"
     },
     "compose": {
       "title": "新短信",
@@ -2419,6 +2423,9 @@
       "combined": {
         "label": "消息存储",
         "caption": "两个存储区共用的槽位"
+      },
+      "store": {
+        "caption": "保存在本设备"
       }
     }
   },

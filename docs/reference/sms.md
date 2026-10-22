@@ -1,11 +1,14 @@
-# SMS Center (RM520N-GL)
+# SMS Center (RM520N-GL / O5A Pro)
 
-> **Applies to:** RM520N-GL (SDX65) · verified 2026-08
+> **Applies to:** RM520N-GL (SDX65) · verified 2026-08 · **and** RG520N-EB on the
+> GreenPacket O5A Pro, verified 2026-10-22 (the store path below)
 > **RG501Q-EU (SDX55):** unverified — see [`platform-matrix.md`](./platform-matrix.md)
 
-> The SMS inbox: read / send / delete over the modem's AT channel via the bundled `sms_tool`. Merges messages across ME (modem) and SM (SIM) storage, tracks read/unread in the browser, and self-heals CPMS routing so incoming SMS are never stranded on the SIM.
+> The SMS inbox: on the O5A Pro it reads the **device's own SMS store** (the table the vendor UI is served from); everywhere else it reads / send / delete over the modem's AT channel via the bundled `sms_tool`. The modem path merges ME (modem) and SM (SIM) storage, tracks read/unread in the browser, and self-heals CPMS routing so incoming SMS are never stranded on the SIM.
 
-The SMS Center exposes a read/send/delete inbox at `/cellular/sms`. All modem access runs through the bundled `sms_tool` binary, serialized against every other AT consumer (`qcmd`, the poller, the watchdog) by the shared `flock` on `/tmp/qmanager_at.lock`. This doc covers the inbox CGI, the `sms_tool` binary/patch, the CPMS ME+SM storage model, the boot-time routing oneshot, and the browser-side read/unread tracking.
+The SMS Center exposes a read/send/delete inbox at `/cellular/sms`. **Which source answers depends on the device** — see [Two sources, one inbox](#two-sources-one-inbox) before touching anything here; getting this wrong is what made the page show mid-sentence fragments in 10/2026. On the modem path, all AT access runs through the bundled `sms_tool` binary, serialized against every other AT consumer (`qcmd`, the poller, the watchdog) by the shared `flock` on `/tmp/qmanager_at.lock`. This doc covers the inbox CGI, both sources, the `sms_tool` binary/patch, the CPMS ME+SM storage model, the boot-time routing oneshot, and the read/unread tracking.
+
+> ℹ️ NOTE: SMS **downtime alerts** (connection-lost/restored notifications sent over SMS) are a separate feature — the SMS channel of the centralized Alerts system, driven by `monitoring/sms_alerts.sh`. This doc covers only the inbox. **SMS Forwarding** (auto-relay of incoming messages to another number) is also separate — see [`sms-forwarding.md`](sms-forwarding.md).
 
 > ℹ️ NOTE: SMS **downtime alerts** (connection-lost/restored notifications sent over SMS) are a separate feature — the SMS channel of the centralized Alerts system, driven by `monitoring/sms_alerts.sh`. This doc covers only the inbox. **SMS Forwarding** (auto-relay of incoming messages to another number) is also separate — see [`sms-forwarding.md`](sms-forwarding.md).
 
@@ -17,16 +20,92 @@ The SMS Center exposes a read/send/delete inbox at `/cellular/sms`. All modem ac
 |---|---|
 | Route | `/cellular/sms` |
 | Inbox CGI | `GET/POST /cgi-bin/quecmanager/cellular/sms.sh` |
-| AT channel | `/dev/smd11` (Qualcomm SMD char device, not a UART/TTY) |
+| **Preferred source (O5A Pro)** | `/data/turin/mifi_config.sqlite` → `sms_config` (`sms_pos='0'`), via `/usr/bin/sqlite3 -readonly -json`. See [Two sources, one inbox](#two-sources-one-inbox) |
+| Store backup dir (delete_all) | `/usrdata/qmanager/data/sms-store-backups/` (newest 3 kept) |
+| AT channel (fallback path) | `/dev/smd11` (Qualcomm SMD char device, not a UART/TTY) — but this deployment reads `at_mdm0` through `qcmd`; see [`at-command-transport.md`](./at-command-transport.md) |
 | Shared AT lock | `/tmp/qmanager_at.lock` (the same lock `qcmd` holds) |
-| Binary | `/usr/bin/sms_tool` (patched, static **armhf**, ~440 KB) |
+| Binary | `/usr/bin/sms_tool` (patched, static **armhf**, ~440 KB) / `deploy/sms_tool` wrapper on this branch |
 | Boot routing oneshot | `/usr/bin/qmanager_sms_storage` + `qmanager-sms-storage.service` |
-| Read-state hook | `hooks/use-sms-read-state.ts` (browser `localStorage`, key `qmanager.sms.read.v1`) |
+| Read-state hook | `hooks/use-sms-read-state.ts` (`localStorage` key `qmanager.sms.read.v1` **plus** the store's own `readed` flag) |
 | Data hook | `hooks/use-sms.ts` (`useSms` — no polling, single-flight, see [GET is not free](#the-get-is-not-side-effect-free)) |
-| Types | `types/sms.ts` |
+| Types | `types/sms.ts` (`SmsStorageKind` = `ME` \| `SM` \| `STORE`) |
 | Inbox UI | `components/cellular/sms/` — see [Inbox UI](#inbox-ui) for the file split |
 | Shape module | `components/cellular/sms/shapes.ts` — the family's one geometry/tone source, read by the loaded views **and** their skeletons |
 | Reboot | Never |
+
+---
+
+## Two sources, one inbox
+
+The device can hold the same conversation twice, and only one copy is the inbox:
+
+| | Device store (O5A Pro) | Modem slots (`sms_tool`) |
+|---|---|---|
+| Where | `/data/turin/mifi_config.sqlite`, table `sms_config`, `sms_pos='0'` | `AT+CPMS` ME (modem) + SM (SIM) |
+| Written by | the vendor's `/usr/sbin/smsd` (and `memohigo` for sends) | the modem, as messages arrive |
+| Granularity | one row per **whole message**, multi-part already reassembled | one entry per **stored segment** |
+| Read flag | `readed` per row | none (`sms_tool -j` drops it) |
+| Retention | permanent until deleted | cleared by `smsd` as it consumes; orphans linger |
+
+The vendor UI at `:80` is served from the store (`/web/v2` → `:8091` → `memohigo`
+`/web/v1/sms/inbox`), and `memohigo` returns `SmsId` values straight out of
+`sms_config`. Because `smsd` **consumes** each incoming SMS (assembling it into
+the store) and clears the modem copy, the modem keeps roughly one orphaned
+segment per multi-part message plus whatever predates the store — which is
+exactly what a modem-only read renders. Measured on the live O5A Pro
+2026-10-22:
+
+| Reading | Result |
+|---|---|
+| `AT+CPMS?` | `"ME",24,255` — 24 slots, newest `10/21/26 18:56:10` |
+| `sms_tool -s ME recv -j` | 24 entries; 15 of the 20 merged rows were a single segment of a multi-part message |
+| `sms_config where sms_pos='0'` | **265** rows, `08-11-2026` → `10-22-2026`, 170 unread |
+| `sms_config where sms_pos='1'` (sent) | 301 rows — not surfaced in QManager at all |
+| Overlap | 10 of the 20 modem rows were strict substrings of longer store rows; 2 were whole texts present in both; 8 existed only in the modem (dated 11/2025–05/2026) |
+
+So `sms.sh` asks the store first and treats the modem as the **fallback**:
+
+```
+store readable?  ── yes ──▶ return sms_config rows        (source: "store")
+       │                     storage: {used, total:0, store:{used}}
+       no
+       ▼
+modem ME + SM merge, CPMS self-heal, multi-part merge       (source: "modem")
+```
+
+Rules that are load-bearing, each one paid for by an edge case:
+
+1. **An EMPTY store is an answer, not a failure.** `sqlite3 -json` prints
+   *nothing* for an empty result set rather than `[]`; treating blank stdout as
+   "cannot read" sent an emptied inbox back to the modem, which then re-showed
+   the fragments the user had just deleted. Only a non-zero `sqlite3` exit means
+   the store could not answer.
+2. **`readed` is INVERTED: `readed='1'` means UNREAD.** Verified two ways on
+   2026-10-22: 170 rows carry `'1'` and `memohigo`'s `inboxInfo` reports
+   `UnreadMsgNum: 170`; the newest row (`readed='1'`) comes back from that API as
+   `"Readed": false`. The flip lives only in `sms.sh`'s `STORE_JQ`.
+3. **The vendor's date/time columns are not QManager's timestamp.** The store
+   keeps `smsdate="10-22-2026"` and `smstime="16:09:31"` in separate columns;
+   `SmsMessage.timestamp` is `"MM/DD/YY HH:MM:SS"` and `parseSmsTimestamp()`
+   returns 0 for anything else, which would sort the entire inbox to the bottom.
+   Conversion happens in the CGI, once. A row that does not match the vendor
+   pattern is passed through verbatim rather than guessed at.
+4. **`STORE` is a third storage vocabulary, not a modem memory.** Its `indexes`
+   are `SmsId` values deleted by sqlite; `ME`/`SM` indexes are physical slots
+   deleted by `sms_tool`. They are grouped separately by the UI for that reason —
+   mixing them would delete the wrong rows.
+5. **No capacity is invented.** The store has no slot limit, so the response
+   omits `me`/`sm` and sets `total: 0`; the tile shows the message count and
+   "Kept on this device" rather than dividing by a number nobody reported.
+
+Fallback matrix, exercised live (see the plan for the run output):
+store file missing / `sqlite3` missing / corrupt DB → modem path; store present
+and empty → `messages: []` with `source: "store"` and **no** modem read.
+
+Nothing about this is portable: `/data/turin/mifi_config.sqlite` exists only on
+the GreenPacket O5A Pro. Every other device has no store, so the modem path is
+the whole implementation there. Recorded in
+[`platform-matrix.md`](./platform-matrix.md).
 
 ---
 
@@ -162,14 +241,26 @@ This lets a user type a local number (e.g. `0917…`) and have it dialed interna
 
 ---
 
-## Read/Unread State (Client-Side)
+## Read/Unread State
 
-The modem **cannot** be the source of truth for per-message read/unread, for two reasons:
+There are two sources and they are layered, not merged:
+
+- **The store's `readed` column** is the initial state on the O5A Pro. `sms.sh`
+  flips its inverted sense and emits `read` per message, and
+  `hooks/use-sms-read-state.ts` treats `read === true` as read. So a message the
+  owner already opened in the vendor UI does not arrive here as unread. Nothing
+  is written back: QManager never mutates `readed`, because that flag belongs to
+  the vendor UI and two writers would fight over it.
+- **The browser's `localStorage` set** sits on top and is additive. A message
+  with no `read` field (the modem path) is unread until this browser opens it.
+
+On the **modem path** the modem cannot be the source of truth at all, for two
+reasons:
 
 1. `sms_tool -j` strips the `REC READ`/`REC UNREAD` field from message objects, so it never reaches the CGI.
 2. Every inbox GET issues `AT+CMGL=4`, which the modem treats as "mark all read" — any modem-side unread flag self-erases on each fetch.
 
-Read state is therefore tracked entirely in the browser by `hooks/use-sms-read-state.ts` (exports `useSmsReadState`, `smsFingerprint`, `parseSmsTimestamp`), persisted to `localStorage` under `qmanager.sms.read.v1` as a JSON array of fingerprint strings.
+Browser read state lives in `hooks/use-sms-read-state.ts` (exports `useSmsReadState`, `smsFingerprint`, `parseSmsTimestamp`), persisted to `localStorage` under `qmanager.sms.read.v1` as a JSON array of fingerprint strings.
 
 ### Fingerprinting
 
@@ -181,9 +272,14 @@ On every write, the stored set is intersected with the fingerprints of the **cur
 
 ### Trade-offs
 
-- Read state is **per-browser**; it does not sync across devices, and clearing browser storage resets it.
-- New incoming messages appear unread by default (fingerprint absent).
-- Opening the View dialog marks the message read immediately.
+- Browser read state is **per-browser**; it does not sync across devices, and
+  clearing browser storage resets it. The store's `readed` flag is what survives
+  that reset.
+- New incoming messages appear unread by default (fingerprint absent, `read`
+  `false` for a fresh store row).
+- Opening the View dialog marks the message read immediately, locally only.
+- `Mark all read` cannot un-read a store row the device already marked read —
+  the device flag is initial state, and the hook only ever adds.
 
 ---
 
@@ -205,11 +301,38 @@ The frontend (`parseSmsTimestamp`) parses the same `MM/DD/YY HH:MM:SS` into epoc
 
 ### GET
 
-Asserts ME routing, reads ME then SM, re-asserts ME, and returns the merged list plus storage (summed **and** per-memory). Response envelope:
+**The store answers first when there is one** (see
+[Two sources, one inbox](#two-sources-one-inbox)). Store-backed envelope —
+`source: "store"`, `storage.store` present, no `me`/`sm`, `total: 0` because the
+store has no capacity, and `read` on every message (from the inverted `readed`):
 
 ```json
 {
   "success": true,
+  "source": "store",
+  "messages": [
+    {
+      "indexes": [566],
+      "sender": "JAZZ",
+      "content": "Your little one deserves the best! …",
+      "timestamp": "10/22/26 16:09:31",
+      "storage": "STORE",
+      "read": false
+    }
+  ],
+  "storage": { "used": 265, "total": 0, "store": { "used": 265 } }
+}
+```
+
+Otherwise the modem path runs unchanged: asserts ME routing, reads ME then SM,
+re-asserts ME, and returns the merged list plus storage (summed **and**
+per-memory). Rows carrying `error` from a failed PDU decode are dropped here
+rather than rendered as a blank line.
+
+```json
+{
+  "success": true,
+  "source": "modem",
   "messages": [
     {
       "indexes": [3],
@@ -235,10 +358,15 @@ A lock failure on the primary ME read returns `{ "success": false, "error": "mod
 | Action | Required fields | Notes |
 |---|---|---|
 | `send` | `phone`, `message` | Normalizes `phone` (strip `+`, local-number → country code via SIM MCC); on failure returns `{success:false, error:"send_failed", detail:"<stderr>"}` (HTTP 200) |
-| `delete` | `indexes` (array), `storage` (`"ME"`\|`"SM"`, default `"ME"`) | Deletes each slot; re-asserts ME after SM deletes; returns `partial_failure` if any slot fails |
-| `delete_all` | — | Clears ME then SM; re-asserts ME routing unconditionally |
+| `delete` | `indexes` (array), `storage` (`"ME"`\|`"SM"`\|`"STORE"`, default `"ME"`) | `ME`/`SM`: deletes each physical slot; re-asserts ME after SM deletes; returns `partial_failure` if any slot fails. `STORE`: one sqlite `DELETE … WHERE sms_pos='0' AND SmsId IN (…)`, ids re-validated as integers first, write timeout 5 s, returns `delete_failed` with sqlite's message |
+| `delete_all` | — | **Store first, and only after a `.backup`**: refuses with `store_backup_failed` if the copy cannot be made. Then clears `sms_pos='0'`, then ME, then SM; re-asserts ME routing unconditionally |
 
-Error codes: `missing_action`, `missing_phone`, `missing_message`, `missing_indexes`, `invalid_action`, `modem_busy`, `send_failed`, `partial_failure`, `delete_all_failed`.
+Error codes: `missing_action`, `missing_phone`, `missing_message`, `missing_indexes`, `invalid_action`, `modem_busy`, `send_failed`, `partial_failure`, `delete_all_failed`, `delete_failed`, `store_backup_failed`.
+
+> ⚠️ WARNING: `delete` and `delete_all` on a STORE row delete from the table the **vendor
+> UI reads too**. A message deleted in QManager disappears from `/#sms` as well. That is
+> the correct behaviour for an inbox — the alternative is a page that cannot delete what
+> it shows — but it means there is exactly one copy, so `delete_all` backs it up first.
 
 ---
 

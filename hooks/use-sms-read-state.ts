@@ -109,15 +109,26 @@ export function useSmsReadState(messages: SmsMessage[]): UseSmsReadStateReturn {
     }
   }, [readSet]);
 
+  /**
+   * A message is read when EITHER the browser marked it read (localStorage)
+   * OR the device itself reports it read.
+   *
+   * The second half is new, and it is why the inbox no longer opens showing
+   * "170 of 265"-style content as all-unread: the store-sourced read path
+   * returns the device's own flag, so a message the owner already read in the
+   * vendor UI comes up read here too. There is no un-mark direction — the
+   * device flag is initial state, and a browser mark is additive on top of it.
+   */
   const isRead = useCallback(
-    (msg: SmsMessage) => readSet.has(smsFingerprint(msg)),
+    (msg: SmsMessage) => msg.read === true || readSet.has(smsFingerprint(msg)),
     [readSet],
   );
 
   const unreadCount = useMemo(
     () =>
       messages.reduce(
-        (n, m) => (readSet.has(smsFingerprint(m)) ? n : n + 1),
+        (n, m) =>
+          m.read === true || readSet.has(smsFingerprint(m)) ? n : n + 1,
         0,
       ),
     [messages, readSet],

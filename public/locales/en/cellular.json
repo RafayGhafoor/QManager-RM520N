@@ -2233,7 +2233,9 @@
         "cancel": "Keep messages",
         "deleting": "Deleting all…",
         "progress_title": "Deleting all messages",
-        "progress_note": "One delete per memory, serialized behind the shared AT lock."
+        "progress_note": "One delete per memory, serialized behind the shared AT lock.",
+        "description_store": "This clears all {{count}} messages from the device's message store, plus whatever the modem still holds. Deleted messages cannot be recovered, and the modem is not rebooted.",
+        "progress_note_store": "One delete per store, serialized behind the shared AT lock."
       },
       "delete_selected_confirm": {
         "title": "Delete Selected Messages",
@@ -2276,7 +2278,8 @@
       },
       "memory": {
         "me": "Modem memory",
-        "sm": "SIM memory"
+        "sm": "SIM memory",
+        "store": "Message store"
       },
       "delete_progress": {
         "pending": "{{memory}} queued",
@@ -2287,7 +2290,8 @@
         "count_pending_other": "{{count}} to remove",
         "count_done_one": "{{count}} removed",
         "count_done_other": "{{count}} removed"
-      }
+      },
+      "description_store": "Messages read from this device's message store. {{used}} kept."
     },
     "compose": {
       "title": "New Message",
@@ -2419,6 +2423,9 @@
       "combined": {
         "label": "Message storage",
         "caption": "Slots used across both memories"
+      },
+      "store": {
+        "caption": "Kept on this device"
       }
     }
   },

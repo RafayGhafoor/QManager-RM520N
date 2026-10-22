@@ -17,7 +17,7 @@ import { cn } from "@/lib/utils";
 
 import { CONDITION_TONE } from "@/components/cellular/condition-screen";
 import { DELETE_STEP_TONE } from "./shapes";
-import type { SmsMessage } from "@/types/sms";
+import type { SmsMessage, SmsStorageKind } from "@/types/sms";
 
 // =============================================================================
 // SmsDeleteDialogs — the three destructive confirmations (single / all /
@@ -32,10 +32,10 @@ import type { SmsMessage } from "@/types/sms";
 // showing ME "cleared" could be displaying a step that actually errored.
 //
 // Rather than drop the visual, the CALLER makes it true: `inbox-card.tsx` fires
-// two sequential `deleteSms(indexes, storage)` calls, one per memory, grouped
-// from `messages[].storage`. That contract already exists in `hooks/use-sms.ts`,
+// a sequential `deleteSms(indexes, storage)` call per store, grouped from
+// `messages[].storage`. That contract already exists in `hooks/use-sms.ts`,
 // costs no backend work, and makes each step genuinely observable — including
-// *which* memory failed. This file only renders the steps it is handed.
+// *which* store failed. This file only renders the steps it is handed.
 //
 // Pre-flight counts are phrased as what WILL be removed, never as a completion
 // log, until the call actually returns.
@@ -44,7 +44,7 @@ import type { SmsMessage } from "@/types/sms";
 export type DeleteStepStatus = "pending" | "running" | "done" | "failed";
 
 export interface DeleteStep {
-  storage: "ME" | "SM";
+  storage: SmsStorageKind;
   /** Messages this step will remove. A zero-length step is never emitted. */
   count: number;
   status: DeleteStepStatus;
@@ -130,6 +130,13 @@ interface SmsDeleteDialogsProps {
   /** Pre-flight split, so the confirmation names both memories honestly. */
   meCount: number;
   smCount: number;
+  /**
+   * Messages the confirmation must account for from the DEVICE's own store.
+   * When this is non-zero the copy changes: "{{me}} from the modem memory and
+   * {{sm}} from the SIM" would read "0 … and 0" over a 265-row inbox, because
+   * every visible row lives in the store, not in a modem slot.
+   */
+  storeCount: number;
   showDeleteSelected: boolean;
   onCloseDeleteSelected: () => void;
   onConfirmDeleteSelected: () => void;
@@ -148,6 +155,7 @@ export function SmsDeleteDialogs({
   totalCount,
   meCount,
   smCount,
+  storeCount,
   showDeleteSelected,
   onCloseDeleteSelected,
   onConfirmDeleteSelected,
@@ -223,12 +231,18 @@ export function SmsDeleteDialogs({
             </AlertDialogTitle>
             <AlertDialogDescription>
               {isDeleting
-                ? t("sms.inbox.delete_all_confirm.progress_note")
-                : t("sms.inbox.delete_all_confirm.description", {
-                    count: totalCount,
-                    me: meCount,
-                    sm: smCount,
-                  })}
+                ? storeCount > 0
+                  ? t("sms.inbox.delete_all_confirm.progress_note_store")
+                  : t("sms.inbox.delete_all_confirm.progress_note")
+                : storeCount > 0
+                  ? t("sms.inbox.delete_all_confirm.description_store", {
+                      count: totalCount,
+                    })
+                  : t("sms.inbox.delete_all_confirm.description", {
+                      count: totalCount,
+                      me: meCount,
+                      sm: smCount,
+                    })}
             </AlertDialogDescription>
           </AlertDialogHeader>
 

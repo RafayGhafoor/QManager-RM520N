@@ -3,9 +3,29 @@
 # =============================================================================
 # sms.sh — CGI Endpoint: SMS Center (GET + POST), storage-aware (RM520N-GL)
 # =============================================================================
-# GET:  Returns all received SMS messages (merged across ME + SM storage) and
-#       combined storage status via sms_tool.
+# GET:  Returns all received SMS messages and combined storage status.
 # POST: Sends, deletes individual (storage-aware), or deletes all SMS messages.
+#
+# SOURCE OF TRUTH (the load-bearing fix for the O5A Pro, 2026-10-22):
+#   Two answers exist on this device and only one of them is the inbox.
+#     1. The device's own store — /data/turin/mifi_config.sqlite, table
+#        sms_config, maintained by the vendor's /usr/sbin/smsd. It holds every
+#        received message REASSEMBLED into one row, with its own read flag. This
+#        is what the vendor UI (:80 -> :8091 -> memohigo) is served from.
+#     2. The modem's own ME/SM slots — what sms_tool reads. On this firmware smsd
+#        CONSUMES each incoming SMS (assembling it into the store) and clears the
+#        modem copy, leaving roughly one orphaned segment behind per multi-part
+#        message. So the modem holds fragments of messages the device already
+#        stores complete, plus messages older than the store, and nothing recent.
+#   Measured 2026-10-22: modem ME = 24 slots (newest 10/21 18:56) vs store = 265
+#   inbox rows through 10/22; 10 of the 20 rows the modem path produced were
+#   strict substrings of longer messages already in the store.
+#   So the store answers first and the modem is the FALLBACK — an empty store is
+#   a legitimately empty inbox, not a reason to re-read the modem (that would
+#   resurrect the fragments a user just deleted). Full reasoning, requirements
+#   and the edge-case matrix: docs/specs/sms-vendor-store.md.
+#   On any device without this vendor store (vanilla QManager, RM520N-GL) the
+#   modem path below is unchanged and is what answers.
 #
 # STORAGE ROUTING (the load-bearing fix — ported from the RM551E sibling):
 #   The modem routes incoming SMS by CPMS mem3, which can default to SM (SIM)
@@ -53,6 +73,14 @@ cgi_handle_options
 # --- Config ------------------------------------------------------------------
 SMS_TOOL="/usr/bin/sms_tool"
 LOCK_FILE="/tmp/qmanager_at.lock"
+# Vendor SMS store (see the header). Both are checked at runtime; either one
+# missing simply means "no store on this device" and the modem path answers.
+STORE_DB="/data/turin/mifi_config.sqlite"
+SQLITE3_BIN="/usr/bin/sqlite3"
+STORE_BACKUP_DIR="/usrdata/qmanager/data/sms-store-backups"
+# Last sqlite error text, set by store_delete_ids for the caller's envelope.
+# Never interpolated into SQL.
+STORE_ERR=""
 # 99 is clear of sms_tool's own 0/1/2, exec failures 126/127, and signal codes 128+N.
 SMS_LOCK_TIMEOUT_RC=99
 
@@ -103,6 +131,99 @@ sms_locked() {
         rm -f "$_sms_err"
         exit "$_sms_rc"
     ) 9<"$LOCK_FILE"
+}
+
+# --- Device SMS store (vendor stack) -----------------------------------------
+# The store keeps date and time in the vendor's own two columns
+# (smsdate="10-22-2026", smstime="16:09:31"). QManager's SmsMessage.timestamp is
+# "MM/DD/YY HH:MM:SS" and hooks/use-sms-read-state.ts#parseSmsTimestamp returns 0
+# for anything else, which would sort the whole inbox to the bottom. The
+# conversion therefore happens here, once, and a row that does not match the
+# vendor pattern is passed through verbatim rather than guessed at.
+#
+# readed is INVERTED: readed='1' means UNREAD. Verified two ways on 2026-10-22 —
+# 170 rows carry '1' and memohigo's inboxInfo reports UnreadMsgNum:170, and the
+# newest row (readed='1') comes back from that API as "Readed": false. The flip
+# lives here so no consumer has to know about it.
+STORE_JQ='def qm_ts:
+    (.smsdate // "") as $d
+    | (.smstime // "") as $t
+    | if ($d | test("^[0-9][0-9]-[0-9][0-9]-[0-9][0-9][0-9][0-9]$"))
+         and ($t | test("^[0-9][0-9]:[0-9][0-9]:[0-9][0-9]$"))
+      then ($d[0:2] + "/" + $d[3:5] + "/" + $d[8:10] + " " + $t)
+      else ([$d, $t] | map(select(. != "")) | join(" "))
+      end;
+  [ .[] | {
+      indexes: [.SmsId],
+      sender: (.number // ""),
+      content: (.content // ""),
+      timestamp: qm_ts,
+      storage: "STORE",
+      read: (.readed == "0")
+  } ]'
+
+# Print the store's inbox as this endpoint's message array. Returns 0 when the
+# store answered — INCLUDING an empty store, which prints [] — and 1 when it
+# could not answer at all (no binary, no file, query failed), which is the
+# caller's cue to fall back to the modem.
+store_inbox_json() {
+    [ -x "$SQLITE3_BIN" ] || return 1
+    [ -f "$STORE_DB" ] || return 1
+    _si_raw=$("$SQLITE3_BIN" -readonly -json "$STORE_DB" \
+        "SELECT SmsId, number, content, smsdate, smstime, readed FROM sms_config WHERE sms_pos='0' ORDER BY SmsId DESC;" \
+        2>/dev/null) || return 1
+    # EMPTY STDOUT IS A VALID ANSWER, not a failure: this sqlite3 prints NOTHING
+    # for an empty result set rather than `[]`. Treating that as "cannot read"
+    # sent an emptied inbox to the modem fallback, which then re-showed the
+    # fragments the user had just deleted — the exact resurrection this design
+    # exists to prevent. Only a non-zero exit means the store could not answer.
+    [ -n "$_si_raw" ] || _si_raw='[]'
+    printf '%s' "$_si_raw" | jq -e 'type == "array"' >/dev/null 2>&1 || return 1
+    _si_out=$(printf '%s' "$_si_raw" | jq -c "$STORE_JQ" 2>/dev/null) || return 1
+    [ -n "$_si_out" ] || return 1
+    printf '%s' "$_si_out"
+    return 0
+}
+
+# Delete store rows by SmsId. $1 is the request's JSON `indexes` array.
+# Returns 0 when the write went through, 1 with $STORE_ERR set when sqlite
+# refused it. Ids are re-validated as bare integers before they reach the SQL
+# string, and the statement is scoped to sms_pos='0' so a stale or forged id can
+# never delete a SENT message out of the outbox.
+store_delete_ids() {
+    [ -x "$SQLITE3_BIN" ] || return 1
+    [ -f "$STORE_DB" ] || return 1
+    _sd_ids=$(printf '%s' "$1" | jq -r '
+        [ .[] | if type == "number" then (floor | tostring) else tostring end ]
+        | join(",")' 2>/dev/null) || return 1
+    [ -n "$_sd_ids" ] || return 1
+    case "$_sd_ids" in
+        *[!0-9,]*) STORE_ERR="rejected non-numeric SmsId list"
+                   qlog_warn "SMS delete: rejected non-numeric SmsId list"
+                   return 1 ;;
+    esac
+    _sd_out=$("$SQLITE3_BIN" -cmd '.timeout 5000' "$STORE_DB" \
+        "DELETE FROM sms_config WHERE sms_pos='0' AND SmsId IN ($_sd_ids);" 2>&1) \
+        || { STORE_ERR="$_sd_out"; return 1; }
+    return 0
+}
+
+# Copy the store before a destructive write. sqlite's own `.backup` is used, not
+# cp: it takes a read lock and produces a consistent file while memohigo and smsd
+# are writing alongside. Prints the backup path on success. Keeps the newest 3.
+store_backup() {
+    [ -f "$STORE_DB" ] || return 0
+    [ -x "$SQLITE3_BIN" ] || return 1
+    mkdir -p "$STORE_BACKUP_DIR" 2>/dev/null || return 1
+    _sb_ts=$(date +%Y%m%d-%H%M%S)
+    _sb_dest="$STORE_BACKUP_DIR/mifi_config-$_sb_ts.sqlite"
+    "$SQLITE3_BIN" "$STORE_DB" ".backup '$_sb_dest'" >/dev/null 2>&1 || return 1
+    [ -s "$_sb_dest" ] || return 1
+    ls -1t "$STORE_BACKUP_DIR"/mifi_config-*.sqlite 2>/dev/null | tail -n +4 | while read -r _sb_old; do
+        rm -f "$_sb_old"
+    done
+    printf '%s' "$_sb_dest"
+    return 0
 }
 
 # --- MCC to country calling code lookup --------------------------------------
@@ -352,7 +473,31 @@ normalize_phone() {
 # GET — Fetch inbox messages + storage status (ME + SM merged)
 # =============================================================================
 if [ "$REQUEST_METHOD" = "GET" ]; then
-    qlog_info "Fetching SMS inbox and status (ME + SM)"
+    # 1. Preferred source: the device's own SMS store (see the header). Only a
+    #    store that cannot be READ falls through to the modem — an empty store is
+    #    a legitimately empty inbox, and re-reading the modem there would
+    #    resurrect the very fragments the user just deleted.
+    if messages=$(store_inbox_json); then
+        store_used=$(printf '%s' "$messages" | jq 'length' 2>/dev/null)
+        [ -z "$store_used" ] && store_used=0
+        qlog_info "SMS inbox served from the device store ($store_used messages)"
+        # No me/sm split and no capacity: the store is one database with no slot
+        # limit, so inventing either would be a lie the tiles would then draw.
+        jq -n --argjson messages "$messages" --argjson used "$store_used" \
+            '{
+                success: true,
+                source: "store",
+                messages: $messages,
+                storage: {
+                    used: $used,
+                    total: 0,
+                    store: {used: $used}
+                }
+            }'
+        exit 0
+    fi
+
+    qlog_info "No readable device SMS store; reading the modem (ME + SM)"
 
     # 0. Self-heal incoming routing (best-effort, ignored result): future
     #    incoming SMS should land in ME (255 slots) not SM (~40 slots).
@@ -416,6 +561,12 @@ if [ "$REQUEST_METHOD" = "GET" ]; then
     #    into a sortable "YYMMDD HH:MM:SS" key before sorting, then reverse for
     #    newest-first. Slice offsets: MM=[0:2] DD=[3:5] YY=[6:8] rest=[8:].
     messages=$(printf '%s' "$raw_msgs" | jq '
+        # A PDU that failed to decode arrives as {error, sender:"", content:"",
+        # timestamp:""}. It used to pass straight through as a "single" and
+        # render as a blank line at the bottom of the table (empty timestamp
+        # sorts to 0). Drop it here; the decode failure is already surfaced by
+        # sms_tool on stderr and in the syslog.
+        map(select(has("error") | not)) |
         [.[] | select(has("reference") | not) |
             {indexes: [.index], sender, content, timestamp, storage}
         ] as $singles |
@@ -477,6 +628,7 @@ if [ "$REQUEST_METHOD" = "GET" ]; then
         --argjson sm_total "$sm_total" \
         '{
             success: true,
+            source: "modem",
             messages: $messages,
             storage: {
                 used: $used,
@@ -547,9 +699,12 @@ if [ "$REQUEST_METHOD" = "POST" ]; then
     fi
 
     # --- action: delete --------------------------------------------------------
-    # Accepts "indexes": [n, ...] and "storage": "ME"|"SM" — deletes all
-    # storage slots (of the given storage) for a (possibly merged multi-part)
-    # message.
+    # Accepts "indexes": [n, ...] and "storage": "ME"|"SM"|"STORE".
+    #   ME / SM — physical modem slots; every index is deleted through sms_tool.
+    #   STORE   — SmsId values in the device's own store, deleted in ONE sqlite
+    #             statement. Grouped separately by the UI because the two
+    #             vocabularies are not interchangeable: a slot index means
+    #             nothing to sqlite and an SmsId means nothing to the modem.
     if [ "$ACTION" = "delete" ]; then
         INDEXES_JSON=$(printf '%s' "$POST_DATA" | jq -c '.indexes // empty' 2>/dev/null)
 
@@ -559,15 +714,27 @@ if [ "$REQUEST_METHOD" = "POST" ]; then
         fi
 
         # Storage target: which memory the indexes live in. Defaults to ME
-        # and is constrained to exactly ME or SM so it can never inject other
-        # args into the sms_tool call.
+        # and is constrained to the three known tokens so it can never inject
+        # other args into the sms_tool call.
         STORAGE=$(printf '%s' "$POST_DATA" | jq -r '.storage // "ME"' 2>/dev/null)
         case "$STORAGE" in
-            ME|SM) : ;;
+            ME|SM|STORE) : ;;
             *) STORAGE="ME" ;;
         esac
 
         qlog_info "Deleting SMS indexes from $STORAGE: $INDEXES_JSON"
+
+        if [ "$STORAGE" = "STORE" ]; then
+            if store_delete_ids "$INDEXES_JSON"; then
+                qlog_info "SMS delete complete ($STORAGE)"
+                cgi_success
+            else
+                qlog_error "SMS delete from the device store failed: $STORE_ERR"
+                jq -n --arg detail "$STORE_ERR" \
+                    '{"success":false,"error":"delete_failed","detail":$detail}'
+            fi
+            exit 0
+        fi
         fail_count=0
         idx_tmp="/tmp/qmanager_sms_idx.tmp"
         printf '%s' "$INDEXES_JSON" | jq -r '.[]' > "$idx_tmp"
@@ -599,6 +766,30 @@ if [ "$REQUEST_METHOD" = "POST" ]; then
 
     # --- action: delete_all ---------------------------------------------------
     if [ "$ACTION" = "delete_all" ]; then
+        # The device store first, and only after a good backup: once these rows
+        # are gone they are gone from the vendor UI too, so refusing to wipe
+        # without a copy is the only safe failure mode.
+        store_present=0
+        if [ -f "$STORE_DB" ] && [ -x "$SQLITE3_BIN" ]; then
+            store_present=1
+            if backup_path=$(store_backup); then
+                qlog_info "SMS store backed up to ${backup_path:-<none>} before delete_all"
+            else
+                qlog_error "SMS delete_all: store backup FAILED; refusing to wipe"
+                cgi_error "store_backup_failed" "Refusing to clear the message store without a backup"
+                exit 0
+            fi
+            if store_wipe_out=$("$SQLITE3_BIN" -cmd '.timeout 5000' "$STORE_DB" \
+                    "DELETE FROM sms_config WHERE sms_pos='0';" 2>&1); then
+                qlog_info "Device SMS store inbox cleared"
+            else
+                qlog_error "SMS delete_all: store wipe failed: $store_wipe_out"
+                jq -n --arg detail "$store_wipe_out" \
+                    '{"success":false,"error":"delete_all_failed","detail":$detail}'
+                exit 0
+            fi
+        fi
+
         qlog_info "Deleting all SMS messages (ME + SM)"
 
         me_result=$(sms_locked -s ME delete all)
@@ -621,6 +812,9 @@ if [ "$REQUEST_METHOD" = "POST" ]; then
         fi
 
         qlog_info "All SMS messages deleted (ME + SM)"
+        if [ "$store_present" -eq 1 ]; then
+            qlog_info "All SMS messages deleted (device store + ME + SM)"
+        fi
         cgi_success
         exit 0
     fi

@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
-import type { SmsMessage, SmsStorage } from "@/types/sms";
+import type { SmsMessage, SmsStorage, SmsStorageKind } from "@/types/sms";
 import { smsFingerprint } from "@/hooks/use-sms-read-state";
 import { InboxToolbar, type SmsTab, type SmsSortDir } from "./inbox-toolbar";
 import { InboxTable, useSmsColumns } from "./inbox-table";
@@ -53,22 +53,25 @@ import {
 // freeze, a destructive banner explains, and a `warning` chip dates them.
 // =============================================================================
 
-/** A storage-grouped delete: one CGI call per memory. */
+/** A storage-grouped delete: one CGI call per store. */
 interface DeleteGroup {
-  storage: "ME" | "SM";
+  storage: SmsStorageKind;
   indexes: number[];
   count: number;
 }
 
 /**
- * Group messages by the memory they live in. `indexes` are PER-STORAGE physical
- * slots and both stores start at 0, so ME slot 3 and SM slot 3 are different
- * messages — mixing them into one call would delete the wrong things.
- * Zero-length groups are dropped so a step never flashes for a memory that has
+ * Group messages by the store they live in. `indexes` are PER-STORAGE physical
+ * slots and both modem memories start at 0, so ME slot 3 and SM slot 3 are
+ * different messages — mixing them into one call would delete the wrong things.
+ * STORE is a third vocabulary (SmsId values, deleted by sqlite) and is grouped
+ * separately for the same reason.
+ *
+ * Zero-length groups are dropped so a step never flashes for a store that has
  * nothing in it (SM is empty on the live device).
  */
 function groupByStorage(messages: SmsMessage[]): DeleteGroup[] {
-  return (["ME", "SM"] as const)
+  return (["ME", "SM", "STORE"] as const)
     .map((storage) => {
       const own = messages.filter((m) => m.storage === storage);
       return {
@@ -100,7 +103,7 @@ interface SmsInboxCardProps {
   markRead: (msg: SmsMessage) => void;
   markAllRead: () => void;
   unreadCount: number;
-  onDelete: (indexes: number[], storage: "ME" | "SM") => Promise<boolean>;
+  onDelete: (indexes: number[], storage: SmsStorageKind) => Promise<boolean>;
   onRefresh: () => void;
   /** Opens Compose, optionally pre-addressed (the Reply path). */
   onCompose: (phone?: string) => void;
@@ -226,7 +229,7 @@ export default function SmsInboxCard({
    * error.
    */
   const runGroupedDelete = React.useCallback(
-    async (groups: DeleteGroup[]): Promise<("ME" | "SM")[]> => {
+    async (groups: DeleteGroup[]): Promise<SmsStorageKind[]> => {
       setSteps(
         groups.map((g) => ({
           storage: g.storage,
@@ -236,7 +239,7 @@ export default function SmsInboxCard({
       );
       setIsDeleting(true);
 
-      const failed: ("ME" | "SM")[] = [];
+      const failed: SmsStorageKind[] = [];
       for (let i = 0; i < groups.length; i++) {
         setSteps((prev) =>
           prev.map((s, idx) => (idx === i ? { ...s, status: "running" } : s)),
@@ -311,26 +314,30 @@ export default function SmsInboxCard({
   const allGroups = groupByStorage(messages);
   const meCount = allGroups.find((g) => g.storage === "ME")?.count ?? 0;
   const smCount = allGroups.find((g) => g.storage === "SM")?.count ?? 0;
+  const storeCount = allGroups.find((g) => g.storage === "STORE")?.count ?? 0;
 
   const isEmpty = messages.length === 0;
   const hasStaleRows = !!error && !isEmpty;
 
-  // The card description reports slot usage HONESTLY. The old copy said
+  // The card description reports the source HONESTLY. The old copy said
   // "{{used}}/{{total}} messages stored" off the summed figures — but the sum of
   // two capacities in physically different memories is not a capacity, because a
-  // message cannot spill from one into the other.
+  // message cannot spill from one into the other. A store-backed inbox has no
+  // capacity at all, so it says where the messages come from and how many.
   const description = error
     ? t("sms.inbox.description_unknown")
-    : storage?.me && storage?.sm
-      ? t("sms.inbox.description_split", {
-          me: storage.me.used,
-          meTotal: storage.me.total,
-          sm: storage.sm.used,
-          smTotal: storage.sm.total,
-        })
-      : storage
-        ? t("sms.inbox.description_combined", { used: storage.used })
-        : t("sms.inbox.description");
+    : storage?.store
+      ? t("sms.inbox.description_store", { used: storage.store.used })
+      : storage?.me && storage?.sm
+        ? t("sms.inbox.description_split", {
+            me: storage.me.used,
+            meTotal: storage.me.total,
+            sm: storage.sm.used,
+            smTotal: storage.sm.total,
+          })
+        : storage
+          ? t("sms.inbox.description_combined", { used: storage.used })
+          : t("sms.inbox.description");
 
   return (
     <>
@@ -505,6 +512,7 @@ export default function SmsInboxCard({
         totalCount={messages.length}
         meCount={meCount}
         smCount={smCount}
+        storeCount={storeCount}
         showDeleteSelected={showDeleteSelected}
         onCloseDeleteSelected={() => setShowDeleteSelected(false)}
         onConfirmDeleteSelected={handleDeleteSelected}

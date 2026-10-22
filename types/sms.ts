@@ -20,13 +20,28 @@ export interface SmsMessage {
   /** Timestamp string (format: "MM/DD/YY HH:MM:SS") */
   timestamp: string;
   /**
-   * Which modem memory this message lives in:
-   *   "ME" — modem memory (where new incoming messages are routed)
-   *   "SM" — SIM card (legacy storage; incoming used to land here)
-   * Required so deletion targets the correct storage (AT+CPMS).
+   * Which store this message lives in:
+   *   "ME"  — modem memory (the modem reader's primary source)
+   *   "SM"  — SIM card
+   *   "STORE" — the DEVICE's own SMS store (the vendor stack's
+   *           `sms_config` table, which the vendor UI is served from).
+   * Required so deletion targets the correct store: ME/SM take physical slot
+   * indexes through `sms_tool`, STORE takes `SmsId` values through sqlite.
    */
-  storage: "ME" | "SM";
+  storage: SmsStorageKind;
+  /**
+   * True when the DEVICE reports the message as already read.
+   *
+   * Only the STORE source can answer this — the modem reader has no read flag.
+   * Absent means "the device did not say", which the read-state hook treats as
+   * unread rather than guessing. The device flag is the initial state only:
+   * marking a message read here is still browser-local and additive on top.
+   */
+  read?: boolean;
 }
+
+/** Which memory backs a message. See `SmsMessage.storage`. */
+export type SmsStorageKind = "ME" | "SM" | "STORE";
 
 /** Storage status info */
 export interface SmsStorage {
@@ -46,11 +61,20 @@ export interface SmsStorage {
    * breakdown, so the UI must degrade to the combined meter when absent.
    */
   sm?: { used: number; total: number };
+  /**
+   * Set only when the DEVICE's own SMS store answered the read. Its presence is
+   * how the tiles know they must not draw a modem/SIM split: the store is one
+   * database with no per-memory capacity, so `me`/`sm` are absent and `used` is
+   * a message count, not slot usage.
+   */
+  store?: { used: number };
 }
 
 /** Response from GET /cgi-bin/quecmanager/cellular/sms.sh */
 export interface SmsInboxResponse {
   success: boolean;
+  /** Which source answered. Absent on a CGI that predates the store path. */
+  source?: "store" | "modem";
   messages: SmsMessage[];
   storage: SmsStorage;
   error?: string;
