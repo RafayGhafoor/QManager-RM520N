@@ -54,8 +54,13 @@ LOCK_WAIT_LONG=45      # seconds to wait for lock (long commands)
 
 # Ensure lock file exists and is accessible by both root and www-data.
 # The poller (root) and CGI scripts (www-data) share this file via flock.
-[ ! -f "$LOCK_FILE" ] && touch "$LOCK_FILE" 2>/dev/null
-chmod 666 "$LOCK_FILE" 2>/dev/null
+# chmod only when WE create it: it used to run on every call (one fork per AT
+# command, system-wide). The lock is only ever opened read-only (9<), so the
+# mode a file was created with is all that matters.
+if [ ! -f "$LOCK_FILE" ]; then
+    : > "$LOCK_FILE" 2>/dev/null
+    chmod 666 "$LOCK_FILE" 2>/dev/null
+fi
 
 # --- AT device configuration -------------------------------------------------
 AT_CLI="/usr/bin/atcli_smd11"

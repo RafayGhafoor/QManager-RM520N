@@ -2,7 +2,7 @@
 
 > **Measured:** 2026-10-22 on the O5A Pro (RG520N-EB, SDX6X), firmware
 > `LE.UM.6.2.3.r1-03100-SDX65.0`, kernel without `CONFIG_PROC_CHILDREN`.
-> **Status:** proposed, not started. **Method:** [`profiling.md`](../reference/profiling.md)
+> **Status:** round 1 BUILT and deployed 2026-10-22 (see *Round 1 — built and measured* at the end); items open are listed there. **Method:** [`profiling.md`](../reference/profiling.md)
 > and [`poller-cpu-profile.md`](../reference/poller-cpu-profile.md).
 
 ## The complaint
@@ -259,3 +259,70 @@ refresh every 8 s.
 
 **Recommendation: 33 %, not 25 %.** A1 and A2 are only worth doing under the second
 reading.
+
+---
+
+## Round 1 — built and measured (2026-10-22)
+
+Aimed by a **per-segment** profile rather than the per-program one above:
+[`scripts-dev/qm-poller-segprof.sh`](../../scripts-dev/qm-poller-segprof.sh) runs
+the real poller code with a probe after every step of `poll_cycle`. Full tables
+and the edge-case evidence are in
+[`poller-cpu-profile.md` → O5A profile](../reference/poller-cpu-profile.md#o5a-profile-rg520n-eb-2026-10-22).
+
+### What the segment profile showed (before, 60 cycles / 505 s)
+
+`ca_info_read` 282 ms/cycle · `detect_events` 211 · `parse_ca_info` 157 ·
+`poll_tier2` 147 (amortised) · `poll_serving_cell` 117 · per-antenna 92 · Tier 3 68 ·
+`update_data_used` 53 · `write_cache` 46. Whole cycle ~1334 ms, period 8.36 s,
+**16.0 % of one core**.
+
+Two of the top three were not on this plan's list: **`detect_events`** (an
+SCC-handoff check gated on a JSON string that changes every cycle, ~11 `jq` per
+cycle) and **`parse_ca_info`** (~55 processes per cycle). The QCAINFO read itself
+was three AT calls.
+
+### What was built (maps onto A1–A3)
+
+| Plan item | Change | File |
+| --- | --- | --- |
+| A1 (shim) | drain → `/dev/null`, builtin terminator poll, `tr` + expansion instead of `tr\|sed`; retry allowlist gains the CA compound | `deploy/atcli_smd11` |
+| A1 (qcmd) | `chmod 666` on the lock only when created | `scripts/usr/bin/qcmd` |
+| A1 (logging) | filtered DEBUG lines no longer fork (`_qlog_lvl`, early return in `qlog_at_cmd`, no `$(dirname)`) — every CGI benefits | `scripts/usr/lib/qmanager/qlog.sh` |
+| A2 (batching) | `AT+QCAINFO=1` / read / `=0` → one compound; `=0` re-sent alone if the compound fails | `scripts/usr/bin/qmanager_poller` `ca_info_read` |
+| A3 (jq) | SCC check gated on `t2_scc_sig` (tech:band:pci); event state written only when its content changes | `scripts/usr/lib/qmanager/events.sh` |
+| A3 (parse) | `parse_ca_info` → one awk pass + the unchanged jq; byte-identical on 8 fixtures | `scripts/usr/lib/qmanager/parse_at.sh` |
+| — | main-loop cycle timer from `/proc/uptime` instead of 2 × `date` | `scripts/usr/bin/qmanager_poller` `main` |
+
+### Measured after (112 cycles / 722 s, same harness and conditions)
+
+| | Before | After |
+| --- | ---: | ---: |
+| Whole cycle CPU | ~1334 ms | **~771 ms (−42 %)** |
+| Cycle period | 8.36 s | **6.39 s** |
+| Poller, % of one core (harness) | 16.0 % | **12.1 %** |
+| Poller, % of one core (live, 60 s) | 13.4 % | **10.8 %** |
+| Box fork rate | 111 /s | **90 /s** |
+| Per AT call (`AT+CGMM`) | 78–86 ms CPU, 411–739 ms wall | **53 ms CPU, ~345 ms wall** |
+| Poller RSS | 2.5 MB | 2.5 MB |
+
+The −42 % per cycle shows up as only −24 % CPU share because the cycle also got
+2 s shorter and runs 31 % more often — exactly the effect that made the broker A/B
+look like "no win" (see the note added to `at-broker.md`). The "under 12 %" success
+line in *How to prove each step* is met on the live daemon (10.8 %).
+
+### Deployed
+
+2026-10-22 03:03 UTC, files replaced atomically (`.new` + `mv`) and the poller
+restarted once. Pre-change copies: `/usrdata/qmanager/backup/pre-poller-opt-20261022-030314.tgz`
+(rollback = extract over `/usrdata/qmanager` and restart the poller). Verified after:
+all four units active, `:80` 200, `:8080` 200, status JSON live (RG520N-EB, 5G-NSA,
+Jazz, 3 carriers, NR SCC RSRP present — i.e. the `=1` leg of the compound took).
+
+### Still open (ranked by after-profile ms/cycle)
+
+1. `poll_tier2` — 1890 ms per call, ~1774 processes; batch its reads (A2).
+2. `poll_per_antenna_signal` — 452 ms per call; per-line greps + `jq -n` append.
+3. `update_data_used` — 53 ms every cycle: `grep` + 2 `awk` + `date` + a jq write.
+4. `poll_serving_cell` 94 / Tier 3 50 / `write_cache` 45 / `read_ping_data` 33.
+5. Cadence (A4) is still a product decision; nothing here changed `POLL_INTERVAL`.

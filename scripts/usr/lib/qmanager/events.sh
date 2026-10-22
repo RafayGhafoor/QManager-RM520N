@@ -407,7 +407,14 @@ snapshot_event_state() {
     prev_ev_cfun="$t1_cfun"
     prev_ev_carrier_components="$t2_carrier_components"
 
-    # Persist for restart recovery (atomic .tmp + mv).
+    # Persist for restart recovery (atomic .tmp + mv) — ONLY when something a
+    # restart would act on changed. This ran a jq + mv every cycle (~14 ms on
+    # the RG520N-EB) to rewrite an identical file. carrier_components is left
+    # out of the key on purpose: it changes every cycle (RSRP/SINR) and after a
+    # restart it is only compared, never parsed — the SCC identity that does
+    # matter is in the key via t2_scc_sig.
+    local _key="$prev_ev_network_type|$prev_ev_lte_band|$prev_ev_lte_pci|$prev_ev_nr_band|$prev_ev_nr_pci|$prev_ev_nr_state|$prev_ev_modem_reachable|$prev_ev_internet|$prev_ev_ca_active|$prev_ev_ca_count|$prev_ev_nr_ca_active|$prev_ev_nr_ca_count|$prev_ev_service_status|${prev_ev_cfun:-}|${t2_scc_sig:-}"
+    [ "$_key" = "${_ev_persist_key:-}" ] && [ -s "$EVENT_STATE_FILE" ] && return 0
     # _tmp is derived inside the function so EVENT_STATE_FILE overrides at any
     # point (tests, future callers) keep the .tmp path in sync with the final.
     local _tmp="${EVENT_STATE_FILE}.tmp"
@@ -436,7 +443,8 @@ snapshot_event_state() {
             service_status: $svc, carrier_components: $cc,
             cfun: $cfun
         }' > "$_tmp" 2>/dev/null && \
-        mv "$_tmp" "$EVENT_STATE_FILE" 2>/dev/null
+        mv "$_tmp" "$EVENT_STATE_FILE" 2>/dev/null && \
+        _ev_persist_key="$_key"
 }
 
 # Restore prev_ev_* from disk on poller startup. Sets events_initialized=true
@@ -824,10 +832,22 @@ detect_events() {
     _ev_ca_check lte_ca LTE "$t2_ca_count"
     _ev_ca_check nr_ca NR "$t2_nr_ca_count"
 
-    # --- SCC PCI changes (detected on Tier 2 refresh) ---
-    if [ "$t2_carrier_components" != "$prev_ev_carrier_components" ]; then
+    # --- SCC PCI changes ---
+    # Gated on the SCC identity signature (tech:band:pci per SCC, built by
+    # parse_ca_info), NOT on the whole carrier JSON. The JSON embeds RSRP/SINR,
+    # so since QCAINFO moved to every cycle it differed on every cycle and this
+    # ran a dozen jq forks per cycle (~170 ms of 209 ms measured in
+    # detect_events on the RG520N-EB, 2026-10-22) to compare fields that had not
+    # changed. detect_scc_pci_changes only looks at SCC tech/band/pci, so equal
+    # signatures mean it could not have emitted anything. An empty carrier list
+    # (failed read) is signature "". prev_ev_scc_sig starts unset so the first
+    # cycle after a (re)start always runs, as the string compare used to.
+    local _scc_sig="${t2_scc_sig:-}"
+    [ "$t2_carrier_components" = "[]" ] && _scc_sig=""
+    if [ "$_scc_sig" != "${prev_ev_scc_sig-__unset__}" ]; then
         detect_scc_pci_changes
     fi
+    prev_ev_scc_sig="$_scc_sig"
 
     # Data connection events run from the poller right after read_ping_data
     # (they need no modem), not from here.

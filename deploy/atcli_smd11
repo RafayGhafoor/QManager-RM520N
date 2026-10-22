@@ -63,7 +63,12 @@ done
 #   AT+QENG=... -> "ERROR" then the real +QENG lines
 # Parsers then read the wrong line, which is how "missing information" shows up
 # in the UI. Drain to /dev/null first so every capture starts on a clean slate.
-DRAIN="/tmp/atcli_smd11.drain.$$"
+#
+# Process budget: on this SoC a fork+exec costs ~3 ms of CPU however little the
+# program does (docs/reference/poller-cpu-profile.md), and this shim runs once
+# per AT command for the poller AND every CGI. So: the drain goes straight to
+# /dev/null (no temp file to rm), the terminator poll and the final cleanup use
+# shell builtins instead of grep / sed. Only dd, sleep and one tr remain.
 
 # One clean send + capture round. Leaves the raw text in $OUT.
 # Returns 2 when the modem produced NO BYTES AT ALL (a dropped command), 0 otherwise.
@@ -73,12 +78,12 @@ capture_once() {
     # backgrounded: replies arrive asynchronously and this is how the modem
     # channel is captured. (The measured ioctl trigger was the paired shell
     # printf-redirection writer below, not opening/reading the node by itself.)
-    dd if="$AT_DEV" of="$DRAIN" bs=256 2>/dev/null &
+    dd if="$AT_DEV" of=/dev/null bs=256 2>/dev/null &
     _dp=$!
     sleep 0.15
     kill "$_dp" 2>/dev/null
     wait "$_dp" 2>/dev/null
-    rm -f "$DRAIN" "$OUT"
+    : > "$OUT"     # builtin truncate (was rm -f): [ -s ] below must start false
 
     # Same raw reader as the stale-byte drain above. Do not use head/grep/wc
     # directly on the node: these tools probe termios on this BusyBox build.
@@ -119,7 +124,7 @@ capture_once() {
     # Phase 2 — wait for a terminator.
     i=0
     while [ "$i" -lt "$TICKS" ]; do
-        grep -q -e '^OK' -e '^ERROR' -e '+CME ERROR' "$OUT" 2>/dev/null && break
+        has_terminator && break
         sleep 0.25
         i=$((i + 1))
     done
@@ -129,9 +134,24 @@ capture_once() {
     return 0
 }
 
+# Builtin equivalent of
+#   grep -q -e '^OK' -e '^ERROR' -e '+CME ERROR' "$OUT"
+# (line starts OK / starts ERROR / contains +CME ERROR; CRs are still on the
+# lines, which OK* and ERROR* match exactly as the anchored grep did). The
+# `|| [ -n ]` keeps an unterminated last line, which grep also matched.
+has_terminator() {
+    [ -s "$OUT" ] || return 1
+    while IFS= read -r _l || [ -n "$_l" ]; do
+        case "$_l" in
+            OK*|ERROR*|*"+CME ERROR"*) return 0 ;;
+        esac
+    done < "$OUT"
+    return 1
+}
+
 # --- Send + capture ----------------------------------------------------------
 OUT="/tmp/atcli_smd11.$$"
-trap 'rm -f "$OUT" "$DRAIN"' EXIT INT TERM
+trap 'rm -f "$OUT"' EXIT INT TERM
 
 # The port intermittently answers NOTHING AT ALL. Measured: 4 of 5 identical
 # AT+QNWPREFCFG reads came back with zero bytes while the modem was healthy and
@@ -146,6 +166,7 @@ RETRY_EMPTY=false
 case "$CMD" in
     *\?*|\
     AT+CGPADDR|AT+CGCONTRDP|AT+CGCONTRDP=*|AT+QCAINFO|AT+QENG=*|\
+    'AT+QCAINFO=1;+QCAINFO;+QCAINFO=0'|\
     'AT+CVERSION;+'*|'AT+QGETCAPABILITY'|\
     'AT+QNWPREFCFG="rat_acq_order"'|\
     'AT+QNWCFG="lte_mimo_layers"'|'AT+QNWCFG="nr5g_mimo_layers"'|\
@@ -169,6 +190,19 @@ done
 # empty line (the port emits CRLF before the payload); upstream's binary does
 # not, and several parsers slice line 1 (e.g. health-check's AT+CGMI test),
 # which then read an empty string instead of "Quectel".
-tr -d '\r\000' < "$OUT" 2>/dev/null | sed -e '/./,$!d'
+#
+# Same result as `tr -d '\r\000' < OUT | sed -e '/./,$!d'`, minus the sed and
+# the pipe: leading newlines are trimmed with parameter expansion. Trailing
+# newlines collapse to one, which every caller's $(...) strips anyway.
+_resp=$(tr -d '\r\000' < "$OUT" 2>/dev/null)
+_nl='
+'
+while :; do
+    case "$_resp" in
+        "$_nl"*) _resp="${_resp#"$_nl"}" ;;
+        *) break ;;
+    esac
+done
+[ -n "$_resp" ] && printf '%s\n' "$_resp"
 
 exit 0

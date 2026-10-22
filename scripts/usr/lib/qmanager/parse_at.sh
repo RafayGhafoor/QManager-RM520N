@@ -750,9 +750,113 @@ _nr_bw_to_mhz() {
 parse_ca_info() {
     local raw="$1"
 
-    # --- CA counts ---
-    local lte_scc_count
-    lte_scc_count=$(printf '%s\n' "$raw" | grep '+QCAINFO: "SCC"' | grep -c 'LTE BAND')
+    # ONE awk pass + ONE jq. This used to shred every +QCAINFO line through
+    # printf|sed|tr|tr|tr, a sed per band string, a subshell per MHz lookup and
+    # an awk per NR SNR — ~55 processes and 155 ms of CPU per cycle on the
+    # RG520N-EB (measured 2026-10-22, docs/reference/poller-cpu-profile.md
+    # "O5A profile"), and it runs EVERY cycle. The rules below reproduce the old
+    # shell code field for field:
+    #   * counts: grep '+QCAINFO: "SCC"' | grep -c 'LTE BAND' / 'NR' — any line
+    #   * rows:   only lines starting '+QCAINFO:'; strip every '+QCAINFO: ',
+    #             then every '"', ' ', CR; split on ',' with bash IFS=','
+    #             semantics (a single trailing empty field is dropped)
+    #   * bandwidth maps are STRING matches (case "$1" in 6) ...), hence the
+    #     subscript lookups, which never compare numerically
+    #   * NR SNR: -32768 -> null, else the same awk "%.1f" of raw/100
+    # The final jq call is kept verbatim so t2_carrier_components stays
+    # byte-identical (pretty-printed) for every downstream consumer.
+    local cc_tmpfile="/tmp/qmanager_cc_data.tmp"
+    rm -f "$cc_tmpfile"
+    local _pc
+    _pc=$(printf '%s\n' "$raw" | awk -v ccf="$cc_tmpfile" '
+        function delfirst(s, t,   i) {
+            i = index(s, t)
+            if (i == 0) return s
+            return substr(s, 1, i - 1) substr(s, i + length(t))
+        }
+        function sane(v) {
+            if (v == "" || v == "-" || v ~ /[^0-9-]/) return "null"
+            return v
+        }
+        BEGIN {
+            rb["6"]=1; rb["15"]=3; rb["25"]=5; rb["50"]=10; rb["75"]=15; rb["100"]=20
+            nb["0"]=5; nb["1"]=10; nb["2"]=15; nb["3"]=20; nb["4"]=25; nb["5"]=30
+            nb["6"]=40; nb["7"]=50; nb["8"]=60; nb["9"]=70; nb["10"]=80; nb["11"]=90
+            nb["12"]=100; nb["13"]=200; nb["14"]=400; nb["15"]=35; nb["16"]=45
+            lte = 0; nr = 0; total = 0; details = ""
+        }
+        {
+            line = $0
+            if (index(line, "+QCAINFO: \"SCC\"")) {
+                if (index(line, "LTE BAND")) lte++
+                if (index(line, "NR")) nr++
+            }
+            if (index(line, "+QCAINFO:") != 1) next
+
+            csv = line
+            while (index(csv, "+QCAINFO: ")) csv = delfirst(csv, "+QCAINFO: ")
+            gsub(/"/, "", csv); gsub(/ /, "", csv); gsub(/\r/, "", csv)
+            n = (csv == "") ? 0 : split(csv, f, ",")
+            if (n > 0 && f[n] == "") n--
+            if (n < 4) next
+
+            bw = f[3] ""; bs = f[4] ""
+            pci = "null"; rsrp = "null"; rsrq = "null"; rssi = "null"; sinr = "null"
+            if (index(bs, "LTEBAND") == 1) {
+                tech = "LTE"
+                mhz = ((bw in rb) ? rb[bw] : 0)
+                band = "B" delfirst(bs, "LTEBAND")
+                if (n >= 6)  pci  = f[6]
+                if (n >= 7)  rsrp = f[7]
+                if (n >= 8)  rsrq = f[8]
+                if (n >= 9)  rssi = f[9]
+                if (n >= 10) sinr = f[10]
+            } else if (index(bs, "NR5GBAND") == 1 || index(bs, "NRDCBAND") == 1) {
+                tech = "NR"
+                mhz = ((bw in nb) ? nb[bw] : 0)
+                band = "N" delfirst(delfirst(bs, "NR5GBAND"), "NRDCBAND")
+                snr = ""; have_snr = 0
+                if (n >= 9) {
+                    if (n >= 6)  pci  = f[6]
+                    if (n >= 10) rsrp = f[10]
+                    if (n >= 11) rsrq = f[11]
+                    if (n >= 12) { snr = f[12]; have_snr = 1 }
+                } else {
+                    if (n >= 5) pci  = f[5]
+                    if (n >= 6) rsrp = f[6]
+                    if (n >= 7) rsrq = f[7]
+                    if (n >= 8) { snr = f[8]; have_snr = 1 }
+                }
+                if (have_snr) {
+                    if (snr == "-32768") sinr = "null"
+                    else if (snr == "") sinr = ""
+                    else if (snr + 0 == snr) sinr = sprintf("%.1f", snr / 100)
+                    else sinr = "null"
+                }
+            } else next
+
+            if (mhz > 0) {
+                total += mhz
+                if (details != "") details = details " + "
+                details = details band ": " mhz " MHz"
+            }
+            pci = sane(pci); rsrp = sane(rsrp); rsrq = sane(rsrq); rssi = sane(rssi)
+            if (sinr == "" || sinr == "-") sinr = "null"
+            fr = f[2]; if (fr == "") fr = "null"
+            printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", \
+                f[1], tech, band, fr, mhz, pci, rsrp, rsrq, rssi, sinr > ccf
+        }
+        END { printf "%d|%d|%d|%s", lte, nr, total, details }
+    ')
+
+    local lte_scc_count nr_scc_count _rest="$_pc"
+    lte_scc_count="${_rest%%|*}"; _rest="${_rest#*|}"
+    nr_scc_count="${_rest%%|*}";  _rest="${_rest#*|}"
+    t2_total_bandwidth_mhz="${_rest%%|*}"; _rest="${_rest#*|}"
+    t2_bandwidth_details="$_rest"
+    [ -n "$lte_scc_count" ] || lte_scc_count=0
+    [ -n "$nr_scc_count" ] || nr_scc_count=0
+    [ -n "$t2_total_bandwidth_mhz" ] || t2_total_bandwidth_mhz=0
 
     if [ "$lte_scc_count" -gt 0 ]; then
         t2_ca_active=true
@@ -761,9 +865,6 @@ parse_ca_info() {
         t2_ca_active=false
         t2_ca_count=0
     fi
-
-    local nr_scc_count
-    nr_scc_count=$(printf '%s\n' "$raw" | grep '+QCAINFO: "SCC"' | grep -c 'NR')
 
     if [ "$nr_scc_count" -gt 0 ]; then
         # In NSA mode, the first NR SCC is the NR leg itself (LTE is PCC).
@@ -785,136 +886,16 @@ parse_ca_info() {
         t2_nr_ca_count=0
     fi
 
-    # --- Bandwidth + per-carrier component parsing ---
-    local total_mhz=0
-    local details=""
-    local cc_tmpfile="/tmp/qmanager_cc_data.tmp"
-    : > "$cc_tmpfile"
-    local qca_lines
-    qca_lines=$(printf '%s\n' "$raw" | grep '^+QCAINFO:')
-
-    if [ -z "$qca_lines" ]; then
-        t2_total_bandwidth_mhz=0
-        t2_bandwidth_details=""
-        t2_carrier_components="[]"
-        return
-    fi
-
-    # Process via file redirect to avoid BusyBox subshell trap.
-    local tmpfile="/tmp/qmanager_ca_parse.tmp"
-    printf '%s\n' "$qca_lines" > "$tmpfile"
-
-    while IFS= read -r line; do
-        # Strip prefix, quotes, spaces, carriage returns
-        local csv
-        csv=$(printf '%s' "$line" | sed 's/+QCAINFO: //g' | tr -d '"' | tr -d ' ' | tr -d '\r')
-
-        # POSIX field splitting — one substitution instead of 10 cut forks.
-        local _OLD_IFS=$IFS
-        IFS=','
-        # shellcheck disable=SC2086 # intentional word splitting on commas
-        set -- $csv
-        IFS=$_OLD_IFS
-        local nfields=$#
-
-        [ "$nfields" -lt 4 ] && continue
-
-        local cc_type="$1"
-        local freq="$2"
-        local bw_raw="$3"
-        local band_str="$4"
-
-        local tech="" band_short="" mhz=0
-        local cc_pci="null" cc_rsrp="null" cc_rsrq="null" cc_rssi="null" cc_sinr="null"
-
-        case "$band_str" in
-            LTEBAND*)
-                # ---- LTE line ----
-                # Positions: type(1),freq(2),bw(3),band(4),state(5),PCI(6),RSRP(7),RSRQ(8),RSSI(9),RSSNR(10)
-                tech="LTE"
-                mhz=$(_lte_rb_to_mhz "$bw_raw")
-                local band_num
-                band_num=$(printf '%s' "$band_str" | sed 's/LTEBAND//')
-                band_short="B${band_num}"
-
-                [ "$nfields" -ge 6 ]  && cc_pci="$6"
-                [ "$nfields" -ge 7 ]  && cc_rsrp="$7"
-                [ "$nfields" -ge 8 ]  && cc_rsrq="$8"
-                [ "$nfields" -ge 9 ]  && cc_rssi="$9"
-                [ "$nfields" -ge 10 ] && cc_sinr="${10}"
-                ;;
-            NR5GBAND*|NRDCBAND*)
-                # ---- NR line ----
-                tech="NR"
-                mhz=$(_nr_bw_to_mhz "$bw_raw")
-                local band_num
-                band_num=$(printf '%s' "$band_str" | sed 's/NR5GBAND//;s/NRDCBAND//')
-                band_short="N${band_num}"
-
-                if [ "$nfields" -ge 9 ]; then
-                    # Long form (SCC with UL info):
-                    # type(1),freq(2),bw(3),band(4),state(5),PCI(6),UL_cfg(7),UL_bw(8),UL_ARFCN(9)[,RSRP(10),RSRQ(11)[,SNR(12)]]
-                    [ "$nfields" -ge 6 ]  && cc_pci="$6"
-                    [ "$nfields" -ge 10 ] && cc_rsrp="${10}"
-                    [ "$nfields" -ge 11 ] && cc_rsrq="${11}"
-                    if [ "$nfields" -ge 12 ]; then
-                        local raw_snr="${12}"
-                        case "$raw_snr" in
-                            -32768) cc_sinr="null" ;;
-                            *) cc_sinr=$(printf '%s' "$raw_snr" | awk '{if($1+0==$1) printf "%.1f", $1/100; else print "null"}') ;;
-                        esac
-                    fi
-                else
-                    # Short form (PCC or old SCC):
-                    # type(1),freq(2),bw(3),band(4),PCI(5)[,RSRP(6),RSRQ(7)[,SNR(8)]]
-                    [ "$nfields" -ge 5 ] && cc_pci="$5"
-                    [ "$nfields" -ge 6 ] && cc_rsrp="$6"
-                    [ "$nfields" -ge 7 ] && cc_rsrq="$7"
-                    if [ "$nfields" -ge 8 ]; then
-                        local raw_snr="$8"
-                        case "$raw_snr" in
-                            -32768) cc_sinr="null" ;;
-                            *) cc_sinr=$(printf '%s' "$raw_snr" | awk '{if($1+0==$1) printf "%.1f", $1/100; else print "null"}') ;;
-                        esac
-                    fi
-                fi
-                ;;
-            *)
-                # Unrecognized band string — skip
-                continue
-                ;;
-        esac
-
-        # --- Accumulate bandwidth totals ---
-        if [ "$mhz" -gt 0 ] 2>/dev/null; then
-            total_mhz=$((total_mhz + mhz))
-            if [ -n "$details" ]; then
-                details="${details} + ${band_short}: ${mhz} MHz"
-            else
-                details="${band_short}: ${mhz} MHz"
-            fi
-        fi
-
-        # --- Sanitize numeric fields (empty / dash / non-numeric → null) ---
-        case "$cc_pci"  in ''|'-'|*[!0-9-]*) cc_pci="null"  ;; esac
-        case "$cc_rsrp" in ''|'-'|*[!0-9-]*) cc_rsrp="null" ;; esac
-        case "$cc_rsrq" in ''|'-'|*[!0-9-]*) cc_rsrq="null" ;; esac
-        case "$cc_rssi" in ''|'-'|*[!0-9-]*) cc_rssi="null" ;; esac
-        # cc_sinr may be a float (NR /100 conversion) — validated by awk above
-        case "$cc_sinr" in ''|'-') cc_sinr="null" ;; esac
-
-        # --- Write carrier data for jq processing ---
-        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-            "$cc_type" "$tech" "$band_short" "${freq:-null}" "$mhz" \
-            "$cc_pci" "$cc_rsrp" "$cc_rsrq" "$cc_rssi" "$cc_sinr" >> "$cc_tmpfile"
-
-    done < "$tmpfile"
-    rm -f "$tmpfile"
-
-    t2_total_bandwidth_mhz=$total_mhz
-    t2_bandwidth_details="$details"
-
+    # SCC identity signature (tech:band:pci per SCC, in order). detect_events
+    # compares THIS, not the whole carrier JSON: the JSON carries RSRP/SINR and
+    # so changes every cycle, which made the SCC-handoff check (a dozen jq
+    # forks) run every cycle although it only ever looks at tech/band/pci.
+    t2_scc_sig=""
     if [ -s "$cc_tmpfile" ]; then
+        local _t _te _b _r1 _r2 _p _r3
+        while IFS='	' read -r _t _te _b _r1 _r2 _p _r3; do
+            [ "$_t" = "SCC" ] && t2_scc_sig="${t2_scc_sig}${_te}:${_b}:${_p};"
+        done < "$cc_tmpfile"
         t2_carrier_components=$(jq -Rs '
             split("\n") | map(select(length > 0) | split("\t")) | map({
                 type: .[0],
@@ -930,6 +911,8 @@ parse_ca_info() {
             })
         ' "$cc_tmpfile")
     else
+        t2_total_bandwidth_mhz=0
+        t2_bandwidth_details=""
         t2_carrier_components="[]"
     fi
     rm -f "$cc_tmpfile"

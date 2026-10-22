@@ -56,9 +56,14 @@ qlog_init() {
     _QLOG_COMPONENT="${1:-unknown}"
     _QLOG_INITIALIZED=1
 
-    # Ensure log directory exists (should be /tmp/ which always exists)
+    # Ensure log directory exists (should be /tmp/ which always exists).
+    # Parameter expansion, not $(dirname ...): qlog_init runs at the top of
+    # every qcmd call and every CGI, and that substitution was two processes.
     local log_dir
-    log_dir=$(dirname "$QLOG_FILE")
+    case "$QLOG_FILE" in
+        */*) log_dir="${QLOG_FILE%/*}"; [ -n "$log_dir" ] || log_dir=/ ;;
+        *)   log_dir=. ;;
+    esac
     [ -d "$log_dir" ] || mkdir -p "$log_dir" 2>/dev/null
 }
 
@@ -71,6 +76,22 @@ _qlog_level_num() {
         WARN)  echo $_QLOG_LVL_WARN ;;
         ERROR) echo $_QLOG_LVL_ERROR ;;
         *)     echo $_QLOG_LVL_INFO ;;
+    esac
+}
+
+# Same mapping, ZERO FORKS: sets _QLOG_N instead of printing. `x=$(fn)` forks a
+# subshell in both ash and bash, and _qlog_write used to do that TWICE for every
+# call — including every DEBUG line that is then thrown away at the default INFO
+# level. qcmd alone logs two DEBUG lines per AT command, so that was ~4 wasted
+# processes per AT call, system-wide (measured 2026-10-22 on the RG520N-EB; see
+# docs/reference/poller-cpu-profile.md "O5A profile").
+_qlog_lvl() {
+    case "$1" in
+        DEBUG) _QLOG_N=$_QLOG_LVL_DEBUG ;;
+        INFO)  _QLOG_N=$_QLOG_LVL_INFO ;;
+        WARN)  _QLOG_N=$_QLOG_LVL_WARN ;;
+        ERROR) _QLOG_N=$_QLOG_LVL_ERROR ;;
+        *)     _QLOG_N=$_QLOG_LVL_INFO ;;
     esac
 }
 
@@ -139,10 +160,9 @@ _qlog_write() {
     local message="$2"
 
     # Check if this level should be logged
-    local msg_level_num
-    msg_level_num=$(_qlog_level_num "$level")
-    local cfg_level_num
-    cfg_level_num=$(_qlog_level_num "$QLOG_LEVEL")
+    local msg_level_num cfg_level_num
+    _qlog_lvl "$level";      msg_level_num=$_QLOG_N
+    _qlog_lvl "$QLOG_LEVEL"; cfg_level_num=$_QLOG_N
 
     if [ "$msg_level_num" -lt "$cfg_level_num" ] 2>/dev/null; then
         return
@@ -207,6 +227,15 @@ qlog_at_cmd() {
     local cmd="$1"
     local response="$2"
     local exit_code="${3:-0}"
+
+    # A successful command is logged at DEBUG. When DEBUG is filtered (the
+    # default), return BEFORE building the truncated copy: that is up to three
+    # pipelines (printf|cut, echo|tr|tr) whose only output was discarded. This
+    # runs once per AT command in every qcmd call.
+    if [ "$exit_code" -eq 0 ] 2>/dev/null; then
+        _qlog_lvl "$QLOG_LEVEL"
+        [ "$_QLOG_N" -gt "$_QLOG_LVL_DEBUG" ] && return 0
+    fi
 
     # Truncate response for logging (first 200 chars)
     local truncated

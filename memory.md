@@ -493,3 +493,14 @@ alone (hard rule 2): `dbus.conf` world-writable and `systemrw.conf` executable
 (both on read-only `/lib`), `earlyinit-logd` PIDFile, and
 `gp-prx-proxy-tunnel.service:13` putting `StartLimitIntervalSec` in `[Service]`
 instead of `[Unit]` (owned by the sibling product repo — fix it there, not here).
+
+## 2026-10-22 (later) — poller CPU round 1 deployed
+
+Replaced on the device (atomic `.new` + `mv`, poller restarted once):
+`bin/qmanager_poller`, `bin/qcmd`, `bin/atcli_smd11`, `lib/qlog.sh`,
+`lib/events.sh`, `lib/parse_at.sh`. Pre-change copies:
+`/usrdata/qmanager/backup/pre-poller-opt-20261022-030314.tgz`.
+Effect (same harness, before/after): poller ~1334 → ~771 ms CPU per cycle,
+16.0 % → 12.1 % of one core, cycle 8.36 → 6.39 s; live 13.4 % → 10.8 %, box forks
+111/s → 90/s. Details: `docs/reference/poller-cpu-profile.md` → O5A profile.
+`qmanager_atd` is still NOT running (binary inert in `bin/`, no unit installed).

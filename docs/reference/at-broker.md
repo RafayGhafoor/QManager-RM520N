@@ -227,6 +227,19 @@ If either assumption fails on this port, the fix is a `channel.rs` change
 (reopen per exchange / restore the allowlisted retry) — **not** a config change.
 That is the one place this deployment is currently better than upstream.
 
+## ⚠️ Re-reading the "no CPU win" A/B (2026-10-22, later)
+
+The A/B above compared **CPU share**, and the two windows ran at different
+cadences: 6 cycles/30 s before, 10 after. Per cycle, its own figures give
+20.07 % × 30 s / 6 = **~1000 ms/cycle** before and 21.82 % × 30 s / 10 =
+**~655 ms/cycle** after — **about −35 % CPU per cycle**. The broker *did* remove
+work; the poller spent it on 67 % more cycles, because the cycle period is the
+body's own duration plus `POLL_INTERVAL`. The shell-side de-fork round
+([`poller-cpu-profile.md` → O5A profile](./poller-cpu-profile.md#o5a-profile-rg520n-eb-2026-10-22))
+hit the same effect (−42 % per cycle, −24 % share). The reverted state and the
+operational warning below are unchanged; only the reason "it is not a CPU win"
+was mis-stated. Compare per-cycle CPU, or hold the cycle period fixed.
+
 ## Operational warning — the mistake made while testing this
 
 The daemon was started with `setsid` for a latency test and **left running**. It

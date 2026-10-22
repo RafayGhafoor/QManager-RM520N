@@ -715,12 +715,23 @@ ca_ext_cmd() {   # $1 = 1 (enable) or 0 (disable); prints the compound for this 
 # from the MIMO/TA tier-3 group so the 2s path toggles only the CA reporter.
 CA_INFO_ON='AT+QCAINFO=1'
 CA_INFO_OFF='AT+QCAINFO=0'
+# ONE round-trip: on, read, off as a single compound. It used to be three qcmd
+# calls, the most expensive line in the poller: 282 ms of CPU and ~2 s of AT-lock
+# hold per cycle on the RG520N-EB (measured 2026-10-22, poller-cpu-profile.md
+# "O5A profile"). Measured the same day: the compound returns exactly the
+# read's lines (the =1/=0 legs add only the final OK), including the NR SCC's
+# RSRP/RSRQ/SNR that only appear while =1 is set.
+# The "off only for the read" contract survives a failure: a modem aborts a
+# compound at the first ERROR, so if anything failed the =0 leg may not have
+# run, and it is re-sent on its own. Success means every leg ran, =0 included.
+CA_INFO_READ_ONCE='AT+QCAINFO=1;+QCAINFO;+QCAINFO=0'
 ca_info_read() {
     local _out _rc
-    qcmd "$CA_INFO_ON" >/dev/null 2>&1
-    _out=$(qcmd_exec 'AT+QCAINFO')
+    _out=$(qcmd_exec "$CA_INFO_READ_ONCE")
     _rc=$?
-    qcmd "$CA_INFO_OFF" >/dev/null 2>&1
+    if [ "$_rc" -ne 0 ]; then
+        qcmd "$CA_INFO_OFF" >/dev/null 2>&1
+    fi
     [ "$_rc" -eq 0 ] && printf '%s' "$_out"
     return "$_rc"
 }
@@ -2947,10 +2958,15 @@ main() {
 
     qlog_info "Boot data collected, entering poll loop"
 
+    # Cycle timing from /proc/uptime (builtin read, monotonic) instead of two
+    # `date +%s` forks per cycle (37 ms/cycle on the RG520N-EB, 2026-10-22). It
+    # only feeds the budget warning, so whole seconds are enough, and uptime
+    # cannot jump the way the wall clock does before NTP sync.
+    local _up _upr
     while true; do
-        cycle_start=$(date +%s)
+        read -r _up _upr < /proc/uptime; cycle_start=${_up%%.*}
         poll_cycle
-        cycle_end=$(date +%s)
+        read -r _up _upr < /proc/uptime; cycle_end=${_up%%.*}
         cycle_duration=$((cycle_end - cycle_start))
         if [ "$cycle_duration" -gt "$CYCLE_TIME_BUDGET" ]; then
             qlog_warn "poll_cycle exceeded budget: ${cycle_duration}s > ${CYCLE_TIME_BUDGET}s"

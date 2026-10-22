@@ -3,6 +3,7 @@
 > **Applies to:** RM520N-GL (SDX6X) · RG501Q-EU (SDX55) — **both measured live**
 > Serials: `61368cd2` (RM520N-GL) · `b7e3d6f1` (RG501Q-EU)
 > **Baseline profiled** 2026-09-01 · **de-fork pass measured** 2026-09-02
+> **O5A Pro (RG520N-EB) section** — [O5A profile](#o5a-profile-rg520n-eb-2026-10-22): measured 2026-10-22, scope `RG520N` only
 
 `qmanager_poller` is the single largest CPU consumer on both devices — **85% of all busy CPU** on the RM520N-GL before the de-fork pass. This document records what it actually spends that CPU on, measured rather than estimated, so that any optimisation effort (further de-forking, helper binaries, or a full rewrite) is aimed at the right functions.
 
@@ -31,6 +32,114 @@ The headline is counter-intuitive and worth stating up front:
 | Proof | No harness or gates — `scripts/test/` was deleted 2026-09-03 (it held `qm_fork_probe.sh`, `poller-defork-forkcount.sh` and `poller-defork-equivalence.sh`; see [The 2026-09-02 de-fork pass](#the-2026-09-02-de-fork-pass) for what they used to check). Re-measure on the device and byte-compare output by hand |
 
 > ℹ️ **NOTE:** the "before" figures above come from the de-fork pass's own paired baseline runs (pinned AT fixtures, 2026-09-02), **not** from the original 2026-09-01 profiling run. The two used different durations and different device conditions, so their absolute numbers differ — 595 ms/cycle here against the original run's 815 ms, for instance. Never mix a number from one run with a number from the other. The original run's per-function figures are preserved below as the historical baseline they were.
+
+---
+
+## O5A profile (RG520N-EB, 2026-10-22)
+
+> **Scope: `RG520N`** — GreenPacket O5A Pro, Quectel RG520N-EB, SDX6X, BusyBox
+> 1.31.1 ash, bash 3.2.57, CONFIG_HZ 100. Nothing in this section is a claim about
+> the RM520N-GL or RG501Q-EU, and the O5A's AT transport (`deploy/atcli_smd11` on
+> `/dev/at_mdm0`) does not exist on either of them.
+> **Harness:** [`scripts-dev/qm-poller-segprof.sh`](../../scripts-dev/qm-poller-segprof.sh)
+> — per-segment `cutime`+`cstime`, real `qcmd`, poller unit stopped for the window.
+> **Work record:** [`../plans/2026-10-22-poller-cpu-optimization.md`](../plans/2026-10-22-poller-cpu-optimization.md).
+
+The one thing that differs from the table above: on this device **the AT
+transport is half the poller.** Every `qcmd` call is `qcmd` (sh) → `flock` → the
+`atcli_smd11` shim (sh) → two `dd` readers, `sleep`s, a `grep` poll loop and a
+`tr | sed` cleanup. One call measured **78–86 ms of CPU and ~0.4–0.7 s wall**.
+
+### Before / after — same harness, same unit, idle device, no scan, no live lease
+
+Both runs: `qm-poller-segprof.sh`, real AT, 5G-NSA on Jazz (PCC B1 + SCC B3 + NR
+N41). Before = 60 cycles / 505 s; after = 112 cycles / 722 s. `ms/cycle` is
+amortised (a 1-in-15 tier divided over every cycle). Whole-cycle figures exclude
+the harness's own report cost (~26 ms/cycle, carried by `main_date_calls`).
+
+| Segment | Before ms/cycle | After ms/cycle | Change |
+| --- | ---: | ---: | --- |
+| `ca_info_read` | **282** | **86** | 3 AT calls → 1 compound + cheaper transport |
+| `detect_events` | **211** | **14** | SCC check gated on a signature; state file written on change only |
+| `parse_ca_info` | **157** | **40** | one awk pass + the same jq (was ~55 processes) |
+| `poll_tier2` (1-in-15) | 147 *(2217/call)* | 135 *(1890/call)* | transport only |
+| `poll_serving_cell` | 117 | 94 | transport only |
+| `poll_per_antenna_signal` (1-in-5) | 92 *(462/call)* | 92 *(452/call)* | untouched — open |
+| `poll_tier3` (1-in-15) | 68 | 50 | transport only |
+| `update_data_used` | 53 | 53 | untouched — open |
+| `write_cache` | 46 | 45 | untouched — open |
+| main-loop timing *(+ harness report)* | 37 | 29 | `date +%s` ×2 → `/proc/uptime`: ~10 → ~3 ms real; the other ~26 is the harness in both runs |
+| everything else | 151 | 159 | — |
+| **Whole cycle** (rows sum to this incl. harness: 1361 / 797) | **~1334 ms** | **~771 ms** | **−42 % per cycle** |
+| **Cycle period (wall)** | **8.36 s** | **6.39 s** | −24 % (fresher data) |
+| **Poller, % of one core** | **16.0 %** | **12.1 %** | −3.9 points |
+
+Live daemon, same 60 s method as `memory.md` (not the harness): **13.4 % → 10.8 %
+of one core; box fork rate 111/s → 90/s; poller RSS 2.5 MB (unchanged).**
+
+> ⚠️ **Per-cycle CPU fell 42 %, CPU share only 24 %** — because the cheaper cycle
+> also finishes 2 s sooner, so there are 31 % more cycles per minute. The
+> `poll_cycle exceeded budget` warnings that fired every Tier-2 cycle (24–27 s)
+> came from the same wall time. Quoting either number without the other is
+> misleading. Converting the rest of the per-cycle win into CPU share is a cadence
+> decision (`POLL_INTERVAL`), not an optimisation, and has not been made.
+
+### The AT transport, per call (A/B, 15 × `AT+CGMM`, poller stopped)
+
+| | CPU ms/call | wall ms/call |
+| --- | ---: | ---: |
+| before (installed shim) | 86 / 78 | 739 / 411 |
+| after | **53 / 53** | **349 / 344** |
+
+Two runs each, interleaved old/new/old/new. Output parity checked on `AT+CGMM`,
+`ATI`, `AT+QENG="servingcell"`, `AT+QCAINFO`, `AT+CFUN?`, plus the error paths
+`AT+FOOBAR` and `AT+QTEMP`: same exit code, same stderr, same `-j` JSON, same
+stdout (digits masked for the live RF values).
+
+What changed, all behaviour-preserving:
+
+1. **`qlog.sh` — DEBUG lines cost processes even when discarded.** `_qlog_write`
+   ran `$(_qlog_level_num …)` twice per call (two subshells) before deciding to
+   drop the line, and `qlog_at_cmd` built its truncated copy (`printf|cut`,
+   `echo|tr|tr`) before calling a DEBUG logger that then dropped it. `qcmd` logs
+   two DEBUG lines per AT call. Now: level mapping sets a variable, `qlog_at_cmd`
+   returns before building anything when DEBUG is filtered, `qlog_init` uses
+   `${QLOG_FILE%/*}` not `$(dirname)`. **This library is sourced by every CGI too.**
+2. **`qcmd` — `chmod 666` ran on every call.** Now only when it creates the lock.
+3. **`atcli_smd11`** — drain straight to `/dev/null` (no temp file, no `rm`); the
+   terminator poll is a builtin `read` loop instead of a `grep` per tick; the
+   final `tr | sed '/./,$!d'` is one `tr` plus parameter expansion. The drain,
+   the read-before-write order, the `dd` writer and the retry allowlist are
+   unchanged (the allowlist gained the new read-only CA compound).
+
+### Negative / non-obvious results
+
+- **The QCAINFO toggle is not removable here.** `AT+QCAINFO` after `=0` returns
+  the NR SCC as `"NR5G BAND 41",47` — no RSRP/RSRQ/SNR. With `=1` it is
+  `"NR5G BAND 41",47,-67,-11,2529`. `AT+QCAINFO=?` answers
+  `"5g_signal_ext",(0,1)`. The fix kept the toggle and folded it into one
+  compound, `AT+QCAINFO=1;+QCAINFO;+QCAINFO=0`, which returned the same lines.
+- **`detect_events`' cost was not event handling.** The SCC-handoff check is gated
+  on "carrier list changed", and since QCAINFO moved to every cycle that JSON
+  changes every cycle (it carries RSRP/SINR). So ~11 `jq` processes ran every
+  cycle to compare tech/band/PCI that had not moved.
+- **`parse_ca_info` rewrite is byte-identical** to the shell version on 8 fixtures
+  (live NSA, NSA without NR signal, SA long-form with `-32768` and a non-numeric
+  SNR, `NRDCBAND`, unknown band, short line, trailing commas, empty input, `OK`
+  only, a zero-padded `06` RB count). Measured in isolation: **130–136 → 33–35
+  ms/call**.
+
+### Still open on this device, ranked by measured ms/cycle
+
+| # | Target | ms/cycle | Note |
+| --- | --- | ---: | --- |
+| 1 | `poll_tier2` | 135 *(1890/call)* | ~1774 pids per call; batch its reads into compounds |
+| 2 | `poll_serving_cell` | 94 | one AT call; the parse is already one awk |
+| 3 | `poll_per_antenna_signal` | 92 *(452/call)* | `parse_qrsrp/qrsrq/qsinr` + `jq -n` history append (item C above) |
+| 4 | `update_data_used` | 53 | `grep` + 2 `awk` + `date` + a `jq` state write every cycle |
+| 5 | `poll_tier3` | 50 | two compounds + parse |
+| 6 | `write_cache` | 45 | the one big `jq` — probably the floor |
+| 7 | `read_ping_data` | 33 | see item B above |
 
 ---
 
