@@ -85,13 +85,17 @@ say "AT port holders (who has the modem fd open)"
 for d in /dev/at_mdm0 /dev/smd7 /dev/smd11; do
     echo "--- $d ---"
     ls -l "$d" 2>/dev/null || echo "  (absent)"
+    # A process's fd shows the RESOLVED path, so on a firmware where the node is
+    # a symlink (e.g. /dev/smd11 -> /dev/mhi_DUN) matching only "$d" misses it.
+    # Compare against the resolved target too.
+    real=$(readlink -f "$d" 2>/dev/null); [ -n "$real" ] || real="$d"
     found=0
     for p in /proc/[0-9]*; do
         pid=${p#/proc/}
         for f in "$p"/fd/*; do
             tgt=$(readlink "$f" 2>/dev/null) || continue
-            if [ "$tgt" = "$d" ]; then
-                printf '  pid %-7s %s\n' "$pid" "$(cat "$p/comm" 2>/dev/null)"
+            if [ "$tgt" = "$d" ] || [ "$tgt" = "$real" ]; then
+                printf '  pid %-7s %-20s %s\n' "$pid" "$(cat "$p/comm" 2>/dev/null)" "$tgt"
                 found=1
             fi
         done
