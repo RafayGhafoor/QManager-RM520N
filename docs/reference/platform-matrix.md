@@ -1817,3 +1817,41 @@ first-hand.
 `rmnet`/`wwan` interface exists; the vendor PDN service `turin_mpdn` is `inactive`;
 `qcmd 'AT'` returns empty. That is a wedged modem AT cop, not a QManager fault and
 not a SIM fault — a readable IMSI/ICCID rules the SIM out.
+
+### RG520N-EB (GreenPacket O5A Pro) — no post-mortem is possible after a reboot
+
+Measured 2026-10-22 while trying to explain a modem wedge. **This is the reason the
+incident that provoked it could not be diagnosed from logs.**
+
+| Fact | Consequence |
+| --- | --- |
+| `/tmp` is **tmpfs** (89 MB) | `/tmp/qmanager.log` is destroyed by every reboot. The log for the boot in which a fault occurred is gone |
+| `systemd-journald.service` is **masked** (vendor image) | `journalctl` has nothing: `journalctl -u qmanager-poller -b` is empty even though the unit ran. Kernel `dmesg` survives only in the kernel ring buffer and is also lost on reboot |
+| `dmesg` ring buffer only | `dmesg` is readable for the current boot only; there is no `/var/log/messages`, no persistent store |
+
+**Rule for the next incident: capture evidence live, before rebooting.** Reboot the
+box and the only record of what happened is whatever you already copied off it.
+`scripts-dev/qm_offline_diag.sh` exists for exactly this, and its dmesg section is
+the part that cannot be recovered afterwards.
+
+### What desynchronises the AT path on this device (judgement, mechanism not proven)
+
+The wedge that preceded this note behaved like an **AT-parser desync**, and the
+actions that plausibly cause it are worth naming so they are not repeated:
+
+| Action | Why it is risky |
+| --- | --- |
+| Stopping/restarting `qmanager_poller` while AT exchanges are in flight | Kills `qcmd`/`atcli_smd11` **mid-exchange**. A half-written AT line left in the modem's parser desyncs it. Signature: an **orphaned `atcli_smd11` with `ppid=1`** — observed on this unit, and it held the flock while stuck |
+| Running a second **persistent** reader on `/dev/at_mdm0` | Violates the single-writer assumption behind hard rule 3. `port_bridge` already holds the port; adding a long-lived second open (a broker) is untested and unsupported here |
+| Tight back-to-back AT loops with no pacing | ~40 sequential commands with no delay, on a port that needs a drain+settle per call |
+| Leaving such a reader running unattended | Its lifetime then outlives the experiment and the next session inherits an unexplained fault |
+
+**Not provable for this incident**: `/tmp` was wiped and journald is masked, so the
+causal boot's log no longer exists. Do not assert a cause; assert the mechanism and
+the prevention.
+
+### Recovering the wedge
+
+There is no in-software trigger: `AT+CFUN=1,1` cannot be delivered (AT is dead), and
+`subsys0/` has no `restart` node. **Cold power cycle** — unplug power ~30 s. A warm
+`reboot` does not power-cycle the modem and therefore does not clear it.
