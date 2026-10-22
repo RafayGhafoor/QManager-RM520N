@@ -1555,6 +1555,23 @@ for another unit is a **fix**, a **no-op**, or a **regression** here.
 | `date -r FILE +%s` | **works** | as above |
 | `awk` `x = x (cond) a` | **BROKEN — "Call to undefined function"** | A real hazard on this busybox awk, already documented and avoided twice in this tree (`phy_metrics.sh:391`, `qmi_read.sh:275`). Build the separator into its own variable |
 
+### RG520N-EB (GreenPacket O5A Pro) — EFS2 is reachable over QRTR-DIAG (measured 2026-10-22)
+
+Read-only probe; no EFS or NV write was made. Full method, inventory and backup
+result: [`../plans/2026-10-22-efs-diag-exploration.md`](../plans/2026-10-22-efs-diag-exploration.md).
+
+| Fact | RG520N-EB (O5A Pro) | Why it matters |
+| --- | --- | --- |
+| Modem DIAG over QRTR | **node 3, port 19 (`MODEM:CMD`)**; DCI on port 109 | EFS2 answers here **without `/dev/diag`** (which does not exist). A port must not assume the 16xxx port range |
+| Node 2, ports 16403/16405 | `diag-router`'s aggregate (33 × service 4097) — **does not answer EFS2** (`open` times out) | The obvious "first node with service 4097" pick is the wrong one; pin `3:19` explicitly |
+| Listing completeness check | every dir returns `stat.size - 2` entries (the 2 are dot entries) | The only reliable way to tell a truncated listing from a small directory |
+| Directory cursor | **modem-side, not rewindable**: abort a listing (client killed, `head` closing the pipe) and the next `ls` continues from the stale position | Never interrupt a listing; walk breadth-first with a file worklist |
+| `image` (fs-image → tar) | **rejected**, `efs errno 131071` | Use `pull_tree`: 1,100 files / 1.31 MB in **11 s**, 906 KB gzipped |
+| `/nvm`, `/safe`, `/safe_oem`, `/sfs` | not listable ("target rejected the command") | Expected; do not report them as corruption |
+| `AT+QNWPREFCFG="nr5g_{sa,nsa}_band"` | **ERROR** | The NR band masks exist only in EFS: `/nv/item_files/modem/mmode/{nr_band_pref,nr_nsa_band_pref}` → n1/3/5/7/8/20/28/38/40/41/71/75/76/77/78 |
+| `/nv/item_files/modem/mmode/lte_bandpref` | `05 00…` = **B1+B3** | Matches `AT+QNWPREFCFG="lte_band"` → `1:3`; the persisted band restriction lives here |
+| `/policyman/hardware_band_filtering.xml` | ships the `disable_sa_mmwave` variant — `<nr5g_sa_bands> 0-511 </nr5g_sa_bands>` | **NR SA is filtered by policy, not by NV.** Editing this file (and deleting `/policyman/persisted_items/`, as its own comment says) is the lever; unproven end to end |
+
 ### RG520N-EB (GreenPacket O5A Pro) — the vendor SMS store is the inbox, not the modem
 
 Measured 2026-10-22. This is the one SMS fact a port cannot inherit: on this
