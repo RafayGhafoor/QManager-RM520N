@@ -468,7 +468,7 @@ missing journald socket for either periodic oneshot or poller stdout.
 | `atcli_smd11` writer | **Deployed atomically** at `/usrdata/qmanager/bin/atcli_smd11`. Previous version backed up as `atcli_smd11.pre-dd-writer`; earlier intermediate version also exists as `atcli_smd11.pre-dd-reader`. Uses `printf ... | dd of=/dev/at_mdm0 bs=1` while the background raw reader captures the reply |
 | glink ioctl flood | Before: +1 `0x5401` per AT call; isolated poller off. After: single `AT+CGMM` added 0, and the latest ioctl line remained `[2970.242579]` across a 20 s window with the poller active. No new ioctl logged after the fix |
 | Tier-1 QCAINFO | Poller wraps each `AT+QCAINFO` in `QCAINFO=1; read; QCAINFO=0` (`ca_info_read`) per upstream v0.1.34 hotfix |
-| Tier-3 MIMO/TA | LTE group only in LTE/NSA, NR group only in SA; each enabled only for read and disabled after. One compound with the NR NSA-invalid command returned ERROR and poisoned all data, so groups stay separate |
+| Tier-3 MIMO/TA | Group built per mode by `ca_ext_cmd`: LTE → lte_mimo+lte_ta; **NSA → lte_mimo+lte_ta+nr5g_ta**; SA → nr5g_mimo+nr5g_ta. Each is enabled only for the read. (An earlier version sent NR only in SA, which blanked NR Cell Distance; fixed, and `.nr.ta=24576` ≈ 1.9 km is published again. Fields are `.lte.ta`/`.nr.ta`, not `.phy.*`.) |
 | CA result after fix | `PCC/LTE/B1`, `SCC/LTE/B3`, `SCC/NR/N41` — full detail still present after disable |
 | SIM/network | `CPIN READY`, `QSIMSTAT 1,1`, `QUIMSLOT 1`, `CFUN 1`; QManager cache says SIM ready, `RG520N-EB / 5G-NSA / Jazz / 10.36.138.189` |
 | Poller unit | Active, `NRestarts=0`. One dmesg stop/start (uptime 2924→2938) was my own ioctl-bisection test; it was not an automatic restart loop |

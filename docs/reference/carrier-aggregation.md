@@ -270,51 +270,62 @@ Never leave these enabled. Enable immediately before a read, disable immediately
 after — including when the read fails:
 
 ```sh
-qmanager_poller:  CA_INFO_ON / CA_INFO_OFF / ca_info_read
-                  CA_EXT_ON_MAIN / CA_EXT_OFF_MAIN / CA_EXT_ON_NR / CA_EXT_OFF_NR
+qmanager_poller:  CA_INFO_ON / CA_INFO_OFF / ca_info_read      (QCAINFO, every Tier-1 cycle)
+                  ca_ext_cmd <1|0>                             (MIMO + timing-advance group for the current mode)
                   ca_ext_on() / ca_ext_off() / ca_ext_read <cmd>
 ```
 
 `ca_info_read()` wraps the hot-path `AT+QCAINFO` read only: `QCAINFO=1`, read,
-`QCAINFO=0`. `ca_ext_read <cmd>` wraps a Tier-3 MIMO/timing read group. Both
-perform the disable inside the helper so a caller cannot leave the reporter on
-via an early return.
+`QCAINFO=0`. `ca_ext_read <cmd>` wraps a Tier-3 MIMO/timing read. Both do the
+disable inside the helper, so a caller cannot leave a reporter on through an
+early return.
 
-### The commands, and one trap worth knowing
+### The commands, and the trap that decides their shape
 
-| Group | Enable | Disable |
-| --- | --- | --- |
-| CA reporter (every Tier-1 read) | `AT+QCAINFO=1` | `AT+QCAINFO=0` |
-| LTE MIMO/timing (Tier-3) | `AT+QNWCFG="lte_mimo_layers",1;+QNWCFG="lte_time_advance",1` | same with `,0` |
-| NR MIMO/timing (Tier-3, SA only) | `AT+QNWCFG="nr5g_mimo_layers",1;+QNWCFG="nr5g_time_advance",1` | same with `,0` |
+The MIMO/timing group is **built per network mode** by `ca_ext_cmd`, because each
+reporter is valid in a different set of modes:
 
-**They are two groups, not one compound, and that is load-bearing.** `qcmd` fails
-the *entire* response if the word `ERROR` appears anywhere in it, so a single
-compound let the NR commands poison the LTE ones. Observed in the field log on
-5G-NSA:
+| Reporter | LTE | 5G-NSA | 5G-SA |
+| --- | --- | --- | --- |
+| `AT+QCAINFO` | ✓ | ✓ | ✓ (own helper, not in the group) |
+| `lte_mimo_layers`, `lte_time_advance` | ✓ | ✓ | ✗ error |
+| `nr5g_mimo_layers` | ✗ error | ✗ error | ✓ |
+| **`nr5g_time_advance`** | — | **✓** | ✓ |
+
+So the group sent is: LTE → `lte_mimo_layers`,`lte_time_advance`; **5G-NSA →
+`lte_mimo_layers`,`lte_time_advance`,`nr5g_time_advance`**; 5G-SA →
+`nr5g_mimo_layers`,`nr5g_time_advance`; mode unknown → nothing.
+
+**Why one compound for everything fails.** `qcmd` rejects the *entire* response if
+the word `ERROR` appears anywhere in it, so one mode-invalid command blanks every
+other field. Observed in the field log on 5G-NSA:
 
 ```
 ERROR [qcmd] Command returned ERROR: AT+QCAINFO=1;+QNWCFG="lte_mimo_layers",1;+QNWCFG="nr5g_mimo_layers",1;...
 ```
 
-after which every read returned nothing and `.phy.*` stayed `null`. The deployed
-fix keeps CA enable/read/disable in a dedicated helper every Tier-1 cycle, while
-LTE/NR MIMO/timing are enabled only around Tier-3 reads. The LTE and NR groups are
-separate; NR is sent only in SA. This is the same lesson `collect_boot_data()`'s
-B1/B2/B3/B4 split already records.
+**⚠️ `nr5g_time_advance` is not SA-only.** The first version of this fix sent the
+whole NR group only in SA. In NSA the NR timing advance was therefore never
+enabled, the modem answered `"nr5g_time_advance",0` with no value, and **NR Cell
+Distance went blank**. That is the one distance `AGENTS.md` says *is* trustworthy
+on this unit. Fixed by the per-mode table above.
 
-### Verified on the RG520N-EB (2026-10-22)
+### Verified on the RG520N-EB in 5G-NSA (2026-10-22)
 
 | Check | Result |
 | --- | --- |
 | `AT+QCAINFO=0` accepted | `OK` |
-| `AT+QNWCFG="lte_mimo_layers",0` accepted | `+QNWCFG: "lte_mimo_layers",1,1` then `OK` |
-| `AT+QNWCFG="nr5g_mimo_layers",0` accepted | `OK` |
-| **5G details survive the disable** | after enable→read→disable, `carrier_components` still returns **PCC/LTE/B1, SCC/LTE/B3, SCC/NR/N41** |
-| Split enable group clean | returns `+QNWCFG: "lte_mimo_layers",1,1` + `OK`, **no `ERROR`** |
-| `AT+QNWCFG="lte_time_advance"` | `...,1,0` — TA is genuinely **0** on this cell, so `phy.lte.time_advance: null` is correct, not a regression |
-| New compound errors after the fix | **none** in the poller log |
+| `AT+QNWCFG="lte_mimo_layers",0` / `"nr5g_mimo_layers",0` accepted | `OK` |
+| **5G details survive the disable** | `carrier_components` still returns **PCC/LTE/B1, SCC/LTE/B3, SCC/NR/N41** |
+| NSA group `lte_mimo,1;lte_ta,1;nr5g_ta,1` | `+QNWCFG: "lte_mimo_layers",1,1` + `OK`, **no `ERROR`** |
+| `nr5g_time_advance` while enabled | `+QNWCFG: "nr5g_time_advance",1,25600,25600` |
+| Published after one Tier-3 pass | **`.nr.ta = 24576`** → ≈1.9 km in the dashboard (within the owner's "tower ≤ 2.5 km") |
+| Reporter left off after the read | single query → `+QNWCFG: "nr5g_time_advance",0` |
+| `.lte.ta` | **`0`** right after enabling (it used to read the latched `1968`). `calculateLteDistance()` treats `≤ 0` and `> 1282` alike as "no data", so LTE Cell Distance stays blank, as `AGENTS.md` intends. The LTE tooltip no longer shows the raw `1968` |
+| New compound errors after the fix | none since the poller restart |
 
-`nr5g_mimo_layers` / `nr5g_time_advance` read `null` in 5G-NSA by design — those
-commands are only valid in SA, which is why the NR group is gated on
-`network_type = 5G-SA`.
+> ⚠️ **Field names.** The poller publishes timing advance as **`.lte.ta`** and
+> **`.nr.ta`** in `/tmp/qmanager_status.json`. There is **no** `.phy.*.time_advance`.
+> An earlier version of this section checked `phy.lte.time_advance` /
+> `phy.nr.time_advance`, which do not exist, so its "null" observations meant
+> nothing. Find a field with `jq 'paths(scalars)'` before asserting its value.

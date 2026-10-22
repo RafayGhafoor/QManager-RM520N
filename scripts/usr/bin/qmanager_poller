@@ -681,18 +681,34 @@ qcmd_exec() {
 # Verified on the RG520N-EB (2026-10-22): AT+QCAINFO=0 -> OK,
 # +QNWCFG="*_mimo_layers",0 -> OK, and a subsequent AT+QCAINFO still returns the
 # full PCC/SCC carrier list, so 5G details are not lost.
-# Two groups, NOT one compound. `qcmd` fails the ENTIRE response if the word
-# ERROR appears anywhere in it, and AT+QNWCFG="nr5g_mimo_layers"...,1 is invalid
-# outside SA mode (the Tier-3 read gates it for exactly that reason). A single
-# compound therefore had the NR command poison the LTE ones in NSA — observed in
-# the field log as
+# Built PER NETWORK MODE, not as one compound. `qcmd` fails the ENTIRE response if
+# the word ERROR appears anywhere in it, so a command the current mode rejects
+# poisons every other field in the same compound — observed in the field log as
 #   ERROR qcmd: Command returned ERROR: AT+QCAINFO=1;+QNWCFG="lte_mimo_layers",1;...
 # after which every read returned nothing and .phy.* stayed null. Same lesson the
 # B1/B2/B3/B4 split in collect_boot_data() already records: fewer eggs per basket.
-CA_EXT_ON_MAIN='AT+QCAINFO=1;+QNWCFG="lte_mimo_layers",1;+QNWCFG="lte_time_advance",1'
-CA_EXT_OFF_MAIN='AT+QCAINFO=0;+QNWCFG="lte_mimo_layers",0;+QNWCFG="lte_time_advance",0'
-CA_EXT_ON_NR='AT+QNWCFG="nr5g_mimo_layers",1;+QNWCFG="nr5g_time_advance",1'
-CA_EXT_OFF_NR='AT+QNWCFG="nr5g_mimo_layers",0;+QNWCFG="nr5g_time_advance",0'
+#
+# Mode rules (the read side already follows them; the enables must match):
+#   lte_mimo_layers, lte_time_advance   LTE and 5G-NSA   (error in SA)
+#   nr5g_mimo_layers                    5G-SA only       (error in LTE/NSA)
+#   nr5g_time_advance                   5G-NSA AND 5G-SA
+#
+# ⚠️ nr5g_time_advance is NOT SA-only. An earlier revision of this helper sent
+# the whole NR group only in SA, so in NSA the NR TA was never enabled and
+# phy.nr.time_advance read null — which blanked NR Cell Distance on the dashboard
+# (the one distance AGENTS.md says IS trustworthy here). Measured 2026-10-22 on
+# the RG520N-EB in 5G-NSA: enable -> OK, read -> "nr5g_time_advance",1,25600,25600,
+# and the NSA compound below returns OK with no ERROR.
+#
+# QCAINFO is NOT in these groups: it has its own hot-path helper below.
+ca_ext_cmd() {   # $1 = 1 (enable) or 0 (disable); prints the compound for this mode
+    case "$network_type" in
+        5G-SA)  printf 'AT+QNWCFG="nr5g_mimo_layers",%s;+QNWCFG="nr5g_time_advance",%s' "$1" "$1" ;;
+        5G-NSA) printf 'AT+QNWCFG="lte_mimo_layers",%s;+QNWCFG="lte_time_advance",%s;+QNWCFG="nr5g_time_advance",%s' "$1" "$1" "$1" ;;
+        LTE)    printf 'AT+QNWCFG="lte_mimo_layers",%s;+QNWCFG="lte_time_advance",%s' "$1" "$1" ;;
+        *)      : ;;   # mode unknown: send nothing rather than guess
+    esac
+}
 
 # QCAINFO is read every poll cycle (hot path). Upstream v0.1.34 specifically
 # requires extended CA reporting to be on only for the read. Keep this separate
@@ -709,16 +725,16 @@ ca_info_read() {
     return "$_rc"
 }
 
-# The NR group is only sent in SA mode; in LTE/NSA those commands answer ERROR
-# and are pure lock-hold cost.
+# Enable/disable the mode's MIMO + timing-advance reporters. No-op when the mode
+# is unknown (ca_ext_cmd prints nothing).
 ca_ext_on() {
-    qcmd "$CA_EXT_ON_MAIN" >/dev/null 2>&1
-    [ "$network_type" = "5G-SA" ] && qcmd "$CA_EXT_ON_NR" >/dev/null 2>&1
+    local _c; _c=$(ca_ext_cmd 1)
+    [ -n "$_c" ] && qcmd "$_c" >/dev/null 2>&1
     return 0
 }
 ca_ext_off() {
-    qcmd "$CA_EXT_OFF_MAIN" >/dev/null 2>&1
-    [ "$network_type" = "5G-SA" ] && qcmd "$CA_EXT_OFF_NR" >/dev/null 2>&1
+    local _c; _c=$(ca_ext_cmd 0)
+    [ -n "$_c" ] && qcmd "$_c" >/dev/null 2>&1
     return 0
 }
 # Run one AT read with extended reporting switched on only for that read.
@@ -1397,16 +1413,15 @@ collect_boot_data() {
     # small group instead of all of IP Passthrough + MIMO.
     # =========================================================================
 
-    # --- B1: enable extended CA / MIMO / timing reporting, ONLY for the reads
-    # below (v0.1.34 hotfix — see ca_ext_on()'s header). Upstream left this
-    # latched on permanently and firmware dropped the connection repeatedly.
-    # B2's read supplies the MIMO data; the enable's own reply carries none. ---
-    ca_ext_on
-    result=$(qcmd 'AT+QCAINFO' 2>/dev/null)
+    # --- B1: CA snapshot at boot, then enable MIMO/timing reporting ONLY for
+    # B2's reads (v0.1.34 hotfix — see ca_ext_on()'s header). Upstream left
+    # this latched on permanently and firmware dropped the connection repeatedly.
+    # QCAINFO goes through ca_info_read, which owns its own =1/read/=0. ---
+    result=$(ca_info_read)
     if [ -n "$result" ]; then
         parse_ca_info "$result"
-        parse_mimo "$result" "$result"
     fi
+    ca_ext_on
     sleep "$SIP_DELAY"
 
     # --- B2: mode-appropriate MIMO read (lte_mimo_layers crashes in SA,
