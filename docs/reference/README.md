@@ -90,6 +90,7 @@ This file is the **router**. One row per reference doc, and each row lists only 
 
 | Doc | Triggers | Scope |
 | --- | --- | --- |
+| [boot-timeline.md](boot-timeline.md) | How long boot takes / when QManager is up — `/proc/uptime`, `ActiveEnterTimestampMonotonic`, no `systemd-analyze`, `turin_web.sh` hook timing, `qm_wait_modem.sh`, `collect_boot_data`, `Boot data timing (s)` / `first status published` log lines, `init_sys_mss` | RG520N |
 | [at-broker.md](at-broker.md) | `qmanager_atd`, `native/qmanager_atd/`, `qcmd`/`qsms` as one binary under three names, `AT_DEV`, `/var/run/qmanager_atd.sock` / `.proto`, `deploy/qmanager-atd.service`, the socket→in-process fallback, the broker's rc-vs-text `ERROR` contract, or any change to the AT lock path | RG520N |
 | [at-command-transport.md](at-command-transport.md) | Any AT path — `atcli_smd11`, `qcmd`, `/dev/smd11`, `/tmp/qmanager_at.lock`, `sms_tool`, `flock` serialization, detecting a `qcmd` failure, AT URCs and `AT+QURCCFG` | Both |
 | [auth-rate-limiting.md](auth-rate-limiting.md) | `cgi_auth.sh`, `auth/check.sh`, `qm_get_rate_limit_status`, `/tmp/qmanager_auth_attempts.json`, the login lockout ladder | RM520N |

@@ -524,3 +524,10 @@ Replaced: `bin/qmanager_poller` (Tier-1 compound `poll_tier1_at`; fixed
 `/usrdata/qmanager/backup/pre-cpu-r3-20261022-055240.tgz`. New tmpfs file:
 `/tmp/qmanager_timeout_probe` (cached `timeout` probe; safe to delete).
 Box busy (idle, sampler excluded) 45.3 % -> 32.0 %; poller 9.1 %, ping 1.4 %.
+
+## 2026-10-22 (later) — boot timeline measured
+
+Real boot 08:41:15 UTC (boot_id 3bff0e74-…, cause not recorded by us): WAN up
+32 s, QManager UI 39 s, first status 61 s, settled ~87 s (kernel uptime). Poller
+now logs `Boot data timing (s): …` and `first status published at kernel uptime`.
+See docs/reference/boot-timeline.md.

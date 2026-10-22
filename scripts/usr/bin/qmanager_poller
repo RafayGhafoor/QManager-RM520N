@@ -1318,8 +1318,22 @@ resolve_kernel_addressing() {
     fi
 }
 
+# Boot-phase stopwatch: _bt_mark <name> appends "name=<s.cs>" (time since the
+# previous mark) to _BT. Builtin /proc/uptime reads only. The one summary line it
+# feeds is how boot time is measured on a real reboot (AGENTS.md hard rule 6 —
+# only a reboot proves boot behaviour); see docs/reference/boot-timeline.md.
+_bt_cs() { local _u _r; read -r _u _r < /proc/uptime; _BT_NOW=$(( ${_u%%.*} * 100 + 10#${_u#*.} )); }
+_bt_mark() {
+    local _d _f
+    _bt_cs
+    _d=$(( _BT_NOW - _BT_LAST )); _BT_LAST=$_BT_NOW
+    printf -v _f '%d.%02d' $(( _d / 100 )) $(( _d % 100 ))
+    _BT="$_BT $1=$_f"
+}
+
 collect_boot_data() {
     log_info "Collecting boot-only data..."
+    _bt_cs; _BT_LAST=$_BT_NOW; _BT_START=$_BT_NOW; _BT=""
 
     local result
 
@@ -1382,11 +1396,13 @@ collect_boot_data() {
     # poisoning the identity fields above; supported-band policy is collected
     # separately below and remains the primary band source.
     local capability_result
+    _bt_mark identity
     capability_result=$(qcmd 'AT+QGETCAPABILITY' 2>/dev/null)
     if [ -n "$capability_result" ]; then
         parse_capability "$capability_result"
     fi
 
+    _bt_mark capability
     # --- SIM Swap Detection (boot-time, one-shot) — known-SIMs set model ---
     # "New SIM" = boot_iccid is not a member of the persistent known-SIMs set.
     # On a truly fresh device (no prior known set, no legacy last_iccid),
@@ -1478,6 +1494,7 @@ collect_boot_data() {
     # small group instead of all of IP Passthrough + MIMO.
     # =========================================================================
 
+    _bt_mark sim_and_serving
     # --- B1: CA snapshot at boot, then enable MIMO/timing reporting ONLY for
     # B2's reads (v0.1.34 hotfix — see ca_ext_on()'s header). Upstream left
     # this latched on permanently and firmware dropped the connection repeatedly.
@@ -1513,6 +1530,7 @@ collect_boot_data() {
     boot_ippt_nat="1"
     sleep "$SIP_DELAY"
 
+    _bt_mark ca_mimo
     # --- B4: IP Passthrough usbnet mode (own AT+QCFG subsystem, own call) ---
     result=$(qcmd 'AT+QCFG="usbnet"' 2>/dev/null)
     if [ -n "$result" ]; then
@@ -1530,6 +1548,7 @@ collect_boot_data() {
     # Supported bands — conditional (cached to /tmp across hotplug restarts)
     # On full device reboot /tmp is cleared, so queried once then cached.
     # =========================================================================
+    _bt_mark usbnet_addr
     SUPPORTED_BANDS_FILE="/tmp/qmanager_supported_bands.env"
     if [ -f "$SUPPORTED_BANDS_FILE" ]; then
         . "$SUPPORTED_BANDS_FILE"
@@ -1558,6 +1577,11 @@ collect_boot_data() {
         auto_apply_profile "$boot_iccid" "boot"
     fi
 
+    _bt_mark bands_profile
+    local _bt_tot _bt_up
+    printf -v _bt_tot '%d.%02d' $(( (_BT_NOW - _BT_START) / 100 )) $(( (_BT_NOW - _BT_START) % 100 ))
+    printf -v _bt_up '%d.%02d' $(( _BT_NOW / 100 )) $(( _BT_NOW % 100 ))
+    log_info "Boot data timing (s): total=${_bt_tot}${_BT} | kernel uptime at end ${_bt_up}"
     log_info "Boot data: FW=$boot_firmware BUILD=$boot_build_date MFG=$boot_manufacturer MODEL=$boot_model"
     log_info "Boot data: IMEI=$boot_imei IMSI=$boot_imsi ICCID=$boot_iccid"
     log_info "Boot data: PHONE=$boot_phone_number CAT=$boot_lte_category MIMO=$t2_mimo"
@@ -3041,7 +3065,8 @@ main() {
     crash_watcher_init
     write_cache
 
-    qlog_info "Boot data collected, entering poll loop"
+    _bt_cs
+    qlog_info "Boot data collected, entering poll loop (first status published at kernel uptime $(( _BT_NOW / 100 ))s)"
 
     # Cycle timing from /proc/uptime (builtin read, monotonic) instead of two
     # `date +%s` forks per cycle (37 ms/cycle on the RG520N-EB, 2026-10-22). It
