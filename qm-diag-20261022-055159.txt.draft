@@ -1,0 +1,439 @@
+
+===== identity =====
+date      : Thu Oct 22 00:51:59 UTC 2026
+host      : sdxlemur
+machine   : armv7l  kernel: 5.4.210-perf
+boot_id   : 2add8327-733e-44e5-8051-2c8d04d07bce
+uptime_s  : 577
+loadavg   : 4.74 3.85 2.15 3/398 18835
+cpu_count : 1
+
+===== memory =====
+MemTotal:         182532 kB
+MemFree:            5820 kB
+MemAvailable:      33372 kB
+SwapTotal:         91264 kB
+SwapFree:          63368 kB
+
+===== disk =====
+Filesystem                Size      Used Available Use% Mounted on
+/dev/root                50.4M     50.4M         0 100% /
+tmpfs                   182.9M    108.8M     74.0M  60% /etc/machine-id
+/dev/ubiblock1_0         57.6M     57.6M         0 100% /firmware
+/dev/ubi2_0             182.9M    108.8M     74.0M  60% /usrdata
+/dev/ubi2_0             182.9M    108.8M     74.0M  60% /etc
+/dev/ubi2_0             182.9M    108.8M     74.0M  60% /data
+/dev/ubi2_0             182.9M    108.8M     74.0M  60% /cache
+/dev/ubi2_0             182.9M    108.8M     74.0M  60% /systemrw
+/dev/ubi2_0             182.9M    108.8M     74.0M  60% /persist
+/dev/ubi2_0             182.9M    108.8M     74.0M  60% /etc/config
+/dev/ubi2_0             182.9M    108.8M     74.0M  60% /usrdata/etc/config
+/dev/ubi2_0             182.9M    108.8M     74.0M  60% /web
+
+===== systemd units (QManager + vendor stack) =====
+qmanager-httpd         active     enabled
+qmanager-poller        active     enabled
+qmanager-ping          active     enabled
+qmanager-dpi           active     enabled
+qmanager-atd           inactive
+- -
+turin_web              active     enabled
+modemd                 inactive
+- -
+gp-metricsd            active     enabled
+gp-radio-handler       inactive
+- -
+--- failed units ---
+--- unit start times (vs uptime) ---
+Thu 2026-10-22 00:43:00 UTC
+
+Thu 2026-10-22 00:43:00 UTC
+
+Thu 2026-10-22 00:42:59 UTC
+
+===== loopback services (no internet needed) =====
+vendor :80   -> HTTP 200
+qmanager:8080-> HTTP 200
+
+===== AT port holders (who has the modem fd open) =====
+--- /dev/at_mdm0 ---
+crw-r-----    1 radio    radio     245,   0 Oct 22 00:42 /dev/at_mdm0
+  pid 172     port_bridge          /dev/at_mdm0
+--- /dev/smd7 ---
+crw-------    1 root     root      245,   4 Oct 22 00:42 /dev/smd7
+  pid 1646    MCM_atcop_svc        /dev/smd7
+--- /dev/smd11 ---
+crw-------    1 root     root      245,   6 Oct 22 00:42 /dev/smd11
+  pid 1655    modemd               /dev/smd11
+
+===== QManager process snapshot =====
+pid=1912 comm=qmanager_ping rss=800kB
+   cmd: /bin/sh /usrdata/qmanager/bin/qmanager_ping 
+pid=1947 comm=tpws rss=168kB
+   cmd: /usrdata/qmanager/bin/tpws --port=989 --bind-addr=192.168.0.1 --filter-l7=tls,http --split-pos=1,midsld,sniext+1 --disorder=tls --hostlist=/etc/qmanager/video_domains.txt 
+pid=2069 comm=qmanager_poller rss=2200kB
+   cmd: /bin/bash /usrdata/qmanager/bin/qmanager_poller 
+pid=2431 comm=qcmd rss=652kB
+   cmd: /bin/sh /usrdata/qmanager/bin/qcmd AT+QNWCFG="3gpp_rel" 
+pid=2874 comm=qcmd rss=360kB
+   cmd: /bin/sh /usrdata/qmanager/bin/qcmd AT+CGDCONT? 
+pid=4898 comm=qmanager_poller rss=1640kB
+   cmd: /bin/bash /usrdata/qmanager/bin/qmanager_poller 
+pid=4901 comm=qmanager_poller rss=1652kB
+   cmd: /bin/bash /usrdata/qmanager/bin/qmanager_poller 
+pid=4903 comm=qcmd rss=652kB
+   cmd: /bin/sh /usrdata/qmanager/bin/qcmd AT+QENG="servingcell" 
+pid=4920 comm=qcmd rss=364kB
+   cmd: /bin/sh /usrdata/qmanager/bin/qcmd AT+QENG="servingcell" 
+pid=5215 comm=qcmd rss=652kB
+   cmd: /bin/sh /usrdata/qmanager/bin/qcmd AT+CPIN? 
+pid=5243 comm=qcmd rss=360kB
+   cmd: /bin/sh /usrdata/qmanager/bin/qcmd AT+CPIN? 
+
+===== atd artefacts (added 2026-10-22 — confirm they are INERT) =====
+binary   : -rwxr-xr-x    1 root     root        513000 Oct 22 00:19 /usrdata/qmanager/bin/qmanager_atd
+shim     : lrwxrwxrwx    1 root     root            34 Oct 22 00:20 /usrdata/qmanager/atd/qcmd -> /usrdata/qmanager/bin/qmanager_atd
+daemon   : not running
+socket   : absent
+poller PATH line:
+15:Environment=PATH=/usrdata/qmanager/bin:/usr/bin:/bin:/sbin:/usr/sbin
+
+===== SIM / registration (query AT only) =====
+AT+CPIN?         -> 
+AT+CFUN?         -> 
+AT+COPS?         -> 
+AT+CREG?         -> 
+AT+CEREG?        -> 
+AT+CSQ           -> 
+AT+QSIMSTAT?     -> 
+AT+QUIMSLOT?     -> 
+AT+CGDCONT?      -> 
+
+===== serving cell / RF (query AT only) =====
+AT+QENG="servingcell"        ->
+AT+QCAINFO                   ->
+    ERROR: command_failed
+AT+QRSRP                     ->
+    ERROR: command_failed
+AT+QNWPREFCFG="mode_pref"    ->
+    ERROR: command_failed
+
+===== poller cache (published values) =====
+mtime: Thu Oct 22 00:55:51 UTC 2026  now: Thu Oct 22 00:57:15 UTC 2026
+{
+  "model": "",
+  "temp": 28,
+  "net_type": "",
+  "carrier": "",
+  "apn": "",
+  "wan": "",
+  "reg": null,
+  "rsrp": null,
+  "nr_rsrp": null
+}
+
+===== QManager logs (last 60 lines, errors first) =====
+--- /tmp/qmanager.log tail ---
+[2026-10-22 05:52:42] WARN  [cgi_modem_subsys:26091] cache stale (age=69s) — serving empty shape
+[2026-10-22 05:52:44] WARN  [cgi_modem_subsys:26435] cache stale (age=71s) — serving empty shape
+[2026-10-22 05:52:46] WARN  [cgi_modem_subsys:26788] cache stale (age=73s) — serving empty shape
+[2026-10-22 05:52:48] WARN  [cgi_modem_subsys:27271] cache stale (age=75s) — serving empty shape
+[2026-10-22 00:52:49] INFO  [poller:2069] EVENT [signal_lost] Modem unreachable
+[2026-10-22 00:52:50] WARN  [poller:2069] poll_cycle exceeded budget: 75s > 10s
+[2026-10-22 00:53:14] ERROR [qcmd:28370] Lock acquisition failed for: AT+QENG="servingcell"
+[2026-10-22 00:53:14] WARN  [poller:2069] qcmd_exec failed: cmd=AT+QENG="servingcell" exit=1
+[2026-10-22 00:53:14] WARN  [poller:2069] Modem unreachable during serving cell poll
+[2026-10-22 05:53:23] WARN  [cgi_modem_subsys:1523] cache stale (age=33s) — serving empty shape
+[2026-10-22 05:53:24] WARN  [cgi_modem_subsys:1791] cache stale (age=34s) — serving empty shape
+[2026-10-22 05:53:25] INFO  [cgi_system_settings:1798] Fetching system settings
+[2026-10-22 05:53:27] WARN  [cgi_modem_subsys:2277] cache stale (age=37s) — serving empty shape
+[2026-10-22 05:53:28] WARN  [cgi_modem_subsys:2556] cache stale (age=38s) — serving empty shape
+[2026-10-22 05:53:30] WARN  [cgi_modem_subsys:2869] cache stale (age=40s) — serving empty shape
+[2026-10-22 05:53:32] WARN  [cgi_modem_subsys:3201] cache stale (age=42s) — serving empty shape
+[2026-10-22 00:53:33] INFO  [qmanager_dpi:2806] ensure: REDIRECT rule re-asserted (mode=video_optimizer)
+[2026-10-22 00:53:36] ERROR [qcmd:32463] Lock acquisition failed for: AT+QCAINFO
+[2026-10-22 00:53:36] WARN  [poller:2069] qcmd_exec failed: cmd=AT+QCAINFO exit=1
+[2026-10-22 00:53:38] WARN  [poller:2069] poll_cycle exceeded budget: 46s > 10s
+[2026-10-22 00:54:01] ERROR [qcmd:4903] Lock acquisition failed for: AT+QENG="servingcell"
+[2026-10-22 00:54:01] WARN  [poller:2069] qcmd_exec failed: cmd=AT+QENG="servingcell" exit=1
+[2026-10-22 00:54:01] WARN  [poller:2069] Modem unreachable during serving cell poll
+[2026-10-22 05:54:02] INFO  [cgi_system_settings:7719] Fetching system settings
+[2026-10-22 00:54:22] ERROR [qcmd:7678] Lock acquisition failed for: AT+QCAINFO
+[2026-10-22 00:54:22] WARN  [poller:2069] qcmd_exec failed: cmd=AT+QCAINFO exit=1
+[2026-10-22 00:54:23] WARN  [poller:2069] poll_cycle exceeded budget: 43s > 10s
+[2026-10-22 05:54:26] ERROR [qcmd:8081] Empty response for: AT+QNWCFG="3gpp_rel"
+[2026-10-22 00:54:30] INFO  [qmanager_dpi:9849] ensure: REDIRECT rule re-asserted (mode=video_optimizer)
+[2026-10-22 00:54:46] ERROR [qcmd:9496] Lock acquisition failed for: AT+QENG="servingcell"
+[2026-10-22 00:54:46] WARN  [poller:2069] qcmd_exec failed: cmd=AT+QENG="servingcell" exit=1
+[2026-10-22 00:54:46] WARN  [poller:2069] Modem unreachable during serving cell poll
+[2026-10-22 00:55:07] ERROR [qcmd:10970] Lock acquisition failed for: AT+QCAINFO
+[2026-10-22 00:55:07] WARN  [poller:2069] qcmd_exec failed: cmd=AT+QCAINFO exit=1
+[2026-10-22 00:55:08] WARN  [poller:2069] poll_cycle exceeded budget: 43s > 10s
+[2026-10-22 00:55:31] ERROR [qcmd:12480] Lock acquisition failed for: AT+QENG="servingcell"
+[2026-10-22 00:55:31] WARN  [poller:2069] qcmd_exec failed: cmd=AT+QENG="servingcell" exit=1
+[2026-10-22 00:55:31] WARN  [poller:2069] Modem unreachable during serving cell poll
+[2026-10-22 00:55:34] INFO  [qmanager_dpi:13677] ensure: REDIRECT rule re-asserted (mode=video_optimizer)
+[2026-10-22 00:55:51] WARN  [poller:2069] poll_cycle exceeded budget: 41s > 10s
+[2026-10-22 05:56:05] INFO  [cgi_system_settings:15663] Fetching system settings
+[2026-10-22 00:56:24] INFO  [ping:1912] STATE: reachable: false → true
+[2026-10-22 00:56:24] INFO  [poller:2069] EVENT [internet_restored] Internet restored
+[2026-10-22 00:56:24] INFO  [poller:2069] alert_engine: recovery detected — downtime=721s
+[2026-10-22 05:56:27] ERROR [qcmd:15948] Lock acquisition failed for: AT+QNWCFG="3gpp_rel"
+[2026-10-22 00:56:34] ERROR [qcmd:17236] Empty response for: AT+QENG="servingcell"
+[2026-10-22 00:56:34] WARN  [poller:2069] qcmd_exec failed: cmd=AT+QENG="servingcell" exit=1
+[2026-10-22 00:56:34] WARN  [poller:2069] Modem unreachable during serving cell poll
+[2026-10-22 00:56:34] INFO  [qmanager_dpi:17652] ensure: REDIRECT rule re-asserted (mode=video_optimizer)
+[2026-10-22 00:56:46] ERROR [qcmd:17706] Empty response for: AT+QENG="servingcell"
+[2026-10-22 00:56:52] ERROR [qcmd:18424] Empty response for: AT+QCAINFO
+[2026-10-22 00:56:54] ERROR [qcmd:18741] Empty response for: AT+QRSRP
+[2026-10-22 00:56:54] ERROR [qcmd:17779] Lock acquisition failed for: AT+QCAINFO
+[2026-10-22 00:56:54] WARN  [poller:2069] qcmd_exec failed: cmd=AT+QCAINFO exit=1
+[2026-10-22 00:56:56] ERROR [qcmd:18858] Empty response for: AT+QNWPREFCFG="mode_pref"
+[2026-10-22 00:56:59] ERROR [qcmd:18923] Empty response for: AT+QRSRP;+QRSRQ;+QSINR
+[2026-10-22 00:57:05] ERROR [qcmd:19153] Empty response for: AT+COPS?;+QUIMSLOT?;+CNUM;+QSIMSTAT?;+CPIN?
+[2026-10-22 00:57:11] ERROR [qcmd:19084] Empty response for: AT+QCAINFO
+[2026-10-22 00:57:13] ERROR [qcmd:19962] Empty response for: AT+QRSRP
+[2026-10-22 00:57:15] ERROR [qcmd:20051] Empty response for: AT+QNWPREFCFG="mode_pref"
+--- WARN/ERROR lines, last 3 min ---
+[2026-10-22 00:54:46] ERROR [qcmd:9496] Lock acquisition failed for: AT+QENG="servingcell"
+[2026-10-22 00:54:46] WARN  [poller:2069] qcmd_exec failed: cmd=AT+QENG="servingcell" exit=1
+[2026-10-22 00:54:46] WARN  [poller:2069] Modem unreachable during serving cell poll
+[2026-10-22 00:55:07] ERROR [qcmd:10970] Lock acquisition failed for: AT+QCAINFO
+[2026-10-22 00:55:07] WARN  [poller:2069] qcmd_exec failed: cmd=AT+QCAINFO exit=1
+[2026-10-22 00:55:08] WARN  [poller:2069] poll_cycle exceeded budget: 43s > 10s
+[2026-10-22 00:55:31] ERROR [qcmd:12480] Lock acquisition failed for: AT+QENG="servingcell"
+[2026-10-22 00:55:31] WARN  [poller:2069] qcmd_exec failed: cmd=AT+QENG="servingcell" exit=1
+[2026-10-22 00:55:31] WARN  [poller:2069] Modem unreachable during serving cell poll
+[2026-10-22 00:55:51] WARN  [poller:2069] poll_cycle exceeded budget: 41s > 10s
+[2026-10-22 05:56:27] ERROR [qcmd:15948] Lock acquisition failed for: AT+QNWCFG="3gpp_rel"
+[2026-10-22 00:56:34] ERROR [qcmd:17236] Empty response for: AT+QENG="servingcell"
+[2026-10-22 00:56:34] WARN  [poller:2069] qcmd_exec failed: cmd=AT+QENG="servingcell" exit=1
+[2026-10-22 00:56:34] WARN  [poller:2069] Modem unreachable during serving cell poll
+[2026-10-22 00:56:46] ERROR [qcmd:17706] Empty response for: AT+QENG="servingcell"
+[2026-10-22 00:56:52] ERROR [qcmd:18424] Empty response for: AT+QCAINFO
+[2026-10-22 00:56:54] ERROR [qcmd:18741] Empty response for: AT+QRSRP
+[2026-10-22 00:56:54] ERROR [qcmd:17779] Lock acquisition failed for: AT+QCAINFO
+[2026-10-22 00:56:54] WARN  [poller:2069] qcmd_exec failed: cmd=AT+QCAINFO exit=1
+[2026-10-22 00:56:56] ERROR [qcmd:18858] Empty response for: AT+QNWPREFCFG="mode_pref"
+[2026-10-22 00:56:59] ERROR [qcmd:18923] Empty response for: AT+QRSRP;+QRSRQ;+QSINR
+[2026-10-22 00:57:05] ERROR [qcmd:19153] Empty response for: AT+COPS?;+QUIMSLOT?;+CNUM;+QSIMSTAT?;+CPIN?
+[2026-10-22 00:57:11] ERROR [qcmd:19084] Empty response for: AT+QCAINFO
+[2026-10-22 00:57:13] ERROR [qcmd:19962] Empty response for: AT+QRSRP
+[2026-10-22 00:57:15] ERROR [qcmd:20051] Empty response for: AT+QNWPREFCFG="mode_pref"
+--- journal: poller, last 5 min ---
+-- No entries --
+
+===== dmesg — modem / SSR / glink / ipa / usb (the recovery trail) =====
+[   20.522929] qcom_smd_qrtr_probe:Entered
+[   20.524608] qcom_smd_qrtr_probe:SMD QRTR driver probed
+[   20.524711] qrtr: Modem QMI Readiness RX cmd:0x2 node[0x3]
+[   20.527323] qrtr: Modem QMI Readiness TX cmd:0x2 node[0x2]
+[   20.530742] sysmon-qmi: ssctl_new_server: Connection established between QMI handle and modem's SSCTL service
+[   20.803699] systemd[1]: Started USB daemon Service.
+[   20.818438] systemd[755]: usbd.service: Failed to connect stdout to the journal socket, ignoring: No such file or directory
+[   20.962963] systemd[1]: Started IPACM DIAG Service.
+[   21.014470] coresight-remote-etm soc:modem2_etm0: Connection established between QMI handle and 11 service
+[   21.014527] coresight-remote-etm soc:modem_etm0: Connection established between QMI handle and 2 service
+[   21.082954] Sending QMI_IPA_INIT_MODEM_DRIVER_REQ_V01
+[   21.096461] ipa ipa3_uc_wdi_event_log_info_handler:372 WDI protocol missing 0x1
+[   21.096476] ipa ipa3_uc_ntn_event_log_info_handler:19 NTN protocol missing 0x1
+[   21.096580] (NULL device *): ioss:cfg:IPA is ready
+[   21.106201] QMI_IPA_INIT_MODEM_DRIVER_REQ_V01 response received
+[   21.262742] r8125_ioss 0000:01:00.0-ioss: ioss:cfg:(eth0) Voted for IPA bandwidth of 1000 Mbps
+[   21.361804] systemd[768]: ipacmdiag.service: Failed to connect stdout to the journal socket, ignoring: No such file or directory
+[   21.526759] systemd[1]: Started qmi_ip_multiclient service.
+[   21.535495] systemd[787]: qmi_ip_multiclientd.service: Failed to connect stdout to the journal socket, ignoring: No such file or directory
+[   24.704859] subsys-restart: quec_state_show(): [e399cd82]: line: 251, quectel_restart_modem: 0
+[   24.846478] systemd[1]: Started Reset reboot cookie.
+[   24.857510] systemd[980]: reset_reboot_cookie.service: Failed to connect stdout to the journal socket, ignoring: No such file or directory
+[   25.833566] systemd[1]: reset_reboot_cookie.service: Succeeded.
+[   26.443961] QTI: Modem is up
+[   26.944101] systemd[1179]: turin_modemd.service: Failed to connect stdout to the journal socket, ignoring: No such file or directory
+[   26.956103] systemd[1]: Starting turin_modemd...
+[   27.953105] ipa ipa3_set_aggr_limit:4873 get close-by 8192
+[   27.953119] ipa ipa3_set_aggr_limit:4875 set default rx_buff_sz 7808
+[   27.963112] ipa-wan ipa3_wwan_ioctl:3153 dev(rmnet_data0) register to IPA
+[   31.674101] systemd[1]: Reached target Hardware activated USB gadget.
+[   32.166523] systemd[1]: Started Modem Shutdown Service.
+[   32.167631] systemd[1638]: qmi_shutdown_modemd.service: Failed to connect stdout to the journal socket, ignoring: No such file or directory
+[   32.327194] systemd[1]: Started turin_modemd.
+[   36.033764] systemd[1]: qmi_ip_multiclientd.service: Current command vanished from the unit file, execution of the command list won't be resumed.
+[   36.123692] systemd[1]: qmi_ip_multiclientd.service: Main process exited, code=exited, status=255/EXCEPTION
+[   36.124176] systemd[1]: qmi_ip_multiclientd.service: Failed with result 'exit-code'.
+[   36.757015] systemd[1]: Starting QManager Modem Data Poller...
+[   37.282391] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[   37.897084] systemd[1]: Started QManager Modem Data Poller.
+[   41.598300] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[   41.857048] systemd[1]: Starting Greenpacket O5A per-minute RF metrics history logger (QMI signal samples)...
+[   42.110888] systemd[1]: Started Greenpacket O5A per-minute RF metrics history logger (QMI signal samples).
+[   43.978598] r8125_ioss 0000:01:00.0-ioss: ioss:cfg:(eth0) Voted for IPA bandwidth of 1000 Mbps
+[   63.848817] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[   71.581581] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[   88.708679] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[   90.836010] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[   97.378479] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[   99.753486] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  102.187224] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  117.384198] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  121.855204] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  128.475557] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  130.666532] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  146.455178] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  148.896612] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  163.426957] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  165.593037] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  167.682509] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  170.116161] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  177.158787] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  192.408827] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  195.224441] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  209.174428] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  215.714536] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  232.074446] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  252.339191] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  266.865987] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  286.792112] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  301.215648] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  322.005242] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  341.623569] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  361.605670] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  376.238646] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  396.526625] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  412.030874] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  414.181882] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  428.817467] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  446.387738] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  451.567807] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  458.809662] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  469.004680] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  476.022330] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  485.475312] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  492.737939] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  514.054986] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  533.351313] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  551.287702] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  567.365891] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  585.306598] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  602.674430] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  609.729902] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  626.507562] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  643.570232] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  645.892849] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  666.323724] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  673.003563] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  688.702001] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  705.325919] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  722.479468] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  724.577907] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  739.963124] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  757.278547] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  774.875557] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  791.928142] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  809.314742] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  827.310475] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  833.623734] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  839.753248] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  845.814309] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  851.994912] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  858.246089] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  864.407038] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  870.536150] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  872.500230] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  875.013911] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  877.099638] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  883.565756] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  889.675238] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  891.610301] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+
+--- dmesg tail 80 (unfiltered) ---
+[  671.721273] systemd[1]: Started QManager Traffic Engine ensure (rule re-assert).
+[  673.003563] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  688.702001] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  705.325919] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  722.479468] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  724.324038] systemd[1]: gp-prx-proxy-tunnel.service: Scheduled restart job, restart counter is at 11.
+[  724.324162] systemd[1]: Stopped Persistent reverse proxy tunnel to simosa host.
+[  724.332993] systemd[1]: Starting Persistent reverse proxy tunnel to simosa host...
+[  724.391166] systemd[1]: gp-prx-proxy-tunnel.service: Found left-over process 9672 (timeout) in control group while starting unit. Ignoring.
+[  724.391183] systemd[1]: This usually indicates unclean termination of a previous run, or service implementation deficiencies.
+[  724.392945] systemd[1]: Started Persistent reverse proxy tunnel to simosa host.
+[  724.577907] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  724.625502] systemd[1]: gp-prx-proxy-tunnel.service: Main process exited, code=exited, status=1/FAILURE
+[  724.627319] systemd[1]: gp-prx-proxy-tunnel.service: Failed with result 'exit-code'.
+[  727.959673] systemd[1]: Starting QManager Traffic Engine ensure (rule re-assert)...
+[  727.990720] systemd[9849]: qmanager-dpi-ensure.service: Failed to connect stdout to the journal socket, ignoring: No such file or directory
+[  728.629901] systemd[1]: qmanager-dpi-ensure.service: Succeeded.
+[  728.631140] systemd[1]: Started QManager Traffic Engine ensure (rule re-assert).
+[  739.963124] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  757.278547] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  774.875557] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  784.824253] systemd[1]: gp-prx-proxy-tunnel.service: Scheduled restart job, restart counter is at 12.
+[  784.824416] systemd[1]: Stopped Persistent reverse proxy tunnel to simosa host.
+[  784.834457] systemd[1]: Starting Persistent reverse proxy tunnel to simosa host...
+[  784.943924] systemd[1]: gp-prx-proxy-tunnel.service: Found left-over process 13165 (timeout) in control group while starting unit. Ignoring.
+[  784.943942] systemd[1]: This usually indicates unclean termination of a previous run, or service implementation deficiencies.
+[  784.947463] systemd[1]: Started Persistent reverse proxy tunnel to simosa host.
+[  785.651991] systemd[1]: gp-prx-proxy-tunnel.service: Main process exited, code=exited, status=1/FAILURE
+[  785.653857] systemd[1]: gp-prx-proxy-tunnel.service: Failed with result 'exit-code'.
+[  790.822396] systemd[1]: Starting QManager Traffic Engine ensure (rule re-assert)...
+[  790.823364] systemd[13677]: qmanager-dpi-ensure.service: Failed to connect stdout to the journal socket, ignoring: No such file or directory
+[  791.928142] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  792.057278] systemd[1]: qmanager-dpi-ensure.service: Succeeded.
+[  792.058220] systemd[1]: Started QManager Traffic Engine ensure (rule re-assert).
+[  809.314742] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  825.806943] HTB: quantum of class 10001 is big. Consider r2q change.
+[  825.823599] HTB: quantum of class 10010 is big. Consider r2q change.
+[  825.854816] HTB: quantum of class 10020 is big. Consider r2q change.
+[  826.142306] systemd[1]: Stopping dnsmasq service...
+[  826.145912] systemd[1]: dnsmasq_service@0.service: Succeeded.
+[  826.146552] systemd[1]: Stopped dnsmasq service.
+[  826.318126] systemd[1]: Starting dnsmasq service...
+[  826.328895] systemd[16181]: dnsmasq_service@0.service: Failed to connect stdout to the journal socket, ignoring: No such file or directory
+[  826.361665] systemd[1]: Started dnsmasq service.
+[  827.310475] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  828.228974] NOHZ: local_softirq_pending 08
+[  828.228981] NOHZ: local_softirq_pending 08
+[  828.246946] NOHZ: local_softirq_pending 08
+[  828.246953] NOHZ: local_softirq_pending 08
+[  828.252344] NOHZ: local_softirq_pending 08
+[  828.252359] NOHZ: local_softirq_pending 08
+[  831.681695] NOHZ: local_softirq_pending 08
+[  831.681702] NOHZ: local_softirq_pending 08
+[  831.687140] NOHZ: local_softirq_pending 08
+[  831.687145] NOHZ: local_softirq_pending 08
+[  833.623734] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  839.753248] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  845.814309] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  845.828246] systemd[1]: gp-prx-proxy-tunnel.service: Scheduled restart job, restart counter is at 13.
+[  845.828820] systemd[1]: Stopped Persistent reverse proxy tunnel to simosa host.
+[  845.850233] systemd[1]: Starting Persistent reverse proxy tunnel to simosa host...
+[  845.877450] systemd[1]: gp-prx-proxy-tunnel.service: Found left-over process 17383 (timeout) in control group while starting unit. Ignoring.
+[  845.877467] systemd[1]: This usually indicates unclean termination of a previous run, or service implementation deficiencies.
+[  845.879159] systemd[1]: Started Persistent reverse proxy tunnel to simosa host.
+[  848.074279] systemd[1]: gp-prx-proxy-tunnel.service: Main process exited, code=exited, status=1/FAILURE
+[  848.074763] systemd[1]: gp-prx-proxy-tunnel.service: Failed with result 'exit-code'.
+[  851.483376] systemd[1]: Starting QManager Traffic Engine ensure (rule re-assert)...
+[  851.484561] systemd[17652]: qmanager-dpi-ensure.service: Failed to connect stdout to the journal socket, ignoring: No such file or directory
+[  851.994912] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  852.003229] systemd[1]: qmanager-dpi-ensure.service: Succeeded.
+[  852.003924] systemd[1]: Started QManager Traffic Engine ensure (rule re-assert).
+[  858.246089] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  864.407038] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  870.536150] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  872.500230] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  875.013911] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  877.099638] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  883.565756] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  889.675238] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+[  891.610301] [glink_pkt_ioctl]: unrecognized ioctl command 0x5401
+
+===== kernel oops / watchdog evidence =====
+OOM mentions: 3
+2add8327-733e-44e5-8051-2c8d04d07bce
+--- reboot reasons ---
+
+===== network state on the device =====
+--- routes ---
+--- default route WAN ---
+
+===== end of collection =====

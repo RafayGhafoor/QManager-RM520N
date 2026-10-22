@@ -1791,3 +1791,29 @@ Each becomes a filled cell above once measured:
   bootstrap — that completed over plain HTTP on 2026-08-25 — but it is still
   unexplained and still a risk for anything needing outbound **HTTPS**.
 - Is `AT+CGAUTH` supported, and is there a per-context MTU write?
+
+### RG520N-EB (GreenPacket O5A Pro) — recovering a wedged modem (measured 2026-10-22)
+
+Learned the hard way, during a no-signal/no-AT incident on this unit. Every row is
+first-hand.
+
+| Fact | Measured behaviour |
+| --- | --- |
+| A **warm reboot does not power-cycle the modem** | After `reboot` the modem keeps its state: `subsys0/state` stayed `ONLINE`, `crash_count=0`, and AT stayed dead. **A wedged modem survives an AP reboot.** A cold power cycle (unplug) is the reliable reset |
+| AT dead ≠ modem dead | `subsys0/state=ONLINE`, `crash_count=0`, and `modemd status` still reported `pinStat READY` + IMEI/IMSI/ICCID — read at boot from the SIM. Yet `qcmd 'AT'` returned empty and `modemd`'s own `at_resp` was `"-"` |
+| `modemd` has an AT path independent of `/dev/at_mdm0` | `ubus call modemd atcmd '{"atcmd":"AT+COPS?"}'` → `{"send_flag":"ok","at_resp":"-"}`. Methods: `atcmd`, `status`, `getcmd`, `pinctrl`, `topic` |
+| ⚠️ `send_flag: OK` does **not** mean the modem replied | It means the command was accepted for sending. In the wedged state every command returned `send_flag: OK` with `at_resp: "-"`. **Do not read `send_flag` as an AT success** |
+| ⚠️ `AT+CFUN=1,1` via `modemd atcmd` is a **no-op when AT is wedged** | Returned `send_flag: OK`; after 75 s `modemd status` was unchanged (all RF fields `-`) and no data interface appeared. It never reached the modem |
+| No SSR trigger node on this kernel | `subsys0/` exposes `crash_count firmware_name name power quec_state restart_level state subsystem system_debug uevent waiting_for_supplier wakeup` — **there is no `restart`**. `restart_level=RELATED`, `system_debug` is a directory. Do not improvise writes to these |
+| `ipa_fws` observed stuck | `subsys1: name=ipa_fws state=OFFLINING` while the modem was wedged. It never returned to ONLINE, so no data path came up |
+| **No `/dev/mhi*` and no MHI bus is NORMAL here** | This SoC links baseband↔AP on-chip over **SMD/GLINK/QRTR**; the USB controller is a peripheral gadget only. An absent `mhi` is not evidence of a fault — do not chase it |
+| `port_bridge at_mdm0 at_usb0 0` holding `/dev/at_mdm0` is **baseline** | Recorded the same way in the sibling product's `memory.md` (`at_mdm0` glinkpkt held by `port_bridge`). It is not a fault and not a reason to stop the unit |
+| Empty `at_mdm0` responses are **documented**, not new | `deploy/README.md:52` already says the port "can return an empty response intermittently" and that the shim retries a read-only allowlist only |
+| `glink_pkt_ioctl: unrecognized ioctl 0x5401` flood is benign | `0x5401` is `TCGETS`. The port is a **raw char device, not a tty**, so any `stty`/termios call logs this. Matches `deploy/README.md` |
+
+**Symptom chain seen, for recognition next time.** `modemd status` shows
+`pinStat READY`, `cfun 1`, IMEI/IMSI/ICCID present, and **every** network field
+(`regStat`, `rat`, `plmn`, `rssi`, `rsrp`, `band`, `cellId`) as `-`; no
+`rmnet`/`wwan` interface exists; the vendor PDN service `turin_mpdn` is `inactive`;
+`qcmd 'AT'` returns empty. That is a wedged modem AT cop, not a QManager fault and
+not a SIM fault — a readable IMSI/ICCID rules the SIM out.

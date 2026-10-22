@@ -4,8 +4,12 @@
 > SDX6X `sdxlemur`, kernel `5.4.210-perf`, BusyBox 1.36.1). **Not** a claim about
 > the RM520N-GL, RG501Q-EU or the Suncomm X75 — see
 > [`platform-matrix.md`](./platform-matrix.md) for what a port must re-measure.
-> **Status: built and cross-compiled, NOT yet enabled on the device.** See
-> *Enabling it on the O5A* below, and the open items at the end.
+> **Status: built, cross-compiled, RUN ON THE DEVICE, then REVERTED.** It works and
+> cuts per-AT-call latency ~70x (770 ms → 11 ms), but it did **not** reduce poller
+> CPU, so it is **not enabled**. Measured results and the two corrected figures are
+> in [`../plans/2026-10-22-x75-sync.md`](../plans/2026-10-22-x75-sync.md) §"After".
+> ⚠️ **An operator must not leave the daemon running unattended** — see
+> *Operational warning* below.
 > **Source of the crate:** the owner's `suncomm-x75-live-neighbours` branch of
 > `RafayGhafoor/QManager`, where it is the only AT path. Ported here by
 > [`docs/specs/rust-atd-port.md`](../specs/rust-atd-port.md) (option **B**).
@@ -223,12 +227,41 @@ If either assumption fails on this port, the fix is a `channel.rs` change
 (reopen per exchange / restore the allowlisted retry) — **not** a config change.
 That is the one place this deployment is currently better than upstream.
 
+## Operational warning — the mistake made while testing this
+
+The daemon was started with `setsid` for a latency test and **left running**. It
+held one long-lived fd on `/dev/at_mdm0` for hours, which is the unverified
+assumption recorded under *Known risk* above. That session later ended with the
+unit in a no-signal state and a reboot was needed.
+
+**The broker is not proven to have caused it** — after the reboot the broker was
+verified absent (`pidof qmanager_atd` empty, no socket, poller PATH back to the
+shell `qcmd`) and the modem was still unresponsive, which the follow-up diagnosis
+traced to a wedged modem AT cop (see
+[`platform-matrix.md`](./platform-matrix.md) §"recovering a wedged modem"). But
+it cannot be excluded either, and the lesson stands:
+
+- Start it, measure it, **stop it** — in one session, never left for a later
+  session to clean up.
+- Never start it without a unit, so it cannot outlive the test unnoticed.
+- If it is ever enabled for real, it goes in `deploy/qm_boot_hook.sh` with a proven
+  reboot (hard rule 6), so its lifetime is bounded by systemd.
+
 ## Open items
 
-- [ ] On-device smoke test and the parity table (steps 1–4). **Blocked:** the unit
-      was off-network at build time.
-- [ ] After-benchmark: forks/s and per-call AT CPU, same harness, same window.
+- [x] On-device smoke test and the parity table (steps 1–4) — **done**: the armv7
+      binary runs on the O5A, `AT+CGMM` → `RG520N-EB`, `qcmd -j` matches the `jq`
+      shape, and **no second lock file was created** (`/var/lock/qmanager.lock`
+      stayed absent), which is hard rule 3 satisfied.
+- [x] Contract parity confirmed by hand: shell `qcmd AT+FOOBAR` → **rc 1, empty
+      stdout**; Rust `qcmd AT+FOOBAR` → **rc 0, `ERROR` in stdout**. The inversion
+      is real and is why CGIs must not be repointed at it.
+- [x] After-benchmark — **taken, and it is a negative result for CPU**: per-call
+      770 ms → 11 ms wall, cycles 6 → 10 per 30 s, but poller 20.07 % → 21.82 %.
+      Reverted. `../plans/2026-10-22-x75-sync.md` §"After" has the table.
 - [ ] Decision for hard rule 9: commit the 513 KB binary (upstream's choice) or
       fetch it at deploy time (this repo's choice for `jq`/`speedtest`). Not yet
-      decided — see the plan doc.
+      decided — see the plan doc. **The binary currently lives on the device at
+      `/usrdata/qmanager/bin/qmanager_atd` and is inert; remove it if this is
+      abandoned.**
 - [ ] If the daemon is adopted: `deploy/qm_boot_hook.sh` entry + a proven reboot.

@@ -410,3 +410,48 @@ QManager RSS **3.4 MB**, device memory used **133 MB** of 182 MB.
 Toolchain note: this crate needs `rustup` + `armv7-unknown-linux-musleabihf`;
 Homebrew `cargo` alone has no cross target. Host `cargo test` cannot run on macOS
 (Linux-only `libc::SO_PEERCRED`) — the gate is a cross-build plus an on-device run.
+
+## 2026-10-22 (later) — AT broker tested then reverted; modem wedged
+
+**The broker is not enabled and must stay that way until someone re-decides.**
+It was deployed for a latency test, measured, and reverted:
+
+| | shell `qcmd` | Rust `qcmd` |
+| --- | --- | --- |
+| per-AT-call wall | **770 ms** | **11 ms** (~70×) |
+| poller cycles / 30 s | 6 | **10** |
+| `qmanager_poller` % of one core | 20.07 % | 21.82 % — **no win** |
+
+Verdict: a **latency** win, not a **CPU** win (the shell path's 770 ms is
+waiting — drain/settle plus flock — not computation). Reverted; the poller is back
+on the shell `qcmd` with its original `PATH`.
+
+Left on the device, all **inert** (nothing starts them, verified after reboot):
+
+- `/usrdata/qmanager/bin/qmanager_atd` — the 513 KB armv7 binary
+- `/usrdata/qmanager/atd/qcmd` — a symlink nothing resolves
+- `/etc/systemd/system/qmanager-poller.service.pre-atd` — one-time backup
+
+`deploy/qmanager-atd.service` ships in the repo but is **not enabled** and is **not**
+in `qm_boot_hook.sh`.
+
+### The unit is currently in a no-signal state (unresolved)
+
+As of the last check the modem answers no AT on `/dev/at_mdm0` (`AT+CGMM` 0/6), so
+`/tmp/qmanager_status.json` carries no radio data and there is no data interface.
+Diagnosis and the evidence table are in
+`docs/reference/platform-matrix.md` §"recovering a wedged modem":
+
+- **Not a QManager fault** — broker absent, poller only logging the failures.
+- **Not a SIM fault** — `pinStat READY`, IMEI/IMSI/ICCID readable.
+- `modem` subsystem `state=ONLINE`, `crash_count=0`; `ipa_fws state=OFFLINING`.
+- `AT+CFUN=1,1` sent via `ubus call modemd atcmd` returned `send_flag: OK` and did
+  **nothing** — in this state `send_flag` does not mean the modem replied
+  (`at_resp` is always `"-"`).
+- No SSR trigger node exists (`subsys0/` has `restart_level quec_state power
+  system_debug`, no `restart`).
+- `turin_mpdn.service` is **masked since the image date** (2026-08-16) — by design,
+  not the fault. `qmi_shutdown_modemd` ("Modem Shutdown Service") ran at boot+32 s.
+
+**A warm reboot does not power-cycle the modem**, which is why rebooting did not
+help. The remaining fix is a **cold power cycle** (unplug power ~30 s).

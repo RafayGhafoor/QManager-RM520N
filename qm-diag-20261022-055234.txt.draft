@@ -1,0 +1,33 @@
+
+===== identity =====
+date      : Thu Oct 22 00:52:35 UTC 2026
+host      : sdxlemur
+machine   : armv7l  kernel: 5.4.210-perf
+boot_id   : 2add8327-733e-44e5-8051-2c8d04d07bce
+uptime_s  : 613
+loadavg   : 6.34 4.34 2.38 6/409 24954
+cpu_count : 1
+
+===== memory =====
+MemTotal:         182532 kB
+MemFree:            7192 kB
+MemAvailable:      35376 kB
+SwapTotal:         91264 kB
+SwapFree:          53408 kB
+
+===== disk =====
+Filesystem                Size      Used Available Use% Mounted on
+/dev/root                50.4M     50.4M         0 100% /
+tmpfs                   182.9M    108.8M     74.0M  60% /etc/machine-id
+/dev/ubiblock1_0         57.6M     57.6M         0 100% /firmware
+/dev/ubi2_0             182.9M    108.8M     74.0M  60% /usrdata
+/dev/ubi2_0             182.9M    108.8M     74.0M  60% /etc
+/dev/ubi2_0             182.9M    108.8M     74.0M  60% /data
+/dev/ubi2_0             182.9M    108.8M     74.0M  60% /cache
+/dev/ubi2_0             182.9M    108.8M     74.0M  60% /systemrw
+/dev/ubi2_0             182.9M    108.8M     74.0M  60% /persist
+/dev/ubi2_0             182.9M    108.8M     74.0M  60% /etc/config
+/dev/ubi2_0             182.9M    108.8M     74.0M  60% /usrdata/etc/config
+/dev/ubi2_0             182.9M    108.8M     74.0M  60% /web
+
+===== systemd units (QManager + vendor stack) =====
