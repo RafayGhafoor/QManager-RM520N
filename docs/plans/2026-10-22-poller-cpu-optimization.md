@@ -343,7 +343,29 @@ period 4.35 s (baseline 8.36), poller 13.6 % (live 13.5 %), box forks 63/s
 (baseline 111/s), RSS unchanged. Backup of replaced files:
 `/usrdata/qmanager/backup/pre-poller-opt2-20261022-051511.tgz`.
 
-### The cadence decision this now needs (A4)
+## Round 3 — whole-box spikes (2026-10-22, later)
+
+Owner: "CPU swings 38–80 %". Measured per process per second
+(`scripts-dev/qm-spike-sampler.sh`), then cut the QManager parts. Full tables in
+[`poller-cpu-profile.md` → Round 3](../reference/poller-cpu-profile.md#round-3--the-whole-box-spikes-the-ping-daemon-the-cgis-and-a-fixed-period).
+
+- Box busy (sampler excluded) **45.3 % → 32.0 %**; seconds ≥ 70 % busy
+  **65 → 20** of 300; poller **11.9 → 9.1 %**; ping **2.4 → 1.4 %**.
+- **A4 decided by the owner's request:** `POLL_PERIOD=5` fixed start-to-start
+  (override with `Environment=POLL_PERIOD=` on the unit). Still faster than the
+  8.4 s the O5A actually ran at before this work; slower than the 3.66 s the
+  de-forked poller would otherwise free-run at.
+- Tier-1 serving cell + CA merged into one AT compound, with fallback.
+- Ping daemon and the CGI base (every dashboard request) de-forked; dashboard
+  polling cost ~9.2 → ~4.8 % of a core while the UI is open.
+- Not ours, recorded only: `modemd` ~30 % bursts every ~22 s; vendor timers.
+
+Backup of the replaced files: `/usrdata/qmanager/backup/pre-cpu-r3-20261022-055240.tgz`
+(the fixed-period poller was deployed after it; the previous poller is in that
+tarball too).
+
+### Superseded: the cadence decision (now made — see Round 3)
+
 
 The poller now runs at its designed ~4 s period, so the per-cycle saving shows as
 fresher data, not idle CPU. Measured per-cycle cost ~592 ms gives:

@@ -13,7 +13,15 @@ _PLATFORM_LOADED=1
 
 # Detect sudo path — Entware (/opt/bin/sudo) or system (/usr/bin/sudo)
 # When running as root (daemons), sudo is skipped entirely.
-if [ "$(id -u)" -eq 0 ]; then
+# Effective uid from /proc/self/status (Uid: real effective saved fs) instead of
+# $(id -u): platform.sh is sourced by every CGI request, so that was two
+# processes per request. Falls back to id when /proc is unreadable.
+_qm_euid=""
+while read -r _qm_k _qm_r _qm_e _qm_rest; do
+    [ "$_qm_k" = "Uid:" ] && { _qm_euid="$_qm_e"; break; }
+done 2>/dev/null < /proc/self/status
+case "$_qm_euid" in ''|*[!0-9]*) _qm_euid=$(id -u) ;; esac
+if [ "$_qm_euid" -eq 0 ]; then
     _SUDO=""
 elif [ -x /opt/bin/sudo ]; then
     _SUDO="/opt/bin/sudo"
@@ -209,7 +217,28 @@ pid_alive() {
 _QM_TIMEOUT_BIN=""
 _QM_TIMEOUT_FORM=""   # "positional" (coreutils/BusyBox >=1.30) or "legacy" (-t, BusyBox <1.30)
 
-if [ -x /opt/bin/timeout ]; then
+# The probe below execs `timeout 1 true` (two processes) and ran on EVERY
+# source of this file — every CGI request. Its answer only changes when
+# /opt/bin/timeout appears or disappears (Entware mounts ~30 s into boot on the
+# RM520N-GL), so it is cached in tmpfs keyed on exactly that. A cache that
+# cannot be read or written just means probing, as before.
+_QM_TIMEOUT_CACHE=/tmp/qmanager_timeout_probe
+_qm_opt=0; [ -x /opt/bin/timeout ] && _qm_opt=1
+_qm_c_opt="" _qm_c_bin="" _qm_c_form=""
+{ read -r _qm_c_opt _qm_c_bin _qm_c_form; } 2>/dev/null < "$_QM_TIMEOUT_CACHE"
+# /tmp is world-writable, so the cache is trusted only for the two binaries the
+# probe itself could have chosen and the two forms it can produce — a planted
+# file can at worst flip the form, never make root exec another path.
+case "$_qm_c_bin:$_qm_c_form" in
+    /opt/bin/timeout:positional|/usr/bin/timeout:positional|/usr/bin/timeout:legacy)
+        if [ "$_qm_c_opt" = "$_qm_opt" ] && [ -x "$_qm_c_bin" ]; then
+            _QM_TIMEOUT_BIN="$_qm_c_bin"
+            _QM_TIMEOUT_FORM="$_qm_c_form"
+        fi
+        ;;
+esac
+
+if [ -z "$_QM_TIMEOUT_BIN" ] && [ -x /opt/bin/timeout ]; then
     _qm_probe_rc=0
     /opt/bin/timeout 1 true >/dev/null 2>&1 || _qm_probe_rc=$?
     if [ "$_qm_probe_rc" -ne 127 ]; then
@@ -230,6 +259,10 @@ if [ -z "$_QM_TIMEOUT_BIN" ] && [ -x /usr/bin/timeout ]; then
     fi
 fi
 unset _qm_probe_rc
+if [ -n "$_QM_TIMEOUT_BIN" ] && [ "$_qm_c_bin" != "$_QM_TIMEOUT_BIN" -o "$_qm_c_opt" != "$_qm_opt" ]; then
+    printf '%s %s %s\n' "$_qm_opt" "$_QM_TIMEOUT_BIN" "$_QM_TIMEOUT_FORM" > "$_QM_TIMEOUT_CACHE" 2>/dev/null
+fi
+unset _qm_opt _qm_c_opt _qm_c_bin _qm_c_form
 
 # qm_timeout SECS COMMAND [ARGS...]
 # Callers always write the coreutils (positional) form; this dispatches to

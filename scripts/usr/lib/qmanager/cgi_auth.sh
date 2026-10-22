@@ -101,12 +101,42 @@ qm_save_password() {
 # Extract a named cookie value from HTTP_COOKIE
 # Usage: _cookie_val=$(qm_get_cookie "cookie_name")
 qm_get_cookie() {
-    _cookie_name="$1"
-    # HTTP_COOKIE format: "name1=val1; name2=val2"
-    printf '%s' "$HTTP_COOKIE" | awk -v name="$_cookie_name" '
-    BEGIN { RS=";[ \t]*"; FS="=" }
-    $1 == name { print $2; exit }
-    '
+    _qm_cookie "$1" && printf '%s\n' "$_QM_COOKIE"
+}
+
+# ZERO-FORK core of qm_get_cookie: sets _QM_COOKIE, returns 1 when absent.
+# require_auth runs on EVERY authenticated CGI request (the dashboard polls
+# three every 2 s), and the old printf|awk pair inside a $(...) was three
+# processes per request. Same rules as the awk it replaces:
+#   records split on ";" plus any spaces/tabs after it (RS=";[ \t]*"),
+#   name = text before the first "=", value = text between the 1st and 2nd "="
+#   (FS="="), first matching record wins.
+_qm_cookie() {
+    _QM_COOKIE=""
+    _qc_rest="$HTTP_COOKIE"
+    _qc_first=1
+    while [ -n "$_qc_rest" ]; do
+        case "$_qc_rest" in
+            *";"*) _qc_rec="${_qc_rest%%;*}"; _qc_rest="${_qc_rest#*;}" ;;
+            *)     _qc_rec="$_qc_rest"; _qc_rest="" ;;
+        esac
+        if [ "$_qc_first" -eq 0 ]; then
+            while :; do
+                case "$_qc_rec" in
+                    " "*|"	"*) _qc_rec="${_qc_rec#?}" ;;
+                    *) break ;;
+                esac
+            done
+        fi
+        _qc_first=0
+        if [ "${_qc_rec%%=*}" = "$1" ]; then
+            case "$_qc_rec" in
+                *=*) _QM_COOKIE="${_qc_rec#*=}"; _QM_COOKIE="${_QM_COOKIE%%=*}" ;;
+            esac
+            return 0
+        fi
+    done
+    return 1
 }
 
 # Emit Set-Cookie headers for both session and indicator cookies
@@ -132,7 +162,12 @@ qm_generate_token() {
 
 # Validate token is safe for use as a filename (hex chars only)
 _is_valid_token() {
-    printf '%s' "$1" | grep -qE '^[0-9a-f]{64}$'
+    # Exactly 64 lowercase hex chars — builtin test instead of printf|grep.
+    [ "${#1}" -eq 64 ] || return 1
+    case "$1" in
+        *[!0-9a-f]*) return 1 ;;
+    esac
+    return 0
 }
 
 # Create a new session. Prints the token to stdout.
@@ -153,7 +188,8 @@ qm_validate_session() {
     _session_file="${SESSIONS_DIR}/${_check_token}"
     [ ! -f "$_session_file" ] && return 1
 
-    _created=$(cat "$_session_file" 2>/dev/null)
+    _created=""
+    { read -r _created; } 2>/dev/null < "$_session_file"
     [ -z "$_created" ] && return 1
 
     _now=$(date +%s)
@@ -515,8 +551,9 @@ require_auth() {
     # CORS preflight passes without auth
     [ "$REQUEST_METHOD" = "OPTIONS" ] && return 0
 
-    # Read session token from cookie
-    _token=$(qm_get_cookie "$COOKIE_SESSION")
+    # Read session token from cookie (no subshell: see _qm_cookie)
+    _qm_cookie "$COOKIE_SESSION"
+    _token="$_QM_COOKIE"
     if [ -z "$_token" ] || ! qm_validate_session "$_token"; then
         echo "Status: 401 Unauthorized"
         cgi_headers

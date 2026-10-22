@@ -47,18 +47,29 @@ if [ ! -f "$STATUS_FILE" ]; then
     exit 0
 fi
 
-now=$(date +%s)
-ts=$(jq -r '.timestamp // 0' < "$STATUS_FILE" 2>/dev/null || echo 0)
-age=$((now - ts))
-
-if [ "$age" -gt "$STALE_SECONDS" ]; then
-    stale="true"
-else
-    stale="false"
-fi
-
-# Extract .data_used; emit zeroed fallback if the key is absent.
-data_used=$(jq '.data_used // empty' < "$STATUS_FILE" 2>/dev/null)
+# ONE jq on the hot path instead of `date` + three jq: the dashboard polls this
+# every 2 s, and it cost ~83 ms of CPU per request on the RG520N-EB
+# (2026-10-22). Output is unchanged: the data_used block plus `stale`. jq's
+# `now` is the same wall clock `date +%s` read. An absent block comes back as a
+# one-line marker so the zeroed fallback below (and its warning) still runs;
+# an unreadable cache gives no output, which the old code treated as ts=0,
+# i.e. stale.
+data_used=$(jq --argjson stale_s "$STALE_SECONDS" '
+    ((((now | floor) - (.timestamp // 0)) > $stale_s)) as $stale
+    | if (.data_used // null) == null then {"__qm_absent": true, "stale": $stale}
+      else .data_used + { stale: $stale } end' < "$STATUS_FILE" 2>/dev/null)
+stale="true"
+case "$data_used" in
+    *'"__qm_absent": true'*)
+        case "$data_used" in *'"stale": false'*) stale="false" ;; esac
+        data_used=""
+        ;;
+    '') ;;
+    *)
+        printf '%s\n' "$data_used"
+        exit 0
+        ;;
+esac
 
 if [ -z "$data_used" ]; then
     qlog_warn "data_used block absent in status cache, returning zeroed fallback"
@@ -73,5 +84,3 @@ if [ -z "$data_used" ]; then
     }'
     exit 0
 fi
-
-printf '%s' "$data_used" | jq --argjson stale "$stale" '. + { stale: $stale }'

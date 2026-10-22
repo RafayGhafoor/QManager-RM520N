@@ -110,19 +110,7 @@ prof_poll_cycle() {
     errors=""
     system_state="normal"
 
-    poll_serving_cell;              _m poll_serving_cell
-    sleep "$SIP_DELAY";             _m sip_sleep
-
-    local ca_result
-    ca_result=$(ca_info_read)
-    local ca_rc=$?;                 _m ca_info_read
-    if [ $ca_rc -eq 0 ] && [ -n "$ca_result" ]; then
-        parse_ca_info "$ca_result"
-    else
-        t2_ca_active=false; t2_ca_count=0; t2_nr_ca_active=false; t2_nr_ca_count=0
-        t2_total_bandwidth_mhz=0; t2_bandwidth_details=""; t2_carrier_components="[]"
-    fi
-    _m parse_ca_info
+    poll_tier1_at;                  _m poll_tier1_at
     sleep "$SIP_DELAY";             _m sip_sleep
 
     crash_watcher_check;            _m crash_watcher_check

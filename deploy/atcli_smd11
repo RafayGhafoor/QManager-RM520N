@@ -171,6 +171,7 @@ case "$CMD" in
     *\?*|\
     AT+CGPADDR|AT+CGCONTRDP|AT+CGCONTRDP=*|AT+QCAINFO|AT+QENG=*|\
     'AT+QCAINFO=1;+QCAINFO;+QCAINFO=0'|\
+    'AT+QENG="servingcell";+QCAINFO=1;+QCAINFO;+QCAINFO=0'|\
     'AT+CVERSION;+'*|'AT+QGETCAPABILITY'|\
     'AT+QNWPREFCFG="rat_acq_order"'|\
     'AT+QNWCFG="lte_mimo_layers"'|'AT+QNWCFG="nr5g_mimo_layers"'|\

@@ -45,7 +45,12 @@ fi
 # CGI's `date` report local time, which is what the System Settings clock band
 # reads for its live offset/abbreviation.
 if [ -z "${TZ:-}" ] && [ -r /etc/qmanager/tz.posix ]; then
-    _qm_tz=$(cat /etc/qmanager/tz.posix 2>/dev/null)
+    # `read`, not $(cat): this file is sourced by EVERY CGI request, and the
+    # dashboard alone polls three of them every 2 s. A second non-empty line
+    # rejects the value, exactly as the old $(cat) result failed the pattern.
+    _qm_tz="" _qm_tz2=""
+    { read -r _qm_tz; read -r _qm_tz2; } 2>/dev/null < /etc/qmanager/tz.posix
+    [ -n "$_qm_tz2" ] && _qm_tz=""
     case "$_qm_tz" in
         ''|*[!A-Za-z0-9+-,:/._-]*) : ;;
         *) TZ="$_qm_tz"; export TZ ;;

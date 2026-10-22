@@ -514,3 +514,13 @@ over 256 B were truncated), `lib/parse_at.sh`. Backup:
 Per cycle ~771 → ~592 ms CPU; period 6.39 → 4.35 s; box forks 90 → 63/s; no
 `poll_cycle exceeded budget` warnings since. Poller share ~13.5 % because it now
 runs ~2x as often — cadence is an open owner decision (plan doc, A4).
+
+## 2026-10-22 (later) — CPU round 3 (whole box) deployed
+
+Replaced: `bin/qmanager_poller` (Tier-1 compound `poll_tier1_at`; fixed
+`POLL_PERIOD=5`), `bin/qmanager_ping`, `bin/atcli_smd11` (allowlist),
+`lib/cgi_base.sh`, `lib/cgi_auth.sh`, `lib/platform.sh`,
+`www/cgi-bin/quecmanager/network/data_used.sh`. Backup:
+`/usrdata/qmanager/backup/pre-cpu-r3-20261022-055240.tgz`. New tmpfs file:
+`/tmp/qmanager_timeout_probe` (cached `timeout` probe; safe to delete).
+Box busy (idle, sampler excluded) 45.3 % -> 32.0 %; poller 9.1 %, ping 1.4 %.

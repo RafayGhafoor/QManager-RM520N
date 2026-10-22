@@ -143,13 +143,23 @@ fi
 # part of RM520N-GL's qlog.sh — define a local fallback so this daemon can
 # still emit the "mono" field the slim schema promises. If qlog.sh grows its
 # own mono_now() later, that definition wins and this one is skipped.
+#
+# _mono sets MONO with no process at all. The loop needs the clock four times
+# per cycle; `$(mono_now)` with `cut | cut` inside was ~3 processes each, i.e.
+# ~12 of the ~28 processes one ping cycle cost on the RG520N-EB (2026-10-22).
+_mono() {
+    MONO=0
+    { read -r _m_up _m_idle < /proc/uptime; } 2>/dev/null
+    _m_up="${_m_up%%.*}"
+    case "$_m_up" in
+        ''|*[!0-9]*) MONO=0 ;;
+        *)           MONO="$_m_up" ;;
+    esac
+}
 if ! command -v mono_now >/dev/null 2>&1; then
     mono_now() {
-        _up=$(cut -d' ' -f1 /proc/uptime 2>/dev/null | cut -d. -f1)
-        case "$_up" in
-            ''|*[!0-9]*) echo 0 ;;
-            *)           echo "$_up" ;;
-        esac
+        _mono
+        echo "$MONO"
     }
 fi
 
@@ -362,37 +372,28 @@ do_ping_icmp() {
 
     out=$(qm_timeout "$PROBE_DEADLINE" ping -c "$PROBE_COUNT" -W "$PROBE_TIMEOUT" "$target" 2>/dev/null)
 
-    # Preferred: average from the round-trip summary line (avg = 2nd of a/b/c).
-    rtt=$(printf '%s\n' "$out" \
-        | grep -oE 'min/avg/max[^=]*= [0-9.]+/[0-9.]+/[0-9.]+' \
-        | grep -oE '[0-9.]+/[0-9.]+/[0-9.]+' \
-        | cut -d'/' -f2)
-
-    # Fallback: a per-packet "time=<n>" reading when no summary line is present.
-    if [ -z "$rtt" ]; then
-        rtt=$(printf '%s\n' "$out" \
-            | grep -oE 'time=[0-9.]+' \
-            | head -n1 \
-            | cut -d'=' -f2)
-    fi
-
-    # Must be numeric (digits + optional dot).
-    case "$rtt" in
-        ''|*[!0-9.]*) return 1 ;;
-    esac
-
-    # Normalize to 1 decimal place; reject a non-positive / unparseable delta.
-    rtt=$(awk -v r="$rtt" 'BEGIN { printf "%.1f", r }')
-    case "$rtt" in
-        ''|*[!0-9.]*) return 1 ;;
-    esac
-    awk -v r="$rtt" 'BEGIN { exit (r > 0) ? 0 : 1 }' || return 1
-
-    # Resolved address from the banner line: "PING <target> (<addr>) ...".
-    _addr=$(printf '%s\n' "$out" \
-        | grep -oE '\([0-9A-Fa-f:.]+\)' \
-        | head -n1 \
-        | tr -d '()')
+    # ONE awk pass for everything below (was ~12 processes: grep|grep|cut,
+    # grep|head|cut, two awk, grep|head|tr). Same rules, in the same order:
+    #   rtt  = avg (2nd of a/b/c) from "min/avg/max[...]= a/b/c", else the
+    #          first "time=<n>"; must be digits/dots; printed "%.1f"; must
+    #          still be digits/dots and > 0 — otherwise empty (= failure)
+    #   addr = first "(<hex digits : .>)" group, parens stripped
+    _pp=$(printf '%s\n' "$out" | awk '
+        !a && match($0, /\([0-9A-Fa-f:.]+\)/) { addr = substr($0, RSTART + 1, RLENGTH - 2); a = 1 }
+        !s && match($0, /min\/avg\/max[^=]*= [0-9.]+\/[0-9.]+\/[0-9.]+/) {
+            x = substr($0, RSTART, RLENGTH); sub(/.*= /, "", x); split(x, v, "/"); avg = v[2]; s = 1 }
+        !t && match($0, /time=[0-9.]+/) { tm = substr($0, RSTART + 5, RLENGTH - 5); t = 1 }
+        END {
+            r = s ? avg : tm; out = ""
+            if (r != "" && r !~ /[^0-9.]/) {
+                f = sprintf("%.1f", r)
+                if (f != "" && f !~ /[^0-9.]/ && f + 0 > 0) out = f
+            }
+            printf "%s|%s", out, addr
+        }')
+    rtt="${_pp%%|*}"
+    _addr="${_pp#*|}"
+    [ -n "$rtt" ] || return 1
     case "$_addr" in
         *:*) PROBE_FAMILY="ipv6" ;;
         ?*)  PROBE_FAMILY="ipv4" ;;
@@ -440,7 +441,7 @@ write_cache() {
     rtt="$1"      # "34.2" or "null"
 
     timestamp=$(date +%s)
-    mono=$(mono_now)
+    _mono; mono="$MONO"
 
     during_recovery="false"
     [ -f "$RECOVERY_FLAG" ] && during_recovery="true"
@@ -634,7 +635,7 @@ main() {
     history_count=0
 
     while true; do
-        cycle_start=$(mono_now)
+        _mono; cycle_start="$MONO"
 
         # Live reload: re-read the JSON config (profile/targets/thresholds)
         # within one cycle when the CGI drops the flag, then clear it. No
@@ -651,7 +652,7 @@ main() {
             rtt=""
         fi
 
-        now_mono=$(mono_now)
+        _mono; now_mono="$MONO"
 
         if [ -n "$rtt" ]; then
             # --- Some leg answered ---
@@ -740,7 +741,7 @@ main() {
         # the real cycle period (chain + interval) drift with however long the
         # chain took — which is exactly the skew that made a cycle-count
         # threshold dishonest.
-        cycle_end=$(mono_now)
+        _mono; cycle_end="$MONO"
         elapsed=$((cycle_end - cycle_start))
         [ "$elapsed" -lt 0 ] && elapsed=0
         sleep_for=$((PING_INTERVAL - elapsed))

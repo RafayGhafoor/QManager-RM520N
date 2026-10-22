@@ -163,6 +163,62 @@ Same harness, same conditions, 164 cycles / 723 s:
 > **~31 %**. The share stays ~13 % because the saving was spent on 1.9× fresher
 > data. Turning it into idle CPU is a cadence decision — see the plan doc.
 
+### Round 3 — the whole box: spikes, the ping daemon, the CGIs, and a fixed period
+
+Asked "the box swings 38–80 %, why", so this round measured **every process, every
+second** with [`scripts-dev/qm-spike-sampler.sh`](../../scripts-dev/qm-spike-sampler.sh)
+(300 samples, idle device, no browser on the QManager UI). ⚠️ The sampler costs
+**~14 % of one core** itself (a `cat` of ~220 `/proc/*/stat` + one awk per second);
+it is a separate `sh` row, subtracted below. The per-second busy histogram
+**includes** it.
+
+**Who was on the CPU (before round 3, 398 s window):** `qmanager_poller` 11.9 % ·
+kworkers (ipawq/memlat) ~4.3 % · `qmanager_ping` 2.4 % · `trafficd` 2.2 % ·
+`modemd` 1.5 % · `ledd` 1.3 % · `tpws` 1.3 % · `gp-wanmon.sh` 1.1 % · `systemd`
+1.1 % · rest small. Box busy excluding the sampler **45.3 %**.
+
+**Periodic bursts found** (vendor ones recorded, not changed — hard rule 2):
+
+| Burst | Size / period | Owner | Action |
+| --- | --- | --- | --- |
+| poller cycle | ~0.5 s CPU every 3.7–4.4 s | QManager | fixed period (below) |
+| `qmanager_ping` | ~120 ms every 5 s | QManager | de-forked (below) |
+| `modemd` | **~30 % of a second every ~22 s** | vendor | none — `gp-metricsd` only polls modemd while the vendor UI is open, so this is modemd's own timer |
+| `systemd` | 21–57 ticks every 60 s | `qmanager-dpi-ensure.timer` (ours) + vendor timers | ensure measured at **190 ms CPU per run**; left as is |
+| dashboard CGIs | 3 requests / 2 s while the QManager UI is open | QManager | base cost halved (below) |
+
+**Changes:**
+
+| Change | File | Measured |
+| --- | --- | --- |
+| Serving cell + CA in ONE compound `AT+QENG="servingcell";+QCAINFO=1;+QCAINFO;+QCAINFO=0` (340 B reply, 0.6 s); falls back to the two-call sequence on any failure | `qmanager_poller` `poll_tier1_at` | one AT transport (~53 ms) + one 0.1 s sleep fewer per cycle |
+| Fixed cycle period `POLL_PERIOD=5` (start-to-start), `POLL_INTERVAL` kept as the minimum gap; old short gap while a live-neighbour lease is held | `qmanager_poller` `main` | period 3.66 s → **5.17 s**; poller **12.9 % → 8.9 %** (live, 150 s windows) |
+| `qmanager_ping`: clock via `read`, not `$(cut\|cut)` ×4; RTT/address in one awk instead of ~12 processes | `qmanager_ping` | **2.4 % → 1.4 %**; identical results on 7 ping-output fixtures (iputils, BusyBox, IPv6, 100 % loss, 0.0 ms, empty) |
+| CGI base: `tz.posix` via `read`; uid from `/proc/self/status`; `timeout` probe cached in `/tmp/qmanager_timeout_probe` (only the two known binaries accepted — `/tmp` is world-writable); cookie/token/session checks in shell builtins | `cgi_base.sh`, `platform.sh`, `cgi_auth.sh` | `fetch_data.sh` **40 → 21 ms**, `modem-subsys.sh` **60 → 40 ms** per request |
+| `data_used.sh`: one jq (with jq `now`) instead of `date` + 3 jq | `network/data_used.sh` | **84 → 34 ms** per request |
+
+CGI parity: 6 endpoints × 8 cookie cases (valid, among others, `=x` suffix, empty,
+short, expired session, upper-case hex, no space after `;`) → byte-identical old vs
+new, including the 401 bodies and the expired-session file being removed.
+Dashboard open (3 CGIs / 2 s): **~184 → ~95 ms per 2 s, i.e. ~9.2 % → ~4.8 % of a
+core** on top of the figures below.
+
+**After (all of round 3, 300 samples, same tool, same idle conditions):**
+
+| | Before round 3 | After |
+| --- | ---: | ---: |
+| Box busy, sampler excluded | **45.3 %** | **32.0 %** |
+| `qmanager_poller` | 11.9 % | **9.1 %** |
+| `qmanager_ping` | 2.4 % | **1.4 %** |
+| Seconds ≥ 70 % busy (sampler included) | 65 / 300 | **20 / 300** |
+| Seconds ≥ 80 % busy (sampler included) | 23 / 300 | **9 / 300** |
+| Mean busy (sampler included) | 58.6 % | 46.0 % |
+
+`trafficd`, `modemd`, `ledd`, kworkers and `systemd` were flat between the runs
+(vendor/kernel, ±0.3 points). What is left of the ~32 % is roughly a third
+QManager (poller 9, ping 1.4, tpws/DPI traffic-dependent) and two thirds vendor
+and kernel.
+
 ### Still open on this device (round-2 profile, ms/cycle)
 
 | # | Target | ms/cycle | Note |

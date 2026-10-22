@@ -66,6 +66,15 @@ LONG_FLAG="/tmp/qmanager_long_running"
 # Tier 2 cadence to land.
 TIER2_REFRESH_FLAG="/tmp/qmanager_tier2_refresh"
 POLL_INTERVAL=2        # seconds between Tier 1 cycles
+# Fixed cycle PERIOD (start to start) while no live-neighbour lease is held.
+# Before this the period was "cycle body + POLL_INTERVAL", so it floated with
+# AT latency: 8.4 s on the RG520N-EB when one AT read was timing out, 4.35 s
+# once it was fixed — nobody chose either, and the CPU share moved with it.
+# POLL_INTERVAL stays the MINIMUM gap, so CGIs always get the AT port between
+# cycles. Override with Environment=POLL_PERIOD=<s> in the unit.
+# Measured 2026-10-22: see docs/reference/poller-cpu-profile.md "Round 3".
+POLL_PERIOD="${POLL_PERIOD:-5}"
+case "$POLL_PERIOD" in ''|*[!0-9]*) POLL_PERIOD=5 ;; esac
 TIER1_5_EVERY=5        # Tier 1.5 (per-antenna signal) runs every N cycles (10s)
 TIER2_EVERY=15         # Tier 2 runs every N cycles
 # Tier 3 (PHY depth) cadence, in cycles LIKE the two above, not in seconds:
@@ -1588,7 +1597,53 @@ read_sim_identity() {
 poll_serving_cell() {
     local result
     result=$(qcmd_exec 'AT+QENG="servingcell"')
-    local rc=$?
+    serving_cell_apply $? "$result"
+}
+
+# Tier 1 in ONE AT round-trip: serving cell + the CA read (with its =1/=0
+# toggle) as a single compound. Two separate calls cost ~53 ms of CPU and
+# ~0.35 s of AT-lock time EACH on the RG520N-EB; the compound is one call,
+# ~0.6 s (measured 2026-10-22, 340-byte reply — needs the shim's 4 KiB read).
+# parse_serving_cell only reads ^+QENG: lines and parse_ca_info only +QCAINFO
+# lines, so both parse the same text.
+# On ANY failure it falls back to the old two-call sequence, so one rejected
+# command can never cost the other's data (`qcmd` drops a whole compound on
+# ERROR), and QCAINFO=0 is re-sent first in case the compound stopped after =1.
+# If the serving cell alone also fails the modem is unreachable and the CA read
+# is skipped, so an outage costs the same number of AT calls as before.
+T1_COMBINED='AT+QENG="servingcell";+QCAINFO=1;+QCAINFO;+QCAINFO=0'
+poll_tier1_at() {
+    local _t1 _rc
+    _t1=$(qcmd_exec "$T1_COMBINED")
+    _rc=$?
+    if [ "$_rc" -eq 0 ] && [ -n "$_t1" ]; then
+        serving_cell_apply 0 "$_t1"
+        parse_ca_info "$_t1"
+        return 0
+    fi
+    qcmd "$CA_INFO_OFF" >/dev/null 2>&1
+    poll_serving_cell
+    if [ "$modem_reachable" = "true" ]; then
+        sleep "$SIP_DELAY"
+        _t1=$(ca_info_read)
+        if [ $? -eq 0 ] && [ -n "$_t1" ]; then
+            parse_ca_info "$_t1"
+            return 0
+        fi
+    fi
+    t2_ca_active=false
+    t2_ca_count=0
+    t2_nr_ca_active=false
+    t2_nr_ca_count=0
+    t2_total_bandwidth_mhz=0
+    t2_bandwidth_details=""
+    t2_carrier_components="[]"
+    return 1
+}
+
+# Shared tail of the serving-cell read: $1 = qcmd_exec rc, $2 = its output.
+serving_cell_apply() {
+    local rc="$1" result="$2"
 
     if [ $rc -eq 0 ] || [ $rc -eq 2 ]; then
         if [ "$modem_reachable" != "true" ]; then
@@ -2897,24 +2952,9 @@ poll_cycle() {
     errors=""
     system_state="normal"
 
-    # Tier 1 (AT commands — may block if modem is unresponsive)
-    poll_serving_cell
-    sleep "$SIP_DELAY"
-
-    # Carrier Aggregation — QCAINFO reporting enabled at boot (Group B).
-    local ca_result
-    ca_result=$(ca_info_read)
-    if [ $? -eq 0 ] && [ -n "$ca_result" ]; then
-        parse_ca_info "$ca_result"
-    else
-        t2_ca_active=false
-        t2_ca_count=0
-        t2_nr_ca_active=false
-        t2_nr_ca_count=0
-        t2_total_bandwidth_mhz=0
-        t2_bandwidth_details=""
-        t2_carrier_components="[]"
-    fi
+    # Tier 1 (AT — may block if modem is unresponsive): serving cell + CA in
+    # one compound; see poll_tier1_at for the fallback rules.
+    poll_tier1_at
     sleep "$SIP_DELAY"
 
     # Tier 1 — modem crash watcher (pure sysfs reads; no-op when disabled)
@@ -3007,9 +3047,10 @@ main() {
     # `date +%s` forks per cycle (37 ms/cycle on the RG520N-EB, 2026-10-22). It
     # only feeds the budget warning, so whole seconds are enough, and uptime
     # cannot jump the way the wall clock does before NTP sync.
-    local _up _upr
+    local _up _upr _cs0 _cs1 _rem
     while true; do
         read -r _up _upr < /proc/uptime; cycle_start=${_up%%.*}
+        _cs0=$(( ${_up%%.*} * 100 + 10#${_up#*.} ))
         poll_cycle
         read -r _up _upr < /proc/uptime; cycle_end=${_up%%.*}
         cycle_duration=$((cycle_end - cycle_start))
@@ -3033,7 +3074,22 @@ main() {
         # No lease => one `[ -f ]` test and nothing else, which is why the
         # no-lease path stays byte-identical to the pre-feature poller.
         neighbours_live_service
-        sleep "$POLL_INTERVAL"
+
+        # Live aim view: keep the old short gap — its CGI judges freshness on a
+        # 6 s window, and a lease means someone is watching right now.
+        if [ "$neigh_live_on" = "true" ]; then
+            sleep "$POLL_INTERVAL"
+            continue
+        fi
+        read -r _up _upr < /proc/uptime
+        _cs1=$(( ${_up%%.*} * 100 + 10#${_up#*.} ))
+        _rem=$(( POLL_PERIOD * 100 - (_cs1 - _cs0) ))
+        [ "$_rem" -lt $(( POLL_INTERVAL * 100 )) ] && _rem=$(( POLL_INTERVAL * 100 ))
+        if [ $(( _rem % 100 )) -lt 10 ]; then
+            sleep "$(( _rem / 100 )).0$(( _rem % 100 ))"
+        else
+            sleep "$(( _rem / 100 )).$(( _rem % 100 ))"
+        fi
     done
 }
 
