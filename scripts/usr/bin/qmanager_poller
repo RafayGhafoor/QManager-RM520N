@@ -659,6 +659,80 @@ qcmd_exec() {
 }
 
 # =============================================================================
+# Extended CA / MIMO / timing reporting — ON ONLY FOR THE READ (v0.1.34 hotfix)
+# =============================================================================
+# Upstream v0.1.34 release note (dr-dolomite/QManager), verbatim:
+#
+#   "QManager left the modem's extended carrier-aggregation reporting switched
+#    on all the time, which made R01A04 drop the connection again and again. It
+#    is now switched on only for the moment each reading is taken, so 5G carrier
+#    details still show in full."
+#
+# This poller had the same defect: collect_boot_data() sent the ",1" enables once
+# at boot and NOTHING ever cleared them, so extended reporting stayed latched on
+# for the life of the modem session. Both read sites are now wrapped:
+#
+#     ca_ext_on ; <read> ; ca_ext_off
+#
+# The off half runs even when the read fails or returns nothing, so a transient
+# AT error cannot leave reporting latched on — which is the whole point of the
+# upstream fix. Do NOT re-introduce a permanent enable.
+#
+# Verified on the RG520N-EB (2026-10-22): AT+QCAINFO=0 -> OK,
+# +QNWCFG="*_mimo_layers",0 -> OK, and a subsequent AT+QCAINFO still returns the
+# full PCC/SCC carrier list, so 5G details are not lost.
+# Two groups, NOT one compound. `qcmd` fails the ENTIRE response if the word
+# ERROR appears anywhere in it, and AT+QNWCFG="nr5g_mimo_layers"...,1 is invalid
+# outside SA mode (the Tier-3 read gates it for exactly that reason). A single
+# compound therefore had the NR command poison the LTE ones in NSA — observed in
+# the field log as
+#   ERROR qcmd: Command returned ERROR: AT+QCAINFO=1;+QNWCFG="lte_mimo_layers",1;...
+# after which every read returned nothing and .phy.* stayed null. Same lesson the
+# B1/B2/B3/B4 split in collect_boot_data() already records: fewer eggs per basket.
+CA_EXT_ON_MAIN='AT+QCAINFO=1;+QNWCFG="lte_mimo_layers",1;+QNWCFG="lte_time_advance",1'
+CA_EXT_OFF_MAIN='AT+QCAINFO=0;+QNWCFG="lte_mimo_layers",0;+QNWCFG="lte_time_advance",0'
+CA_EXT_ON_NR='AT+QNWCFG="nr5g_mimo_layers",1;+QNWCFG="nr5g_time_advance",1'
+CA_EXT_OFF_NR='AT+QNWCFG="nr5g_mimo_layers",0;+QNWCFG="nr5g_time_advance",0'
+
+# QCAINFO is read every poll cycle (hot path). Upstream v0.1.34 specifically
+# requires extended CA reporting to be on only for the read. Keep this separate
+# from the MIMO/TA tier-3 group so the 2s path toggles only the CA reporter.
+CA_INFO_ON='AT+QCAINFO=1'
+CA_INFO_OFF='AT+QCAINFO=0'
+ca_info_read() {
+    local _out _rc
+    qcmd "$CA_INFO_ON" >/dev/null 2>&1
+    _out=$(qcmd_exec 'AT+QCAINFO')
+    _rc=$?
+    qcmd "$CA_INFO_OFF" >/dev/null 2>&1
+    [ "$_rc" -eq 0 ] && printf '%s' "$_out"
+    return "$_rc"
+}
+
+# The NR group is only sent in SA mode; in LTE/NSA those commands answer ERROR
+# and are pure lock-hold cost.
+ca_ext_on() {
+    qcmd "$CA_EXT_ON_MAIN" >/dev/null 2>&1
+    [ "$network_type" = "5G-SA" ] && qcmd "$CA_EXT_ON_NR" >/dev/null 2>&1
+    return 0
+}
+ca_ext_off() {
+    qcmd "$CA_EXT_OFF_MAIN" >/dev/null 2>&1
+    [ "$network_type" = "5G-SA" ] && qcmd "$CA_EXT_OFF_NR" >/dev/null 2>&1
+    return 0
+}
+# Run one AT read with extended reporting switched on only for that read.
+# Prints the read's output; the disable cannot be skipped by an early return in
+# the caller because it happens here.
+ca_ext_read() {
+    local _out
+    ca_ext_on
+    _out=$(qcmd "$1" 2>/dev/null)
+    ca_ext_off
+    printf '%s' "$_out"
+}
+
+# =============================================================================
 # SYSTEM METRICS (No modem lock needed)
 # =============================================================================
 
@@ -1323,9 +1397,14 @@ collect_boot_data() {
     # small group instead of all of IP Passthrough + MIMO.
     # =========================================================================
 
-    # --- B1: CA info + MIMO/timing enables (idempotent ",1" writes) ---
-    result=$(qcmd 'AT+QCAINFO=1;+QNWCFG="lte_mimo_layers",1;+QNWCFG="nr5g_mimo_layers",1;+QNWCFG="lte_time_advance",1;+QNWCFG="nr5g_time_advance",1' 2>/dev/null)
+    # --- B1: enable extended CA / MIMO / timing reporting, ONLY for the reads
+    # below (v0.1.34 hotfix — see ca_ext_on()'s header). Upstream left this
+    # latched on permanently and firmware dropped the connection repeatedly.
+    # B2's read supplies the MIMO data; the enable's own reply carries none. ---
+    ca_ext_on
+    result=$(qcmd 'AT+QCAINFO' 2>/dev/null)
     if [ -n "$result" ]; then
+        parse_ca_info "$result"
         parse_mimo "$result" "$result"
     fi
     sleep "$SIP_DELAY"
@@ -1339,6 +1418,8 @@ collect_boot_data() {
         result=$(qcmd 'AT+QNWCFG="lte_mimo_layers"' 2>/dev/null)
         [ -n "$result" ] && parse_mimo "$result" ""
     fi
+    # Reporting off again: it must not outlive the reads above (v0.1.34).
+    ca_ext_off
     sleep "$SIP_DELAY"
 
     # --- B3: IP Passthrough MPDN rule + NAT ---
@@ -1719,7 +1800,7 @@ poll_tier2() {
     if [ "$network_type" = "5G-SA" ]; then
         nr_cmd="${nr_cmd}"';+QNWCFG="nr5g_mimo_layers"'
     fi
-    result=$(qcmd "$nr_cmd" 2>/dev/null)
+    result=$(ca_ext_read "$nr_cmd")
     if [ -n "$result" ]; then
         parse_time_advance "$result"
         parse_mimo "" "$result"
@@ -1737,7 +1818,7 @@ poll_tier2() {
     if [ "$network_type" = "LTE" ] || [ "$network_type" = "5G-NSA" ]; then
         lte_cmd="${lte_cmd}"';+QNWCFG="lte_mimo_layers"'
     fi
-    result=$(qcmd "$lte_cmd" 2>/dev/null)
+    result=$(ca_ext_read "$lte_cmd")
     if [ -n "$result" ]; then
         parse_time_advance "$result"
         parse_mimo "$result" ""
@@ -2751,7 +2832,7 @@ poll_cycle() {
 
     # Carrier Aggregation — QCAINFO reporting enabled at boot (Group B).
     local ca_result
-    ca_result=$(qcmd_exec 'AT+QCAINFO')
+    ca_result=$(ca_info_read)
     if [ $? -eq 0 ] && [ -n "$ca_result" ]; then
         parse_ca_info "$ca_result"
     else

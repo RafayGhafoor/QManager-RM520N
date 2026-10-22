@@ -1809,7 +1809,31 @@ first-hand.
 | **No `/dev/mhi*` and no MHI bus is NORMAL here** | This SoC links baseband↔AP on-chip over **SMD/GLINK/QRTR**; the USB controller is a peripheral gadget only. An absent `mhi` is not evidence of a fault — do not chase it |
 | `port_bridge at_mdm0 at_usb0 0` holding `/dev/at_mdm0` is **baseline** | Recorded the same way in the sibling product's `memory.md` (`at_mdm0` glinkpkt held by `port_bridge`). It is not a fault and not a reason to stop the unit |
 | Empty `at_mdm0` responses are **documented**, not new | `deploy/README.md:52` already says the port "can return an empty response intermittently" and that the shim retries a read-only allowlist only |
-| `glink_pkt_ioctl: unrecognized ioctl 0x5401` flood is benign | `0x5401` is `TCGETS`. The port is a **raw char device, not a tty**, so any `stty`/termios call logs this. Matches `deploy/README.md` |
+| `glink_pkt_ioctl: unrecognized ioctl 0x5401` flood is benign | `0x5401` is `TCGETS`. The port is a **raw char device, not a tty**, so the kernel rejects the ioctl cleanly. Matches `deploy/README.md` |
+| ⚠️ The flood **is** triggered by QManager's AT path — corrected 2026-10-22 | An earlier note here claimed the opposite, from grepping the scripts for `stty`/`tcgetattr`. That grep was right (`deploy/atcli_smd11` has none) and the conclusion was wrong. Measured instead: **poller stopped → 0 lines in 20 s; poller running → 9–16 lines in 20 s**, and **one `atcli_smd11` call → exactly +1**. So it is ours |
+| What actually emitted it — corrected by bisection | `[ -c $AT_DEV ]` → 0; background reader alone → 0; **reader + shell `printf ... > $AT_DEV` → +1 per transaction**. The shell's concurrent direct write triggers the glink `TCGETS` probe on this firmware |
+| Fix in `deploy/atcli_smd11` | Preserve the background `dd` reader, but write the AT bytes through `printf '%s\\r' "$CMD" | dd of="$AT_DEV" bs=1` instead of shell redirection. In isolated probes: reader + printf redirection → +1; reader + printf-to-dd → **0**. This retains the read-before-reply capture ordering. Deployed atomically 2026-10-22 |
+| Runtime verification | Before fix: one qcmd/atcli call → +1 ioctl. After atomic deploy: one `AT+CGMM` → 0; poller left running for 20 s → latest ioctl timestamp unchanged (`[2970.242579]`, same before/after). QManager remained healthy: `RG520N-EB`, `5G-NSA`, Jazz, WAN `10.36.138.189`, SIM `ready` |
+| What does *not* fix it | Replacing the reader with `dd` while retaining shell redirection as the writer does **not** fix the production case: that paired path still emitted. The important change is `printf | dd of=...`, not merely a blanket `cat` → `dd` substitution |
+| CPU/perf warnings are different | The separate `perf: interrupt took too long` lines are the kernel lowering its perf sampling rate; not the same event as `TCGETS` and not fixed by this shim patch |
+| Other nearby boot warnings are separate | `gp-prx-proxy-tunnel.service` restarts and `alloc_contig_range`/IOSS order-4 allocation failures are not caused by this ioctl and need their own investigation; do not conflate them |
+| `MCM_atcop_svc` holds `/dev/smd7`; `port_bridge` holds `/dev/at_mdm0` | Both are vendor baseline holders. They are not the source of this fixed QManager-triggered ioctl |
+
+### Repeated systemd starts in the 2026-10-22 log excerpt — classified
+
+Measured on this O5A 2026-10-22 after the user's cold-power recovery.
+
+| Log pattern | Classification / action |
+| --- | --- |
+| `qmanager-dpi-ensure.service` starts about once per minute | **Expected.** `qmanager-dpi-ensure.timer` is deliberately monotonic `OnBootSec=60` + `OnUnitActiveSec=60` to restore REDIRECT after QCMAP flushes iptables on re-dial. The oneshot is bounded and exits success. Do not disable the timer to silence the line |
+| `Failed to connect stdout to the journal socket` for the DPI ensure | **Harmless firmware logging configuration:** `systemd-journald.service` is masked. Fixed for this QManager oneshot by `StandardOutput=null` / `StandardError=null`; verified subsequent timer runs logged Succeeded with no child warning. Other service units may still log this on start |
+| Poller Stopping at uptime 2924, Starting at 2938 | **One deliberate stop/start caused by the agent's ioctl bisection test**, not an automatic restart loop. `systemctl show qmanager-poller -p NRestarts` remained `0`; poller is active. This stop/start should not be repeated casually. The agent owns the interruption |
+| `gp-prx-proxy-tunnel.service` starts, fails, retries around every 60s; NRestarts=14 | **Real but separate vendor tunnel fault.** `/data/gp/prx-proxy-tunnel.log` says `Remote TCP forward request failed (port 18080 -> 127.0.0.1:18080)`. `RestartSec=60` is intentional backoff; a remote listener already holds that reverse-forward port (see sibling project plan `plans/2026-10-01-prx-tunnel-crash-loop.md`). Clearing it mutates a host outside this repo and risks killing another live tunnel client; no remote action was taken |
+| `perf: interrupt took too long ... lowering kernel.perf_event_max_sample_rate` | Kernel self-throttling its perf sample rate. Not an app crash, not the glink TCGETS line, and it reduces future sampling load automatically |
+| `Failed to connect stdout ...` from vendor services | Same masked-journald cause. No QManager fix can enable or repair vendor `systemd-journald`; that would disturb the vendor image |
+| `gp-prx-proxy-tunnel.service` restarted 14 times in ~51 min | Local log confirms remote `Remote TCP forward request failed (port 18080 -> 127.0.0.1:18080)`. It is configured with `Restart=always`, `RestartSec=60` intentionally; the remote stale listener is the blocker. **Not repaired here:** clearing the remote holder affects a host outside this repo and could interrupt another session. See sibling project plan; requires explicit operator approval to mutate remote state |
+
+**No repeated poller restart loop is running now.** After diagnostics: `qmanager-poller` is active, `NRestarts=0`. Its one recorded stop/start above was manually initiated during the ioctl test. The DPI ensure timer remains active by design.
 
 **Symptom chain seen, for recognition next time.** `modemd status` shows
 `pinStat READY`, `cfun 1`, IMEI/IMSI/ICCID present, and **every** network field

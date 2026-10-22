@@ -248,3 +248,73 @@ The `scc.*` namespace in `public/locales/*/dashboard.json` is **replaced** by `c
 - Band locking reads active bands from the same `carrier_components` array (`types/band-locking.ts`): see [sim-profiles.md](sim-profiles.md) for how scenario-bound band locks interact
 - CA change alerts (`LTE CA activated`, band add/remove diffs): `scripts/usr/lib/qmanager/events.sh`, routed per [alerts.md](alerts.md)
 - Design canon for the strip: `DESIGN.md` > Carrier Aggregation strip (signature component)
+
+## ⚠️ Extended CA reporting must be ON ONLY DURING THE READ
+
+Upstream `dr-dolomite/QManager` shipped **v0.1.34** as a one-fix hotfix, with this
+release note:
+
+> *"QManager left the modem's extended carrier-aggregation reporting switched on
+> all the time, which made R01A04 drop the connection again and again. It is now
+> switched on only for the moment each reading is taken, so 5G carrier details
+> still show in full."*
+
+**This branch had the same defect**, and it was live on the O5A until 2026-10-22.
+`qmanager_poller:collect_boot_data()` sent the `",1"` enables **once at boot** and
+nothing ever cleared them, so extended reporting stayed latched on for the whole
+modem session.
+
+### The rule
+
+Never leave these enabled. Enable immediately before a read, disable immediately
+after — including when the read fails:
+
+```sh
+qmanager_poller:  CA_INFO_ON / CA_INFO_OFF / ca_info_read
+                  CA_EXT_ON_MAIN / CA_EXT_OFF_MAIN / CA_EXT_ON_NR / CA_EXT_OFF_NR
+                  ca_ext_on() / ca_ext_off() / ca_ext_read <cmd>
+```
+
+`ca_info_read()` wraps the hot-path `AT+QCAINFO` read only: `QCAINFO=1`, read,
+`QCAINFO=0`. `ca_ext_read <cmd>` wraps a Tier-3 MIMO/timing read group. Both
+perform the disable inside the helper so a caller cannot leave the reporter on
+via an early return.
+
+### The commands, and one trap worth knowing
+
+| Group | Enable | Disable |
+| --- | --- | --- |
+| CA reporter (every Tier-1 read) | `AT+QCAINFO=1` | `AT+QCAINFO=0` |
+| LTE MIMO/timing (Tier-3) | `AT+QNWCFG="lte_mimo_layers",1;+QNWCFG="lte_time_advance",1` | same with `,0` |
+| NR MIMO/timing (Tier-3, SA only) | `AT+QNWCFG="nr5g_mimo_layers",1;+QNWCFG="nr5g_time_advance",1` | same with `,0` |
+
+**They are two groups, not one compound, and that is load-bearing.** `qcmd` fails
+the *entire* response if the word `ERROR` appears anywhere in it, so a single
+compound let the NR commands poison the LTE ones. Observed in the field log on
+5G-NSA:
+
+```
+ERROR [qcmd] Command returned ERROR: AT+QCAINFO=1;+QNWCFG="lte_mimo_layers",1;+QNWCFG="nr5g_mimo_layers",1;...
+```
+
+after which every read returned nothing and `.phy.*` stayed `null`. The deployed
+fix keeps CA enable/read/disable in a dedicated helper every Tier-1 cycle, while
+LTE/NR MIMO/timing are enabled only around Tier-3 reads. The LTE and NR groups are
+separate; NR is sent only in SA. This is the same lesson `collect_boot_data()`'s
+B1/B2/B3/B4 split already records.
+
+### Verified on the RG520N-EB (2026-10-22)
+
+| Check | Result |
+| --- | --- |
+| `AT+QCAINFO=0` accepted | `OK` |
+| `AT+QNWCFG="lte_mimo_layers",0` accepted | `+QNWCFG: "lte_mimo_layers",1,1` then `OK` |
+| `AT+QNWCFG="nr5g_mimo_layers",0` accepted | `OK` |
+| **5G details survive the disable** | after enable→read→disable, `carrier_components` still returns **PCC/LTE/B1, SCC/LTE/B3, SCC/NR/N41** |
+| Split enable group clean | returns `+QNWCFG: "lte_mimo_layers",1,1` + `OK`, **no `ERROR`** |
+| `AT+QNWCFG="lte_time_advance"` | `...,1,0` — TA is genuinely **0** on this cell, so `phy.lte.time_advance: null` is correct, not a regression |
+| New compound errors after the fix | **none** in the poller log |
+
+`nr5g_mimo_layers` / `nr5g_time_advance` read `null` in 5G-NSA by design — those
+commands are only valid in SA, which is why the NR group is gated on
+`network_type = 5G-SA`.

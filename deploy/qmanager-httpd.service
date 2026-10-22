@@ -5,7 +5,10 @@ After=network.target
 
 [Service]
 Type=forking
-PIDFile=/var/run/qmanager-httpd.pid
+# /run, not /var/run. systemd warns on every daemon-reload that PIDFile under
+# /var/run is a legacy path and silently rewrites it to /run; qm_serve.sh must
+# write the same file or the two disagree and `status` cannot find the daemon.
+PIDFile=/run/qmanager-httpd.pid
 Environment=PATH=/usrdata/qmanager/bin:/usr/bin:/bin:/sbin:/usr/sbin
 ExecStart=/usrdata/qmanager/bin/qm_serve.sh start
 ExecStop=/usrdata/qmanager/bin/qm_serve.sh stop

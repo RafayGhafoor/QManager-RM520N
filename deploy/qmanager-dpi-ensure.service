@@ -16,6 +16,12 @@ Description=QManager Traffic Engine ensure (rule re-assert)
 
 [Service]
 Type=oneshot
+# systemd-journald is masked on this firmware; its journal socket does not
+# exist. Without these, every 60-second timer run emits a harmless
+# "Failed to connect stdout to the journal socket" warning. qmanager_dpi_run
+# records actionable messages through qlog, so discard unit stdout/stderr.
+StandardOutput=null
+StandardError=null
 Environment=PATH=/usrdata/qmanager/bin:/usr/local/sbin:/usr/local/bin:/usr/bin:/usr/sbin:/bin:/sbin
 ExecStart=/usrdata/qmanager/bin/qmanager_dpi_run --ensure
 RemainAfterExit=no

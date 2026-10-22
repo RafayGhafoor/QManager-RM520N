@@ -21,7 +21,10 @@ set -u
 
 QM_ROOT=/usrdata/qmanager
 PORT="${QM_PORT:-8080}"
-PIDFILE=/var/run/qmanager-httpd.pid
+# /run, not /var/run — must match PIDFile= in deploy/qmanager-httpd.service.
+# systemd rewrites a /var/run PIDFile to /run and warns about it on every
+# daemon-reload; if this script kept writing /var/run the two would disagree.
+PIDFILE=/run/qmanager-httpd.pid
 DOCROOT="$QM_ROOT/www"
 
 # jq, qcmd and the helper scripts live here (not on the read-only /usr/bin).

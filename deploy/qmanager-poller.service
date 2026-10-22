@@ -10,6 +10,11 @@ StartLimitBurst=20
 
 [Service]
 Type=simple
+# systemd-journald is masked on this firmware, so the journal socket does not
+# exist. QManager writes actionable output through qlog to /tmp/qmanager.log;
+# leave service stdout/stderr detached rather than warning on every start.
+StandardOutput=null
+StandardError=null
 # QManager's helpers live on the writable ubifs volume, not /usr/bin (this
 # device's rootfs is a read-only squashfs), so jq/qcmd must be on PATH.
 Environment=PATH=/usrdata/qmanager/bin:/usr/bin:/bin:/sbin:/usr/sbin

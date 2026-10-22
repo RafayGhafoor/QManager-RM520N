@@ -455,3 +455,41 @@ Diagnosis and the evidence table are in
 
 **A warm reboot does not power-cycle the modem**, which is why rebooting did not
 help. The remaining fix is a **cold power cycle** (unplug power ~30 s).
+
+## 2026-10-22 (later) — CA hotfix + glink ioctl fix deployed; timer noise classified
+
+The live poller has the v0.1.34 carrier-aggregation fix and its CA-detail output
+is intact. The atcli shell shim now writes AT bytes through `dd` to avoid one
+kernel `TCGETS (0x5401)` log per command. The unit file no longer depends on the
+missing journald socket for either periodic oneshot or poller stdout.
+
+| Item | Live state / evidence |
+| --- | --- |
+| `atcli_smd11` writer | **Deployed atomically** at `/usrdata/qmanager/bin/atcli_smd11`. Previous version backed up as `atcli_smd11.pre-dd-writer`; earlier intermediate version also exists as `atcli_smd11.pre-dd-reader`. Uses `printf ... | dd of=/dev/at_mdm0 bs=1` while the background raw reader captures the reply |
+| glink ioctl flood | Before: +1 `0x5401` per AT call; isolated poller off. After: single `AT+CGMM` added 0, and the latest ioctl line remained `[2970.242579]` across a 20 s window with the poller active. No new ioctl logged after the fix |
+| Tier-1 QCAINFO | Poller wraps each `AT+QCAINFO` in `QCAINFO=1; read; QCAINFO=0` (`ca_info_read`) per upstream v0.1.34 hotfix |
+| Tier-3 MIMO/TA | LTE group only in LTE/NSA, NR group only in SA; each enabled only for read and disabled after. One compound with the NR NSA-invalid command returned ERROR and poisoned all data, so groups stay separate |
+| CA result after fix | `PCC/LTE/B1`, `SCC/LTE/B3`, `SCC/NR/N41` — full detail still present after disable |
+| SIM/network | `CPIN READY`, `QSIMSTAT 1,1`, `QUIMSLOT 1`, `CFUN 1`; QManager cache says SIM ready, `RG520N-EB / 5G-NSA / Jazz / 10.36.138.189` |
+| Poller unit | Active, `NRestarts=0`. One dmesg stop/start (uptime 2924→2938) was my own ioctl-bisection test; it was not an automatic restart loop |
+| DPI ensure | Starts every 60 s by design (QCMAP flushes iptables on re-dial). `StandardOutput=null` / `StandardError=null` deployed; two later runs reported Succeeded with no child journal warning |
+| `gp-prx-proxy-tunnel` | Separate vendor tunnel fault, 14 restarts at 60-second interval. `/data/gp/prx-proxy-tunnel.log`: `Remote TCP forward request failed (port 18080 -> 127.0.0.1:18080)`. Do not disable its retry and do not kill a remote listener without explicit authorization; existing resolution is in sibling plan `greenpacket-o5a/plans/2026-10-01-prx-tunnel-crash-loop.md` |
+| systemd stdout warning | journald is masked on firmware. Poller unit now has stdout/stderr `null` too (deployed + daemon-reloaded). Other vendor units can still show the warning |
+
+The source `deploy/qmanager-httpd.service` and `deploy/qm_serve.sh` now both use
+`/run/qmanager-httpd.pid` instead of `/var/run/...` (systemd warned that it
+silently canonicalizes the latter). The live httpd is healthy; this unit/source
+cleanup does not require a modem or radio action.
+
+Follow-up, same day: the httpd unit and `qm_serve.sh` were deployed with
+`/run/qmanager-httpd.pid`. `/var/run` is a symlink to `/run` on this firmware, so
+this was a config-only change: the running httpd (pid 2063) was not restarted,
+`qm_serve.sh status` still finds it, :8080 and vendor :80 both return 200, and a
+`daemon-reload` no longer warns about `qmanager-httpd`. Backups:
+`qmanager-httpd.service.pre-run-pidfile`, `qm_serve.sh.pre-run-pidfile`.
+
+Remaining warnings on a `daemon-reload` belong to the vendor image and are left
+alone (hard rule 2): `dbus.conf` world-writable and `systemrw.conf` executable
+(both on read-only `/lib`), `earlyinit-logd` PIDFile, and
+`gp-prx-proxy-tunnel.service:13` putting `StartLimitIntervalSec` in `[Service]`
+instead of `[Unit]` (owned by the sibling product repo — fix it there, not here).
