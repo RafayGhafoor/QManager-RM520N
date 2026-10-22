@@ -78,7 +78,7 @@ capture_once() {
     # backgrounded: replies arrive asynchronously and this is how the modem
     # channel is captured. (The measured ioctl trigger was the paired shell
     # printf-redirection writer below, not opening/reading the node by itself.)
-    dd if="$AT_DEV" of=/dev/null bs=256 2>/dev/null &
+    dd if="$AT_DEV" of=/dev/null bs=4096 2>/dev/null &
     _dp=$!
     sleep 0.15
     kill "$_dp" 2>/dev/null
@@ -87,7 +87,11 @@ capture_once() {
 
     # Same raw reader as the stale-byte drain above. Do not use head/grep/wc
     # directly on the node: these tools probe termios on this BusyBox build.
-    dd if="$AT_DEV" of="$OUT" bs=256 2>/dev/null &
+    # bs=4096, NOT 256: at_mdm0 is a packet device, and a read() shorter than
+    # the packet discards the rest. At bs=256 AT+CGCONTRDP (~290 B) arrived cut
+    # at 254 B with no OK, so every call burned the full 12 s budget (measured
+    # 2026-10-22; platform-matrix.md, "PACKET device").
+    dd if="$AT_DEV" of="$OUT" bs=4096 2>/dev/null &
     RPID=$!
     sleep 0.12
 

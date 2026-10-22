@@ -1053,8 +1053,16 @@ update_conn_uptime() {
 # rmnet interface counters from /proc/net/dev. State persists atomically
 # to DATA_USED_FILE each tick.
 
+# The per-tick write is RATE-LIMITED (see update_data_used Step 6); every other
+# caller (reset, migration, first baseline, counter rebase) writes immediately.
+# 30 s keeps qmanager_health_check's "data_used.json fresh (mtime < 60s)" green.
+DATA_USED_PERSIST_SEC=30
+_du_written_up=-1
 write_data_used_state() {
-    mkdir -p /usrdata/qmanager 2>/dev/null
+    [ -d /usrdata/qmanager ] || mkdir -p /usrdata/qmanager 2>/dev/null
+    local _up _upr
+    read -r _up _upr < /proc/uptime 2>/dev/null
+    _du_written_up=${_up%%.*}
     jq -n \
         --argjson schema    "$DATA_USED_SCHEMA" \
         --argjson acc_rx    "$du_accumulated_rx" \
@@ -1157,14 +1165,34 @@ update_data_used() {
     # SDX55 firmwares flip the fields is unsettled, not established. See the
     # note on detect_orientation_from_soc above.
     # ipa_rx is always the DOWNLOAD bytes; ipa_tx is always the UPLOAD bytes.
-    local _dev_line ipa_rx ipa_tx
-    _dev_line=$(grep "${NETWORK_IFACE}:" "$DATA_USED_PROC_DEV" 2>/dev/null)
+    #
+    # ZERO FORKS (was grep + two awk per cycle). Same semantics: every line
+    # containing "<iface>:" is considered, and fields are whitespace-split as
+    # awk does. Two matching lines join with a newline, exactly as the grep|awk
+    # pair produced, so the numeric guard below still rejects that tick.
+    local _dev_line="" _dl ipa_rx="" ipa_tx="" _nl='
+'
+    while IFS= read -r _dl; do
+        case "$_dl" in
+            *"${NETWORK_IFACE}:"*)
+                set -f
+                # shellcheck disable=SC2086 # intentional whitespace split
+                set -- $_dl
+                set +f
+                eval "_dl_rx=\${$orientation_dl_field:-}; _dl_tx=\${$orientation_ul_field:-}"
+                if [ -n "$_dev_line" ]; then
+                    ipa_rx="$ipa_rx$_nl$_dl_rx"; ipa_tx="$ipa_tx$_nl$_dl_tx"
+                else
+                    ipa_rx="$_dl_rx"; ipa_tx="$_dl_tx"
+                fi
+                _dev_line="$_dl"
+                ;;
+        esac
+    done 2>/dev/null < "$DATA_USED_PROC_DEV"
     if [ -z "$_dev_line" ]; then
         qlog_warn "data_used: ${NETWORK_IFACE} not found in ${DATA_USED_PROC_DEV}; skipping tick"
         return 0
     fi
-    ipa_rx=$(printf '%s\n' "$_dev_line" | awk -v f="$orientation_dl_field" '{print $f}')
-    ipa_tx=$(printf '%s\n' "$_dev_line" | awk -v f="$orientation_ul_field" '{print $f}')
 
     # Numeric guard — a malformed line must not poison the accumulator.
     case "$ipa_rx" in ''|*[!0-9]*)
@@ -1193,9 +1221,11 @@ update_data_used() {
     # a modem reboot or interface re-creation, so a negative delta means
     # the baseline is stale. Rebase without accumulating — the bytes moved
     # while the modem was rebooting are not measurable.
+    local _du_force=false
     if [ "$delta_rx" -lt 0 ] || [ "$delta_tx" -lt 0 ]; then
         qlog_info "data_used: ${NETWORK_IFACE} counter reset detected (delta_rx=${delta_rx} delta_tx=${delta_tx}); rebasing"
         du_modem_reset_count=$((du_modem_reset_count + 1))
+        _du_force=true
     else
         du_accumulated_rx=$((du_accumulated_rx + delta_rx))
         du_accumulated_tx=$((du_accumulated_tx + delta_tx))
@@ -1206,7 +1236,22 @@ update_data_used() {
     du_prev_ipa_tx="$ipa_tx"
     du_selected_counter="$NETWORK_IFACE"
     du_last_update_ts=$(date +%s)
-    write_data_used_state
+    # Persist at most every DATA_USED_PERSIST_SEC (a jq + mv to FLASH every
+    # ~6 s cycle before — ~14k ubifs rewrites a day). A poller restart loses
+    # nothing: the file keeps the kernel baseline (prev_ipa_*) it was written
+    # with, so the next delta is taken against it and still counts every byte
+    # since. The one window that widens: if the KERNEL counter also resets
+    # (modem reboot) before the next write, up to 30 s of traffic is dropped
+    # by the rebase, where it used to be up to one cycle. The in-memory totals
+    # feed /tmp/qmanager_status.json every cycle as before.
+    local _up _upr
+    read -r _up _upr < /proc/uptime 2>/dev/null
+    _up=${_up%%.*}
+    if [ "$_du_force" = "true" ] || [ "$_du_written_up" -lt 0 ] || \
+       [ $(( _up - _du_written_up )) -ge "$DATA_USED_PERSIST_SEC" ] || \
+       [ $(( _up - _du_written_up )) -lt 0 ]; then
+        write_data_used_state
+    fi
 }
 
 # =============================================================================

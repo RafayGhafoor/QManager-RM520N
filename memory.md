@@ -504,3 +504,13 @@ Effect (same harness, before/after): poller ~1334 → ~771 ms CPU per cycle,
 16.0 % → 12.1 % of one core, cycle 8.36 → 6.39 s; live 13.4 % → 10.8 %, box forks
 111/s → 90/s. Details: `docs/reference/poller-cpu-profile.md` → O5A profile.
 `qmanager_atd` is still NOT running (binary inert in `bin/`, no unit installed).
+
+## 2026-10-22 (later) — poller CPU round 2 deployed
+
+Replaced: `bin/qmanager_poller`, `bin/atcli_smd11` (reader `bs=4096` — replies
+over 256 B were truncated), `lib/parse_at.sh`. Backup:
+`/usrdata/qmanager/backup/pre-poller-opt2-20261022-051511.tgz`.
+`/usrdata/qmanager/data_used.json` is now rewritten every ~30 s, not every cycle.
+Per cycle ~771 → ~592 ms CPU; period 6.39 → 4.35 s; box forks 90 → 63/s; no
+`poll_cycle exceeded budget` warnings since. Poller share ~13.5 % because it now
+runs ~2x as often — cadence is an open owner decision (plan doc, A4).

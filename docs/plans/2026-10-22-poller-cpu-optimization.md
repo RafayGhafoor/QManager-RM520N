@@ -319,7 +319,57 @@ restarted once. Pre-change copies: `/usrdata/qmanager/backup/pre-poller-opt-2026
 all four units active, `:80` 200, `:8080` 200, status JSON live (RG520N-EB, 5G-NSA,
 Jazz, 3 carriers, NR SCC RSRP present — i.e. the `=1` leg of the compound took).
 
-### Still open (ranked by after-profile ms/cycle)
+## Round 2 — built and measured (2026-10-22, later)
+
+Located with a per-parser micro-bench on captured replies plus per-command AT
+timing (`AT+CGCONTRDP` alone: **12.9 s**). Full table in
+[`poller-cpu-profile.md` → Round 2](../reference/poller-cpu-profile.md#round-2-same-day--tier-2-tier-15-data-used-and-a-129-s-at-read).
+
+| Change | File | Effect |
+| --- | --- | --- |
+| Shim reader `bs=256` → `4096` (at_mdm0 is a packet device; replies > 256 B were truncated and lost their `OK`) | `deploy/atcli_smd11` | `AT+CGCONTRDP` 12.9 s → 0.34 s; Tier 2 ~18 s → ~5 s wall; budget warnings gone |
+| `read_temperature_sysfs` with `read` builtins | `parse_at.sh` | 402 ms → ~0 per Tier-2 pass |
+| Antenna parsers zero-fork (`_ant_pick`, `_ant_json`) | `parse_at.sh` | Tier 1.5 pass 452 → 114 ms |
+| `update_data_used` builtin `/proc/net/dev` read; flash write every ≥ 30 s | `qmanager_poller` | 53 → 17 ms/cycle; ~14k → ~2.8k flash rewrites/day |
+
+Equivalence: antenna parsers and the thermal read byte-identical old vs new on
+the device (7 fixtures incl. malformed lines; `temp=49` both); the `/proc/net/dev`
+extraction matched grep|awk on all 20 interfaces × both orientations (one
+transient mismatch was a live counter moving between the two reads).
+`data_used.json` mtime observed advancing every 31–33 s.
+
+**Result (164 cycles / 723 s):** ~592 ms CPU per cycle (baseline ~1334, −56 %),
+period 4.35 s (baseline 8.36), poller 13.6 % (live 13.5 %), box forks 63/s
+(baseline 111/s), RSS unchanged. Backup of replaced files:
+`/usrdata/qmanager/backup/pre-poller-opt2-20261022-051511.tgz`.
+
+### The cadence decision this now needs (A4)
+
+The poller now runs at its designed ~4 s period, so the per-cycle saving shows as
+fresher data, not idle CPU. Measured per-cycle cost ~592 ms gives:
+
+| Period | Poller share | How |
+| --- | ---: | --- |
+| 4.35 s (today, body + `POLL_INTERVAL=2`) | ~13.6 % | — |
+| 6 s | ~10 % | fixed-period loop (sleep `PERIOD − body`) |
+| 8.4 s (what the O5A ran at before) | ~7 % | same |
+
+A fixed-period loop is the right shape either way: today the period floats with AT
+latency, which is why it was 8.4 s before and 4.35 s now without anyone choosing
+either. Not done — it changes dashboard freshness, which is the owner's call.
+
+### Still open (ranked by round-2 profile ms/cycle)
+
+1. `poll_serving_cell` 96, `ca_info_read` 92 — one AT call each; the transport
+   (~53 ms/call, two shells + dd + sleeps) is now the floor for shell code.
+2. `poll_tier2` 78 (1168/call) — small parsers: `parse_cgcontrdp` 64,
+   `sim_registry_refresh_active` 60, `parse_carrier` 40 ms/call.
+3. `write_cache` 47, `parse_ca_info` 42 (kept jq), `read_ping_data` 32,
+   Tier 3 24.
+4. Re-verify `AT+QSCAN` / neighbour-scan output now that replies > 256 B are no
+   longer truncated — they were likely affected and nobody has looked.
+
+### Superseded: round-1 open list
 
 1. `poll_tier2` — 1890 ms per call, ~1774 processes; batch its reads (A2).
 2. `poll_per_antenna_signal` — 452 ms per call; per-line greps + `jq -n` append.

@@ -34,18 +34,64 @@ _antenna_to_json_array() {
 # Args: $1=response line (may be empty), $2=prefix (e.g. "QRSRP")
 # Output: JSON array string like "[-95,-97,null,null]" on stdout
 _antenna_line_to_json() {
-    local line="$1" prefix="$2"
-    if [ -z "$line" ]; then
-        echo "[null,null,null,null]"
+    _ant_json "$1" "$2"
+    echo "$_ANT_JSON"
+}
+
+# ZERO-FORK core of the above: sets _ANT_JSON instead of printing. The old
+# body was sed|tr plus four `cut` substitutions plus four _sig_val
+# substitutions — ~15 processes per line, six lines per Tier-1.5 pass, ~300 ms
+# per pass on the RG520N-EB (measured 2026-10-22). Reproduces it exactly:
+#   sed "s/+P: *//"  -> the FIRST "+P:" and the spaces after it are removed
+#   tr -d ' \r'      -> every space and CR removed
+#   cut -d, -fN      -> with NO comma in the line, cut prints the WHOLE line
+#                       for every N; otherwise field N, or "" past the end
+_PA_CR=$(printf '\r')
+_ant_json() {
+    local _l="$1" _p="+$2:" _c _r _f1 _f2 _f3 _f4
+    if [ -z "$_l" ]; then
+        _ANT_JSON="[null,null,null,null]"
         return
     fi
-    local csv
-    csv=$(printf '%s' "$line" | sed "s/+${prefix}: *//" | tr -d ' \r')
-    _antenna_to_json_array \
-        "$(printf '%s' "$csv" | cut -d',' -f1)" \
-        "$(printf '%s' "$csv" | cut -d',' -f2)" \
-        "$(printf '%s' "$csv" | cut -d',' -f3)" \
-        "$(printf '%s' "$csv" | cut -d',' -f4)"
+    case "$_l" in
+        *"$_p"*)
+            _r="${_l#*"$_p"}"
+            while :; do case "$_r" in " "*) _r="${_r# }" ;; *) break ;; esac; done
+            _c="${_l%%"$_p"*}$_r"
+            ;;
+        *) _c="$_l" ;;
+    esac
+    while :; do case "$_c" in *" "*) _c="${_c%% *}${_c#* }" ;; *) break ;; esac; done
+    while :; do case "$_c" in *"$_PA_CR"*) _c="${_c%%"$_PA_CR"*}${_c#*"$_PA_CR"}" ;; *) break ;; esac; done
+    case "$_c" in
+        *,*)
+            _r="$_c,"
+            _f1="${_r%%,*}"; _r="${_r#*,}"
+            _f2="${_r%%,*}"; _r="${_r#*,}"
+            _f3="${_r%%,*}"; _r="${_r#*,}"
+            _f4="${_r%%,*}"
+            ;;
+        *) _f1="$_c"; _f2="$_c"; _f3="$_c"; _f4="$_c" ;;
+    esac
+    case "$_f1" in -32768|"") _f1=null ;; esac
+    case "$_f2" in -32768|"") _f2=null ;; esac
+    case "$_f3" in -32768|"") _f3=null ;; esac
+    case "$_f4" in -32768|"") _f4=null ;; esac
+    _ANT_JSON="[$_f1,$_f2,$_f3,$_f4]"
+}
+
+# First line of $1 matching grep '+<P>:.*<RAT>' (BRE: '+' is literal), or "".
+# Sets _ANT_LINE. Zero forks; replaces `printf | grep | head -1`.
+_ant_pick() {
+    local _r="$1" _x _nl='
+'
+    _ANT_LINE=""
+    while [ -n "$_r" ]; do
+        _x="${_r%%"$_nl"*}"
+        case "$_r" in *"$_nl"*) _r="${_r#*"$_nl"}" ;; *) _r="" ;; esac
+        case "$_x" in *"+$2:"*"$3"*) _ANT_LINE="$_x"; return 0 ;; esac
+    done
+    return 1
 }
 
 # --- Hex-to-Decimal Cell ID Decomposition ------------------------------------
@@ -448,14 +494,21 @@ read_temperature_sysfs() {
     _rts_sum=0
     _rts_count=0
 
+    # `read` builtins, not $(cat ...): this board has 42 thermal zones, so the
+    # cat form was ~100 processes and ~400 ms per call (RG520N-EB, 2026-10-22).
+    # A sysfs attribute is one line, so read sees exactly what cat printed.
+    local _rts_ty
     for _rts_z in /sys/class/thermal/thermal_zone*; do
         [ -r "$_rts_z/type" ] && [ -r "$_rts_z/temp" ] || continue
-        case "$(cat "$_rts_z/type" 2>/dev/null)" in
+        _rts_ty=""
+        read -r _rts_ty 2>/dev/null < "$_rts_z/type"
+        case "$_rts_ty" in
             modem-*) ;;
             *) continue ;;
         esac
 
-        _rts_v=$(cat "$_rts_z/temp" 2>/dev/null)
+        _rts_v=""
+        read -r _rts_v 2>/dev/null < "$_rts_z/temp"
         # Some zones exist but read empty; some could be non-numeric.
         case "$_rts_v" in
             ''|*[!0-9-]*) continue ;;
@@ -972,10 +1025,8 @@ parse_time_advance() {
 parse_qrsrp() {
     local raw="$1"
     local lte_line nr_line
-    lte_line=$(printf '%s\n' "$raw" | grep '+QRSRP:.*LTE' | head -1)
-    nr_line=$(printf '%s\n' "$raw" | grep '+QRSRP:.*NR5G' | head -1)
-    sig_lte_rsrp=$(_antenna_line_to_json "$lte_line" "QRSRP")
-    sig_nr_rsrp=$(_antenna_line_to_json "$nr_line" "QRSRP")
+    _ant_pick "$raw" QRSRP LTE;  _ant_json "$_ANT_LINE" QRSRP; sig_lte_rsrp="$_ANT_JSON"
+    _ant_pick "$raw" QRSRP NR5G; _ant_json "$_ANT_LINE" QRSRP; sig_nr_rsrp="$_ANT_JSON"
 }
 
 # -----------------------------------------------------------------------------
@@ -985,10 +1036,8 @@ parse_qrsrp() {
 parse_qrsrq() {
     local raw="$1"
     local lte_line nr_line
-    lte_line=$(printf '%s\n' "$raw" | grep '+QRSRQ:.*LTE' | head -1)
-    nr_line=$(printf '%s\n' "$raw" | grep '+QRSRQ:.*NR5G' | head -1)
-    sig_lte_rsrq=$(_antenna_line_to_json "$lte_line" "QRSRQ")
-    sig_nr_rsrq=$(_antenna_line_to_json "$nr_line" "QRSRQ")
+    _ant_pick "$raw" QRSRQ LTE;  _ant_json "$_ANT_LINE" QRSRQ; sig_lte_rsrq="$_ANT_JSON"
+    _ant_pick "$raw" QRSRQ NR5G; _ant_json "$_ANT_LINE" QRSRQ; sig_nr_rsrq="$_ANT_JSON"
 }
 
 # -----------------------------------------------------------------------------
@@ -998,10 +1047,8 @@ parse_qrsrq() {
 parse_qsinr() {
     local raw="$1"
     local lte_line nr_line
-    lte_line=$(printf '%s\n' "$raw" | grep '+QSINR:.*LTE' | head -1)
-    nr_line=$(printf '%s\n' "$raw" | grep '+QSINR:.*NR5G' | head -1)
-    sig_lte_sinr=$(_antenna_line_to_json "$lte_line" "QSINR")
-    sig_nr_sinr=$(_antenna_line_to_json "$nr_line" "QSINR")
+    _ant_pick "$raw" QSINR LTE;  _ant_json "$_ANT_LINE" QSINR; sig_lte_sinr="$_ANT_JSON"
+    _ant_pick "$raw" QSINR NR5G; _ant_json "$_ANT_LINE" QSINR; sig_nr_sinr="$_ANT_JSON"
 }
 
 # =============================================================================

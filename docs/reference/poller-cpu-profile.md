@@ -129,17 +129,52 @@ What changed, all behaviour-preserving:
   only, a zero-padded `06` RB count). Measured in isolation: **130–136 → 33–35
   ms/call**.
 
-### Still open on this device, ranked by measured ms/cycle
+### Round 2 (same day) — Tier 2, Tier 1.5, Data Used, and a 12.9 s AT read
+
+A per-function micro-bench (each parser × 5 on captured AT replies) and per-command
+AT timings located the remaining cost:
+
+| Found | Measured | Fix |
+| --- | --- | --- |
+| **`AT+CGCONTRDP` took 12.9 s every Tier-2 pass** | reply cut at 254 B, no `OK`, shim waited its full budget | shim reader `bs=256` → `bs=4096`: 0.34 s, full 288 B + `OK` ([platform-matrix](./platform-matrix.md) "PACKET device") |
+| `parse_temperature` → `read_temperature_sysfs` | **402 ms/call**, 163 processes: `$(cat)` over 42 thermal zones | `read` builtins |
+| `parse_qrsrp/qrsrq/qsinr` | **~300 ms per Tier-1.5 pass**: ~15 processes per antenna line | `_ant_pick` / `_ant_json`, zero forks; identical output on 7 fixtures incl. garbage lines |
+| `update_data_used` | **58 ms every cycle**: `grep` + 2 `awk` + a `jq` + `mv` to **flash** | builtin `/proc/net/dev` read; state persisted every ≥ 30 s (was every cycle, ~14k ubifs rewrites/day) — health check's < 60 s freshness still met (observed 31–33 s) |
+
+Same harness, same conditions, 164 cycles / 723 s:
+
+| | Baseline | Round 1 | **Round 2** |
+| --- | ---: | ---: | ---: |
+| Whole cycle CPU (excl. harness) | ~1334 ms | ~771 ms | **~592 ms (−56 %)** |
+| Cycle period | 8.36 s | 6.39 s | **4.35 s** |
+| Poller, % of one core (harness) | 16.0 % | 12.1 % | 13.6 % |
+| Poller, % of one core (live, 60 s) | 13.4 % | 10.8 % | 13.5 % |
+| Box fork rate (live) | 111 /s | 90 /s | **63 /s** |
+| `poll_tier2` per call | 2217 ms CPU / ~18 s wall | 1890 ms / ~18 s | **1168 ms / ~5 s** |
+| `poll_per_antenna_signal` per call | 462 ms | 452 ms | **114 ms** |
+| `update_data_used` per cycle | 53 ms | 53 ms | **17 ms** |
+| `poll_cycle exceeded budget` warnings | every Tier-2 pass (22–27 s) | every Tier-2 pass | **none since deploy** |
+
+> ⚠️ **Read the share row with the period row.** Each cycle now costs 56 % less,
+> and the poller finally runs at the cadence its code describes (body + 2 s sleep
+> ≈ 4 s; the O5A was at 8.4 s only because AT calls were slow and one of them
+> timed out every Tier-2 pass). At the OLD 8.36 s period the new cycle would be
+> **~7 % of one core**; at the NEW 4.35 s period the OLD cycle would have been
+> **~31 %**. The share stays ~13 % because the saving was spent on 1.9× fresher
+> data. Turning it into idle CPU is a cadence decision — see the plan doc.
+
+### Still open on this device (round-2 profile, ms/cycle)
 
 | # | Target | ms/cycle | Note |
 | --- | --- | ---: | --- |
-| 1 | `poll_tier2` | 135 *(1890/call)* | ~1774 pids per call; batch its reads into compounds |
-| 2 | `poll_serving_cell` | 94 | one AT call; the parse is already one awk |
-| 3 | `poll_per_antenna_signal` | 92 *(452/call)* | `parse_qrsrp/qrsrq/qsinr` + `jq -n` history append (item C above) |
-| 4 | `update_data_used` | 53 | `grep` + 2 `awk` + `date` + a `jq` state write every cycle |
-| 5 | `poll_tier3` | 50 | two compounds + parse |
-| 6 | `write_cache` | 45 | the one big `jq` — probably the floor |
-| 7 | `read_ping_data` | 33 | see item B above |
+| 1 | `poll_serving_cell` | 96 | one AT call (~53 ms) + parse |
+| 2 | `ca_info_read` | 92 | one AT call; parse is separate |
+| 3 | `poll_tier2` | 78 *(1168/call)* | remaining small parsers (`parse_cgcontrdp` 64, `sim_registry_refresh_active` 60, `parse_carrier` 40 ms/call) |
+| 4 | `write_cache` | 47 | the one big `jq` — probably the floor |
+| 5 | `parse_ca_info` | 42 | the kept `jq` (byte-identity) is most of it |
+| 6 | `read_ping_data` | 32 | |
+| 7 | `poll_tier3` | 24 *(404/call)* | jq-heavy PHY snapshot |
+| — | the AT transport itself | ~53/call | two shells + `dd` + `sleep`s per call. The remaining structural lever is a resident transport (the broker), not more shell trimming |
 
 ---
 

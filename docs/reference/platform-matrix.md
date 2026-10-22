@@ -1818,6 +1818,7 @@ first-hand.
 | CPU/perf warnings are different | The separate `perf: interrupt took too long` lines are the kernel lowering its perf sampling rate; not the same event as `TCGETS` and not fixed by this shim patch |
 | Other nearby boot warnings are separate | `gp-prx-proxy-tunnel.service` restarts and `alloc_contig_range`/IOSS order-4 allocation failures are not caused by this ioctl and need their own investigation; do not conflate them |
 | `MCM_atcop_svc` holds `/dev/smd7`; `port_bridge` holds `/dev/at_mdm0` | Both are vendor baseline holders. They are not the source of this fixed QManager-triggered ioctl |
+| ⚠️ **`/dev/at_mdm0` is a PACKET device: a `read()` smaller than the packet loses the rest** — measured 2026-10-22 | The shim's reader was `dd bs=256`. `AT+CGCONTRDP` (both contexts, ~290 B including the long IMS IPv6 line) came back cut at **254 bytes** — mid-address, **no `OK`** — so the shim waited its full 12 s budget every time: **12.9 s per call**, every Tier-2 pass. `AT+CGCONTRDP=1` (short) took 0.35 s. With `bs=4096` the same command returns all **288 bytes + `OK` in 0.34 s**, three runs out of three. Any reply over 256 B was silently truncated before this — `AT+QSCAN` / neighbour lists are the obvious suspects and were **not** re-verified. A port must size the read buffer for the largest reply, not the typical one |
 
 ### Repeated systemd starts in the 2026-10-22 log excerpt — classified
 
