@@ -473,7 +473,7 @@ missing journald socket for either periodic oneshot or poller stdout.
 | SIM/network | `CPIN READY`, `QSIMSTAT 1,1`, `QUIMSLOT 1`, `CFUN 1`; QManager cache says SIM ready, `RG520N-EB / 5G-NSA / Jazz / 10.36.138.189` |
 | Poller unit | Active, `NRestarts=0`. One dmesg stop/start (uptime 2924→2938) was my own ioctl-bisection test; it was not an automatic restart loop |
 | DPI ensure | Starts every 60 s by design (QCMAP flushes iptables on re-dial). `StandardOutput=null` / `StandardError=null` deployed; two later runs reported Succeeded with no child journal warning |
-| `gp-prx-proxy-tunnel` | Separate vendor tunnel fault, 14 restarts at 60-second interval. `/data/gp/prx-proxy-tunnel.log`: `Remote TCP forward request failed (port 18080 -> 127.0.0.1:18080)`. Do not disable its retry and do not kill a remote listener without explicit authorization; existing resolution is in sibling plan `greenpacket-o5a/plans/2026-10-01-prx-tunnel-crash-loop.md` |
+| `gp-prx-proxy-tunnel` | Vendor tunnel. The ~14-restart loop after a reboot came from a **blind preflight** (`ss -p`/`ps` return nothing on the remote host), so it never cleared a stale forward. Fixed in sibling repo `greenpacket-o5a` (deploy `906e41b`, tag `v1.07`); tunnel verified working end to end |
 | systemd stdout warning | journald is masked on firmware. Poller unit now has stdout/stderr `null` too (deployed + daemon-reloaded). Other vendor units can still show the warning |
 
 The source `deploy/qmanager-httpd.service` and `deploy/qm_serve.sh` now both use
