@@ -112,6 +112,51 @@ batch produces is the **baseline a future change must be measured against**:
 Any future restart/cap change must be reported against these rows, same unit,
 same conditions.
 
+## Addendum, same session — is the box actually at risk?
+
+After the diagnosis the open question was whether to act. Two short read-only
+measurements settled it, and one of them retracted advice from my own first reply.
+
+**The gauge is the `Normal` zone watermark, not `MemAvailable`.** On this unit
+(`managed` 45,633 pages) `min` = 1,450 pages (5,800 kB), `low` = 1,556, `high` =
+1,662 (6,648 kB). Over a 5-minute window `Normal free` read **1,669 → 2,827
+pages** — at or above `high`, i.e. kswapd holding it in its healthy band. The
+10-13 kill happened at `Normal free:1656kB vs min:1704kB`, below `min`.
+`MemAvailable` read **44 MB** minutes before that kill and reads 48–56 MB now, so
+it is not evidence of safety in either direction.
+
+**A full swap is not a memory event.** zram accounting: 68.7 MB of swapped pages
+currently occupy 7.77 MB `mem_used` / 7.05 MB compressed (ratio drifting 9.7:1 →
+10.4:1 across samples). A completely full 91 MB swap would cost ≈9.4 MB of RAM —
+about **+1.6 MB over today**. Swap exhaustion removes the escape valve; the OOM
+comes afterwards, when new anonymous pages must stay resident and `Normal free`
+walks toward `min`. That is why netmgrd's 2.1 MB/h is the thing to watch.
+
+**Runway, measured:** a clean 5-minute window (no `/proc/<pid>/mem` reads) moved
+`SwapFree` 23,476 → 22,604 kB — **-872 kB, all in the first two minutes, then
+flat**. Bursty, not a march. At 22.6 MB free there is no imminent exhaustion.
+
+**Verdict: no action on the device.** No restart, no cap, no config change. The
+box is inside its normal operating band, and the one cheap "reset" that suggests
+itself is a trap:
+
+> **`swapoff -a && swapon -a` is NOT safe here, and the first reply in this work
+> called it "zero risk" — that was wrong.** `swapoff` must fault ~68 MB of
+> swapped anonymous memory back in with `MemFree` at 6–11 MB and `Normal free`
+> 2.5 MB above the OOM watermark. It would very likely kill `netmgrd` — the exact
+> 2026-10-13 outage, self-inflicted. Retracted in
+> [`../reference/netmgrd-growth.md`](../reference/netmgrd-growth.md#do-not-swapoff-to-reset-zram).
+
+## Why the attribution sampler was not built
+
+Option 1 from the list below was the 60 s sampler that would correlate a ~1 MB
+step with a caller. Deliberately **not** built this session: the allocating
+caller is closed vendor code, so the result would be a correlation with **no
+fixable target** — a measurement that costs an hour of device load and changes no
+decision. It becomes worth building the moment either a vendor channel opens (they
+will ask which operation) or a real mitigation candidate appears. Recorded so the
+judgement is not mistaken for an oversight.
+
 ## Still broken / open
 
 - The leak itself is **not fixed** and cannot be fixed from source. Only a
@@ -132,12 +177,20 @@ same conditions.
 
 ## Next step
 
-Owner's call, one of:
+Recommended order, given the calibration above:
 
-1. Run the 60 s attribution sampler (read-only, no config change) to name the
-   caller that allocates a chunk.
-2. Ship the gated restart — measurement-gated, not timer-driven.
-3. Take the numbers to the vendor as a defect report.
+1. **Nothing urgent.** Re-run the one-line `Normal free` gauge if the box ever
+   feels slow; treat a reading below 1,450 pages, or a rising `allocstall_normal`
+   rate, as the signal — not `free`'s "used" and not `MemAvailable`.
+2. **Vendor report** with the numbers here (2.1 MB/h, 81 × ~1 MB chunks, resets
+   only on restart, the `{next,prev}` empty-list structure). This is the only
+   route that ends the leak rather than managing it.
+3. **If swap free ever drops below ~8 MB**, revisit the measurement-gated
+   restart — gated on footprint + swap floor + idle traffic, never a bare timer,
+   because the restart *is* the 10-13 outage.
+4. Vendor command-log enablement (`/etc/data/netmgr_config.xml`) only with an
+   explicit owner exception: it is a vendor rootfs file outside this branch's
+   write set.
 
 `memory.md` was deliberately **not** edited: nothing on the install changed.
 

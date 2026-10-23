@@ -189,6 +189,56 @@ restart`), and the call site is **deliberately commented out** (`# D5A …`) in
 favour of `wan_reset`. Their own team already decided restarting netmgrd is not a
 first-line remedy — weigh that before proposing it as one.
 
+## Reading the risk on this box (and the `swapoff` trap)
+
+`MemAvailable` is **not** the gauge here. At the 2026-10-13 kill it read 44 MB
+minutes before the OOM, and it reads 48–56 MB now. The gauge the kernel actually
+uses on this device is the **`Normal` zone watermark**, because that is the zone
+whose free pages feed every allocation once swap is full:
+
+| `Node 0, zone Normal` (2026-10-23, `managed` 45,633 pages) | Pages | kB |
+| --- | --- | --- |
+| `min` — the emergency watermark; **crossing it is what OOM-kills** | 1,450 | 5,800 |
+| `low` — kswapd wakes | 1,556 | 6,224 |
+| `high` — kswapd stops | 1,662 | 6,648 |
+| `pages free`, observed over a 5-min window | **1,669 – 2,827** | 6.7 – 11.3 MB |
+
+The 10-13 kill happened at **`Normal free:1656kB vs min:1704kB`** — below `min`.
+Today `free` sits at or above `high` (it touched 1,669 pages once, then recovered
+to 2,048–2,827), which is kswapd doing its job, not pressure. The absolute margin
+is thin — ~2.5 MB above `min` — but the zone is being held in its healthy band.
+
+**What filling the swap would actually cost.** zram's own accounting
+(`/sys/block/zram0/mm_stat`) shows 68.7 MB of swapped pages occupying
+**7.77 MB `mem_used` / 7.05 MB compressed** — a ratio that drifts between
+~9.7:1 and ~10.4:1 across samples. Extrapolated, a **completely full 91 MB swap
+would cost ≈9.4 MB of RAM**, i.e. about **+1.6 MB over today**. So swap
+*exhaustion* is not itself a memory event: what it removes is the **escape
+valve**, after which every new anonymous page has to stay resident and `Normal
+free` starts walking toward `min`. That is the actual failure path, and it is why
+netmgrd's 2.1 MB/h matters — it is what keeps pushing the valve closed.
+
+Runway, measured rather than extrapolated: a clean 5-minute window (no
+`/proc/<pid>/mem` reads) took `SwapFree` from 23,476 to 22,604 kB — **-872 kB,
+all of it in the first two minutes, then flat** — with `Normal free` oscillating
+1,669 → 2,827 pages. So the slope is bursty, not a steady march, and at 22.6 MB
+of free swap there is no imminent exhaustion. Watch it, do not act on it.
+
+```sh
+# The one-liner that answers "is this box about to OOM"
+awk '/^Node 0, zone/{z=$NF} z=="Normal" && $1=="pages" && $2=="free"{printf "Normal free %d pages (min=1450 high=1662)\n", $3}' /proc/zoneinfo
+```
+
+### Do not `swapoff` to reset zram
+
+Do not do it, and do not suggest it (this doc's first draft did — recorded here
+as a retraction, because it is a plausible-looking trap). `swapoff` must fault
+**every swapped page back into RAM before it can detach the device**: that is
+~68 MB of anonymous memory with `MemFree` at 6–11 MB and `Normal free` 2.5 MB
+above the OOM watermark. The reset would very likely OOM-kill the largest
+process — `netmgrd` — which is precisely the 2026-10-13 outage, self-inflicted.
+There is no cheap way to defragment or reclaim zram on a live box of this size.
+
 ## Gotchas
 
 - **`memwatch`'s `top=` is RSS+swap, its alert body is not a footprint table.**
@@ -205,3 +255,11 @@ first-line remedy — weigh that before proposing it as one.
   offsets outside the shell.
 - **`/proc/248/io` does not exist** on this kernel (no `CONFIG_TASK_IO_ACCOUNTING`);
   use `/proc/<pid>/stat` fields 14/15 and `voluntary_ctxt_switches` instead.
+- **Do not read `/proc/<pid>/mem` casually.** Each read pages the region back in;
+  ten blocks pulled ~1 MB in and the swap-free figure moved by several MB, which
+  then looks like a trend. Read one block, or accept that you perturbed the
+  metric you are about to quote.
+- **`free`'s "used" and `MemAvailable` both under-report danger here.** 126 MB
+  "used" of 178 MB is normal on this unit, and `MemAvailable` read 44 MB at the
+  2026-10-13 kill. Use `Normal free` vs `min`/`high`, plus the
+  `allocstall_normal` / `pgmajfault` **rates**.
