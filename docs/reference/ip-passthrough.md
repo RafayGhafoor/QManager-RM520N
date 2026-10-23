@@ -158,6 +158,48 @@ Not yet tried: disassembling `GetIPPassthroughConfigXMLNode` /
 Auto-binding the MAC from `/var/run/data/dnsmasq.leases` + `/proc/net/arp` in the page
 remains viable once the vendor side accepts any target.
 
+## How the vendor firmware really enables passthrough (SDK on `petros1`, 2026-10-23)
+
+Read from `/root/o5a-src/o5a` (the O5A SDK; `turin/app/cped/web_interface.cpp`,
+`turin/app/modemd_dual/src/modemd.c`, `rg500q/ql-sysroots/usr/include/...`) and
+confirmed against the binaries on this unit. **Not first-hand tested on the unit yet.**
+
+1. **The vendor "IP Passthrough" is Port Mode, not the XML flag.** The web API
+   `/web/v1/setting/network/lan/portmodeconfig` (`get_portmode_config` /
+   `set_portmode_config`, `web_interface.cpp:5269-5427`) maps `Routing` -> `nat` and
+   `IP Passthrough` -> `bridge`, and just runs `uci set turin.<project>.mode=...` +
+   `uci commit`. On this unit that key is `turin.turin.mode='nat'`.
+2. **`mpdn` consumes it.** `/usr/bin/mpdn` runs `uci -q get turin.turin.mode` and, for
+   `bridge`, calls Quectel's `ql_qmap_lan_ippt_set_v1(lan_id, mode)` (and
+   `ql_qmap_lan_ipptnat_set_v1`) from `libql_qmap.so`. `turin_mpdn.service` is **masked**
+   on this unit (the 2026-08 outage: it tears the PDN down when IPv6 fails), so
+   Port Mode changes do nothing here. This is a different path from the
+   `<IPPassthroughEnable>` XML flag that the vendor `:80` UI and QManager's page set.
+3. **A Quectel CLI for exactly this ships on the unit: `/usr/bin/ql_qmap`.**
+   `ql_qmap LAN IPPT set <lan_id> <ippt_mode> [host]` (`0` default LAN; mode `1` ETH
+   with the host MAC, `3` USB with host name, `4` ETH-NIC2, `0` off),
+   `ql_qmap LAN IPPT get <lan_id>`, `ql_qmap LAN IPPTNAT set|get <0|1>`, and
+   **`ql_qmap LAN IPPT adaptive <lan_id> <mode>`**: `0` off, `1` ETH newest device,
+   **`2` ETH first device**, `3`/`4` USB, `5`/`6` Wi-Fi, `7`/`8` any, `9`/`10` ETH-NIC2.
+   Adaptive binds to the connecting device by itself, so no MAC is needed. Read-only
+   today: `LAN IPPTNAT get` -> `WithNAT`; `LAN IPPT get 0` -> `CMD Error#0x1`
+   (most likely "nothing configured").
+4. **QCMAP's own header** (`QCMAP_Client.h:5185-5300`): the existing private bridge IP
+   is **not removed**, the WWAN gateway's public IP is **added** to the bridge, and the
+   XML flag being TRUE does not mean active ("only when all required conditions are
+   met"; read the real state with `GetIPPassthroughState`). So `192.168.0.1` can remain
+   a traceroute hop, and the ODU should stay reachable, even when passthrough works.
+5. **Device-type enum** (`qualcomm_mobile_access_point_msgr_v01.h:535-554`):
+   `1` PRIMARY_AP, `2` GUEST_AP, `3` USB, `4` ETHERNET, `7` BT, `8` ANY_AP, `9` ANY.
+   Tried as `IPPassthroughDeviceType` in the XML anyway (0-4): no effect, see above.
+6. The sibling (`modemd.c:430-438`, RG500Q only) also issues
+   `at+qeth="ipptmac",FF:FF:FF:FF:FF:FF` and `AT+QMAPWAC=1`.
+
+**Next, untried:** `ql_qmap LAN IPPT adaptive 0 2` (ETH first device) or
+`ql_qmap LAN IPPT set 0 1 cc:2d:21:1d:21:79`, then check `GetIPPassthroughState`
+(`QCMAP_CLI` Backhaul WWAN item 16). Needs a boot-time re-apply to persist, since
+`mpdn` is masked.
+
 ## Related
 
 - [`at-command-transport.md`](at-command-transport.md) — qcmd response and
