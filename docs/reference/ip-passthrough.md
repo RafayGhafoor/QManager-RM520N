@@ -105,6 +105,28 @@ marker that had been absent before the test, and left the original boot ID intac
 Do not drop the reboot handoff or label the feature active until a QCMAP runtime
 setter/readback (or an owner-approved QCMAP service reload) is verified.
 
+**After the reboot (2026-10-23, boot `48301c6f`):** the page's Apply set
+`<IPPassthroughEnable>` to `1` and it survived the reboot, but passthrough was still
+not in force. QCMAP's own readers (`QCMAP_CLI` -> 6 Backhaul -> 2 Backhaul WWAN ->
+15 / 16) reported `IP Passthrough Flag is SET`, `Device Type Not Set` and
+`IP Passthrough is NOT ACTIVATED`; the XML held `IPPassthroughDevice=-1`,
+`IPPassthroughHostName=NULL`, `IPPassthroughMacAddr=NULL`. The flag alone is therefore
+not enough: QCMAP also needs a target device. The user's traceroute (hop
+`192.168.0.1` still present) agreed. The vendor `:80` UI's `/passthrough/set` writes
+only the flag, so it has the same gap; whether it ever activates was not verified.
+
+**What did NOT work:** QCMAP's native setter (`QCMAP_CLI` item 14: flag, "new config",
+choice 1 = specific device, device type `1` = ETH, MAC `cc:2d:21:1d:21:79`, the only
+DHCP client) returned `Set IP Passthrough status Error: 0x9` and changed nothing. The
+"First Connected Device" choice and a plain disable (`0`) returned the same `0x9`.
+`0x9` is most likely QMI `INVALID_HANDLE`: that CLI session has no MobileAP handle.
+Getting one means the CLI's "Enable/Disable mobileap", which was not tried because it
+can tear the WAN down on a unit with no out-of-band access. Prompt order (ETH path):
+`1` enable, `1` new config, `1` specific device, `1` ETH, then MAC; hostname is only
+asked for USB. Untried next step: set `IPPassthroughDevice`/`IPPassthroughMacAddr` in
+`mobileap_cfg.xml` and reboot so QCMAP reads them at start (direct vendor-file edit,
+needs owner approval, backup `/usrdata/qmanager/backup/ippt-live-test-20261023/`).
+
 ## Related
 
 - [`at-command-transport.md`](at-command-transport.md) — qcmd response and
