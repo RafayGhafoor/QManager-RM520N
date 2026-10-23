@@ -72,6 +72,39 @@ controls to the O5A page unless a device-owned backend is measured and can apply
 each one. The platform-specific observation is also recorded in
 [`platform-matrix.md`](./platform-matrix.md).
 
+## Deployment verification and benchmark (2026-10-23)
+
+The code was deployed under `/usrdata/qmanager/www` with the prior tree backed up
+at `/usrdata/qmanager/backup/ip-passthrough-20261023/www-before.tgz` (5.2 MB).
+The QManager CGI's read-only GET returned `success:true, enabled:false`; an invalid
+string boolean was rejected before the product setter. The vendor XML flag stayed
+`0`, the boot ID did not change, and no valid setter or reboot was invoked. Both
+the QManager page and vendor `:80` UI returned HTTP 200; QManager's HTTP service,
+poller, ping, DPI, and DPI ensure timer were active at close-out.
+
+Ten direct CGI GETs before vs after were measured with normal services running,
+without scans, lock operations, or setting writes:
+
+| Run | Uptime window | Elapsed | System CPU (one core) | System forks | QManager httpd RSS | MemAvailable |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Before | 55697.90–55700.01 s | 2.11 s | 211 busy ticks / 100% | +223 | 68 kB | 48,920 → 47,324 kB |
+| After | 55980.92–55982.37 s | 1.45 s | 145 busy ticks / 100% | +282 | 116 kB | 55,012 → 48,784 kB |
+
+The CPU and process counters are system-wide, not attributable to this transient
+CGI; the httpd RSS sample is after a service restart. These short windows are
+noisy and do not establish a performance win. The system fork count advanced by
+59 more in the post-change batch, with background activity not isolated. No new
+resident process was added and the page is not continuously polled.
+
+**Live no-reboot test (2026-10-23):** with the owner's approval, the product
+setter changed the XML flag from `0` to `1` without rebooting; its response still
+said `rebootRequired:true`. During that window the user's traceroute still showed
+`192.168.0.1` on the path, so the API's configured flag did not demonstrate live
+forwarding. A 120-second setter rollback restored the flag to `0`, removed the
+marker that had been absent before the test, and left the original boot ID intact.
+Do not drop the reboot handoff or label the feature active until a QCMAP runtime
+setter/readback (or an owner-approved QCMAP service reload) is verified.
+
 ## Related
 
 - [`at-command-transport.md`](at-command-transport.md) — qcmd response and

@@ -1,6 +1,6 @@
 # SPEC: O5A IP Passthrough backend parity
 
-**Status:** Approved to implement, 2026-10-23 (owner request: “match it with backend so it works and push changes”).
+**Status:** Source pushed in `03e916cd` and deployed. The owner-authorized no-reboot test and rollback completed 2026-10-23; the configured flag changed but live forwarding was not demonstrated. The owner accepts the existing Apply-and-reboot behavior; the flag is currently disabled.
 
 **Background.** Upstream QManager's page sends five Quectel `AT+QMAP`/`AT+QCFG`
 settings. On this GreenPacket O5A Pro (RG520N-EB, firmware
@@ -30,51 +30,59 @@ would falsely imply the O5A backend can apply them.
   editing the vendor XML directly is outside this deployment's allowed paths.
 - **Changing `/data/gp/radio-handler.sh`, `/etc/data/mobileap_cfg.xml`, `/web`,
   or any vendor service.** The integration consumes its existing loopback API.
-- **Turning passthrough on or rebooting the live device during validation.**
-  Enabling can remove the LAN management path; the requested source fix does not
-  require activating the setting.
+- **Rebooting the live device during validation.** The owner authorized one
+  temporary API-mediated enable test without reboot. Enabling can remove the LAN
+  management path, so a backup and timed API rollback are required before the
+  write; do not use QManager's current rebooting Apply path for this test.
 - **Claiming that QMAP commands are unsupported on every RG520N variant.** The
   observation applies only to this O5A firmware until another device is measured.
 
 ## Requirements
 
-- [ ] GET returns the `enabled` boolean read from `http://127.0.0.1:8091/passthrough`;
-      missing service, non-2xx, malformed JSON or absent/non-boolean field is an
-      error, never fabricated `false`.
+- [x] GET returns the `enabled` boolean read from `http://127.0.0.1:8091/passthrough`;
+      live CGI GET returned `success:true, enabled:false`. The failure branches
+      for missing service, non-2xx and malformed JSON are fail-closed by inspection
+      but were not fault-injected on the live unit.
 - [ ] POST accepts only `enabled: true|false`, calls the product setter with a
       JSON boolean, and requires the returned state to match the request before
-      reporting success.
-- [ ] The CGI never issues `AT+QMAP` or `AT+QCFG="usbnet"` for passthrough.
-- [ ] The existing `cgi_reboot_response` handoff remains after a verified setter
-      response; validation never invokes the setter or reboot.
-- [ ] The page exposes only controls supported by the endpoint and clearly warns
+      reporting success. The invalid string value was exercised and rejected
+      before the setter; the QManager CGI setter path still schedules reboot and
+      is not used for the no-reboot live test.
+- [x] The CGI never issues `AT+QMAP` or `AT+QCFG="usbnet"` for passthrough (source
+      review; live CGI returned state without AT activity).
+- [x] The existing `cgi_reboot_response` handoff remains gated on a verified
+      setter response; the no-reboot test invoked the product API directly, not
+      the QManager CGI, and did not reboot.
+- [x] The page exposes only controls supported by the endpoint and clearly warns
       that enabling passthrough may make the LAN gateway unreachable.
-- [ ] All five shipped locales remain structurally in parity and describe the
+- [x] All five shipped locales remain structurally in parity and describe the
       narrowed controls truthfully.
-- [ ] Shell syntax, `bun run i18n:check`, lint and `bun run build` pass.
-- [ ] The source is reviewed and pushed only to the owner's `greenpacket` branch.
+- [x] Shell syntax, `bun run i18n:check`, targeted ESLint and `bun run build` pass.
+      Full `bun run lint` remains blocked by pre-existing errors in unrelated files.
+- [x] The source was reviewed and pushed only to the owner's `greenpacket` branch.
 
 ## Edge cases (close-out)
 
 | Edge case | How it was exercised | Observed |
 | --- | --- | --- |
-| Product API missing | Not yet exercised | Pending |
-| Empty/non-JSON response | Not yet exercised | Pending |
-| Backend reports a different enabled value | Not yet exercised | Pending |
-| Invalid request boolean | Not yet exercised | Pending |
-| Passthrough enable / resulting LAN loss | Deliberately not exercised; live activation is out of scope | Not applicable |
+| Product API missing | Not fault-injected; fail-closed branch reviewed | Not exercised |
+| Empty/non-JSON response | Not fault-injected; jq/type guard reviewed | Not exercised |
+| Backend reports a different enabled value | Not fault-injected; exact equality guard reviewed | Not exercised |
+| Invalid request boolean | Direct CGI POST with `enabled:"true"` | `invalid_enabled`; no setter call; product flag remained false |
+| Temporary passthrough enable / no-reboot behavior | Owner-authorized product API setter; backup plus 120-second disabled rollback; no reboot | API/XML flag changed to enabled then returned to disabled; boot ID unchanged and services stayed up. The user's traceroute still showed `192.168.0.1` as a hop, so live forwarding was not demonstrated. Product API reports `rebootRequired:true`; owner accepts Apply-and-reboot for actual enable. |
 
 ## Benchmark
 
 | Run | Conditions | CPU share of one core | RSS | Fork rate |
 | --- | --- | --- | --- | --- |
-| Before | Live device, normal services, 10 GETs, no AT write/scan | 100% system-wide during the 2.11 s window (211 busy ticks; noisy, not CGI attribution) | QManager httpd 68 kB | +223 system forks |
-| After | Pending live deployment | Pending | Pending | Pending |
+| Before | Live device, 10 GETs, no AT write/scan; 2.11 s window | 100% system-wide (211 busy ticks; noisy, not CGI attribution) | QManager httpd 68 kB | +223 system forks |
+| After | Live device, 10 GETs, no setter/scan; 1.45 s window | 100% system-wide (145 busy ticks; noisy, not CGI attribution) | QManager httpd 116 kB after restart | +282 system forks |
 
-Memory headroom during the before run was 48,920 → 47,324 kB; this is a system
-snapshot, not a per-CGI RSS peak. This functional compatibility change makes no
-performance claim. Repeat the same 10 read-only GETs and report the actual after
-numbers; do not infer a speedup from fewer AT commands in source.
+Memory headroom during the before run was 48,920 → 47,324 kB and after was
+55,012 → 48,784 kB; these are system snapshots, not per-CGI RSS peaks. The
+system fork counter advanced by 59 more in the after batch, but background
+activity makes that an upper-bound observation, not isolated CGI attribution.
+This functional compatibility change makes no performance claim.
 
 ## Branch scope
 
