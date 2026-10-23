@@ -71,6 +71,7 @@ recently the kernel swapped it. Footprint this boot:
 | 11:50 | 29 MB |
 | 13:40 | 36 MB |
 | 13:45 (direct `/proc` read) | **37.2 MB** |
+| 14:17 (direct `/proc` read) | **38.0 MB** |
 
 **+32 MB in 15.3 h = 2.1 MB/h.** Across the 30 consecutive 10-minute samples
 from 08:50 to 13:40 it never decreased. Only a restart resets it — the 5 MB at
@@ -181,7 +182,7 @@ above is the input the sibling's 2026-10-13 plan said was missing.
 | **cgroup `MemoryMax` on `netmgrd`** | bounds it | The leak is monotonic, so this only converts "OOM at an arbitrary moment" into "kill at a chosen moment". Pair with the restart, do not ship alone. |
 | Lower `vm.swappiness` | nothing — makes it worse | Would pull 30 MB back into **resident** RAM to save ~4 MB of compression. Do not. |
 | Shrink `smartdns` `cache-size` | ~2.5 MB | Already rejected on the sibling (`plans/2026-10-13-memory-pressure-watch.md`): trades a cold-path DNS fault for noise. |
-| Vendor ask | the bug | Needs the numbers above; there is no source to patch. |
+| Vendor ask | the bug | Needs the numbers above; there is no source to patch. A ready-to-send report is the appendix of [`../plans/2026-10-23-netmgrd-memory-growth.md`](../plans/2026-10-23-netmgrd-memory-growth.md#appendix--vendor-defect-report-ready-to-send). |
 
 Prior art in the product's own tree: `turin/feeds/conf/files/common/script/check_conn.sh`
 defines `netmgrd_reset()` (`/etc/init.d/netmgrd restart` + `/etc/init.d/ipqcm

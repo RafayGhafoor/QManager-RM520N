@@ -194,6 +194,55 @@ Recommended order, given the calibration above:
 
 `memory.md` was deliberately **not** edited: nothing on the install changed.
 
+## Follow-up sample (14:17 UTC, uptime 56,037 s)
+
+netmgrd still pid 248, **38,000 kB** (RSS+swap): +0.8 MB in 32 min since the
+13:45 reading, in line with 2.1 MB/h. `SwapFree` 22,472 kB, `MemAvailable`
+49,604 kB, `Normal free` 3,008 pages (above `high` = 1,662), `oom_kill=0`.
+No change in the verdict.
+
+Unrelated observation, not investigated here: `tailscaled` (9 MB) has entered
+`memwatch`'s top-3 since ~13:50. It is a new resident on this box and adds to the
+same swap budget; whoever deployed it should record its footprint.
+
+## Appendix — vendor defect report (ready to send)
+
+Written for the module/firmware vendor. Contains no subscriber identifiers.
+
+> **Subject:** `netmgrd` leaks ~1 MB anonymous chunks monotonically on
+> `LE.UM.6.2.3.r1-03100-SDX65.0` (RG520N-EB), leading to OOM-kill of netmgrd
+>
+> **Build:** `/usr/bin/netmgrd` 750,344 bytes, dated 2023-10-20, md5
+> `301b845bed135314d722bbd8ad9499c9`, from the `data` package (`git-r26`).
+> Kernel `5.4.210-perf`, armv7l, 178 MB RAM, 91 MB zram swap,
+> `vm.swappiness=100`.
+>
+> **Observed:** netmgrd's resident + swapped footprint grows from 5 MB at boot
+> to 38 MB after 15.6 h (**~2.1 MB/h**), with no decrease across 30
+> consecutive 10-minute samples. Only a process restart reclaims it.
+>
+> **Shape:** the growth is **81 separate anonymous mappings of 0xfd000 bytes
+> (~1 MB)**, 1 MB-aligned and consecutive, holding 31.2 MB in total. A new one
+> appears roughly every 25–30 minutes. Each starts with a header that records
+> `0x000fd000` twice and a self-referential list head; the body of a full
+> chunk is an array of self-referential `{next, prev}` pairs, i.e. empty
+> doubly-linked list heads. They contain no strings or message payloads. File
+> descriptors (88) and threads (34) stay constant, and the process is idle
+> (no context switches over 90 s) while holding the memory.
+>
+> **Impact:** netmgrd ends up holding most of the swap. When swap runs out, the
+> kernel OOM-kills netmgrd as the largest process (observed 2026-10-13:
+> `Free swap = 0kB`, netmgrd at 30 MB RSS + ~69 MB swap). That re-programs the
+> data path: `ql-netd` exits 255, `dnsmasq` restarts twice, and LAN services
+> stop answering for ~2 minutes.
+>
+> **Request:** please identify which allocation path creates these 0xfd000
+> chunks and why they are never released (we suspect a per-client or
+> per-event table in the `netmgr_client_*` / netlink listener path, but we
+> cannot confirm it without symbols), and provide a fixed build or a
+> configuration that bounds it. We can provide `/proc/<pid>/smaps` captures
+> and chunk dumps on request.
+
 ## Files touched
 
 | File | Change |
