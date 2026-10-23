@@ -484,21 +484,21 @@
   "ipPassthrough": {
     "page": {
       "title": "IP 直通",
-      "description": "將數據機的公網 IP 直接交給一台已連線的裝置，而不是為整個區域網路做路由。"
+      "description": "透過裝置支援的網路後端啟用或停用 IP 直通。"
     },
     "header": {
       "refresh": "重新整理"
     },
     "status": {
-      "label": "上次套用",
+      "label": "裝置設定",
       "mode_title": {
-        "disabled": "路由模式",
-        "eth": "乙太網路直通",
+        "disabled": "已關閉",
+        "eth": "已開啟",
         "usb": "USB 直通"
       },
       "blurb": {
-        "disabled": "數據機為區域網路做路由",
-        "eth": "設定為將 WAN IP 交給乙太網路裝置",
+        "disabled": "裝置後端回報 IP 直通已關閉。",
+        "eth": "裝置後端回報 IP 直通已開啟。",
         "usb": "設定為將 WAN IP 交給 USB 裝置"
       },
       "no_target": "未選擇裝置",
@@ -508,7 +508,7 @@
     },
     "card": {
       "title": "直通設定",
-      "description": "套用會寫入所有設定並重啟數據機。",
+      "description": "套用後會透過裝置後端儲存設定並重新啟動數據機。",
       "apply": "套用並重啟",
       "discard": "捨棄變更",
       "unsaved_one": "{{count}} 項未儲存的變更",
@@ -522,7 +522,7 @@
     },
     "rows": {
       "mode": {
-        "label": "模式"
+        "label": "IP 直通"
       },
       "target": {
         "label": "目標裝置",
@@ -543,8 +543,8 @@
       }
     },
     "options": {
-      "mode_disabled": "路由",
-      "mode_eth": "乙太網路",
+      "mode_disabled": "關閉",
+      "mode_eth": "開啟",
       "mode_usb": "USB",
       "target_automatic": "自動",
       "target_manual": "依 MAC",
@@ -554,13 +554,13 @@
       "dns_on": "開啟"
     },
     "mode_note": {
-      "rest": "乙太網路或 USB 會把 WAN IP 交給一台裝置，數據機將不再於其區域網路閘道位址回應。請保留 Tailscale 或其他連入方式。",
-      "to_passthrough": "套用會重啟數據機，此分頁將與其斷線。之後區域網路閘道不再回應，請保留 Tailscale 或其他連入方式。",
-      "to_router": "套用會重啟數據機，此分頁將與其斷線。重啟後區域網路閘道會恢復回應。"
+      "rest": "啟用 IP 直通可能導致區域網路閘道無法連線。請保留 Tailscale 或其他連入方式。",
+      "to_passthrough": "啟用 IP 直通會重新啟動數據機。區域網路閘道可能無法連線，請保留 Tailscale 或其他連入方式。",
+      "to_router": "停用 IP 直通會重新啟動數據機。重新啟動後區域網路閘道應可恢復連線。"
     },
     "dialog": {
       "title": "現在套用並重啟？",
-      "body": "設定會寫入，數據機隨即重啟。本頁面會轉到重啟倒數並將您登出。",
+      "body": "裝置會儲存此設定並立即重新啟動。本頁面會轉到重啟倒數並將您登出。",
       "body_gateway": "直通生效後，數據機將不再於區域網路閘道位址上回應。請確認您有 Tailscale、直通裝置本身或序列主控台可以重新連入。",
       "body_persist": "此設定會在後續重啟後繼續保留。",
       "cancel": "取消",
@@ -569,9 +569,9 @@
     "toast_apply_error": "無法套用 IP 直通設定",
     "errors": {
       "read_title": "無法讀取直通設定",
-      "read_body": "未做任何變更。請再試一次，或確認數據機是否有回應。",
+      "read_body": "未做任何變更。請再試一次，或確認裝置網路服務是否正在執行。",
       "retry": "重試",
-      "card_unread": "數據機尚未回應，在首次讀取完成前沒有可變更的內容。",
+      "card_unread": "裝置網路服務尚未回應，在首次讀取完成前沒有可變更的內容。",
       "mac_invalid": "請輸入完整的 MAC 位址，即六組十六進位數字。",
       "no_changes": "尚未有任何變更。"
     }

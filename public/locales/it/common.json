@@ -484,21 +484,21 @@
   "ipPassthrough": {
     "page": {
       "title": "Passthrough IP",
-      "description": "Assegna l'IP pubblico del modem direttamente a un solo dispositivo collegato, invece di far instradare tutta la LAN dal modem."
+      "description": "Attiva o disattiva il passthrough IP tramite il backend di rete supportato dal dispositivo."
     },
     "header": {
       "refresh": "Aggiorna"
     },
     "status": {
-      "label": "Ultima applicazione",
+      "label": "Impostazione del dispositivo",
       "mode_title": {
-        "disabled": "Modalità router",
-        "eth": "Passthrough Ethernet",
+        "disabled": "Disattivato",
+        "eth": "Attivato",
         "usb": "Passthrough USB"
       },
       "blurb": {
-        "disabled": "Il modem instrada per la LAN",
-        "eth": "Impostato per assegnare l'IP WAN al dispositivo Ethernet",
+        "disabled": "Il backend del dispositivo segnala il passthrough IP disattivato.",
+        "eth": "Il backend del dispositivo segnala il passthrough IP attivato.",
         "usb": "Impostato per assegnare l'IP WAN al dispositivo USB"
       },
       "no_target": "Nessun dispositivo selezionato",
@@ -508,7 +508,7 @@
     },
     "card": {
       "title": "Configurazione del passthrough",
-      "description": "Applicare scrive tutte le impostazioni e riavvia il modem.",
+      "description": "L'applicazione salva l'impostazione tramite il backend del dispositivo e riavvia il modem.",
       "apply": "Applica e riavvia",
       "discard": "Scarta le modifiche",
       "unsaved_one": "{{count}} modifica non salvata",
@@ -522,7 +522,7 @@
     },
     "rows": {
       "mode": {
-        "label": "Modalità"
+        "label": "Passthrough IP"
       },
       "target": {
         "label": "Dispositivo di destinazione",
@@ -543,8 +543,8 @@
       }
     },
     "options": {
-      "mode_disabled": "Router",
-      "mode_eth": "Ethernet",
+      "mode_disabled": "Disattivato",
+      "mode_eth": "Attivato",
       "mode_usb": "USB",
       "target_automatic": "Automatico",
       "target_manual": "Per MAC",
@@ -554,24 +554,24 @@
       "dns_on": "Attivo"
     },
     "mode_note": {
-      "rest": "Ethernet o USB assegnano l'IP WAN a un solo dispositivo, e il modem smette di rispondere al suo gateway LAN. Tieni pronto Tailscale o un altro modo per entrare.",
-      "to_passthrough": "Applicare riavvia il modem e questa scheda lo perde. Dopo, il gateway LAN smette di rispondere, quindi tieni pronto Tailscale o un altro modo per entrare.",
-      "to_router": "Applicare riavvia il modem e questa scheda lo perde. Il gateway LAN torna a rispondere dopo il riavvio."
+      "rest": "Attivare il passthrough IP potrebbe rendere irraggiungibile il gateway LAN. Tieni pronto Tailscale o un altro modo per rientrare.",
+      "to_passthrough": "L'attivazione del passthrough IP riavvia il modem. Il gateway LAN potrebbe diventare irraggiungibile: tieni pronto Tailscale o un altro modo per rientrare.",
+      "to_router": "La disattivazione del passthrough IP riavvia il modem. Il gateway LAN dovrebbe tornare raggiungibile dopo il riavvio."
     },
     "dialog": {
       "title": "Applicare e riavviare adesso?",
-      "body": "Le impostazioni vengono scritte e il modem si riavvia subito. Questa pagina passa il testimone al conto alla rovescia del riavvio e ti disconnette.",
+      "body": "Il dispositivo salva l'impostazione e si riavvia subito. Questa pagina passa il testimone al conto alla rovescia del riavvio e ti disconnette.",
       "body_gateway": "Una volta attivo il passthrough, il modem smette di rispondere al suo indirizzo di gateway sulla LAN. Assicurati di avere Tailscale, il dispositivo in passthrough stesso o una console seriale per rientrare.",
       "body_persist": "L'impostazione resta anche ai riavvii successivi.",
       "cancel": "Annulla",
       "confirm": "Applica e riavvia"
     },
-    "toast_apply_error": "Impossibile applicare le impostazioni di Passthrough IP",
+    "toast_apply_error": "Impossibile applicare l'impostazione di Passthrough IP",
     "errors": {
-      "read_title": "Impossibile leggere la configurazione del passthrough",
-      "read_body": "Non è stato modificato nulla. Riprova, oppure controlla che il modem stia rispondendo.",
+      "read_title": "Impossibile leggere l'impostazione del passthrough",
+      "read_body": "Non è stato modificato nulla. Riprova o controlla che il servizio di rete del dispositivo sia in esecuzione.",
       "retry": "Riprova",
-      "card_unread": "Il modem non ha ancora risposto, quindi non c'è nulla da modificare finché non arriva la prima lettura.",
+      "card_unread": "Il servizio di rete del dispositivo non ha ancora risposto, quindi non c'è nulla da modificare.",
       "mac_invalid": "Inserisci un indirizzo MAC completo, sei coppie di cifre esadecimali.",
       "no_changes": "Non è ancora cambiato nulla."
     }

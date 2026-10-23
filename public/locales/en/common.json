@@ -484,21 +484,21 @@
   "ipPassthrough": {
     "page": {
       "title": "IP Passthrough",
-      "description": "Hand the modem's public IP straight to one connected device instead of routing for the whole LAN."
+      "description": "Enable or disable IP passthrough through the device's supported network backend."
     },
     "header": {
       "refresh": "Refresh"
     },
     "status": {
-      "label": "Last applied",
+      "label": "Device setting",
       "mode_title": {
-        "disabled": "Router mode",
-        "eth": "Ethernet passthrough",
+        "disabled": "Disabled",
+        "eth": "Enabled",
         "usb": "USB passthrough"
       },
       "blurb": {
-        "disabled": "Modem routes for the LAN",
-        "eth": "Set to hand the WAN IP to the Ethernet device",
+        "disabled": "The device backend reports IP passthrough is disabled.",
+        "eth": "The device backend reports IP passthrough is enabled.",
         "usb": "Set to hand the WAN IP to the USB device"
       },
       "no_target": "No device selected",
@@ -508,7 +508,7 @@
     },
     "card": {
       "title": "Passthrough configuration",
-      "description": "Applying writes every setting and reboots the modem.",
+      "description": "Applying stores the setting through the device backend and reboots the modem.",
       "apply": "Apply and reboot",
       "discard": "Discard changes",
       "unsaved_one": "{{count}} unsaved change",
@@ -522,7 +522,7 @@
     },
     "rows": {
       "mode": {
-        "label": "Mode"
+        "label": "IP Passthrough"
       },
       "target": {
         "label": "Target device",
@@ -543,8 +543,8 @@
       }
     },
     "options": {
-      "mode_disabled": "Router",
-      "mode_eth": "Ethernet",
+      "mode_disabled": "Off",
+      "mode_eth": "On",
       "mode_usb": "USB",
       "target_automatic": "Automatic",
       "target_manual": "By MAC",
@@ -554,24 +554,24 @@
       "dns_on": "On"
     },
     "mode_note": {
-      "rest": "Ethernet or USB hands the WAN IP to one device, and the modem stops answering at its LAN gateway. Keep Tailscale or another way in.",
-      "to_passthrough": "Applying reboots the modem and this tab loses it. Afterwards the LAN gateway stops answering, so keep Tailscale or another way in.",
-      "to_router": "Applying reboots the modem and this tab loses it. The LAN gateway answers again after the reboot."
+      "rest": "Enabling IP passthrough may make the LAN gateway unreachable. Keep Tailscale or another way back in.",
+      "to_passthrough": "Applying enables IP passthrough and reboots the modem. The LAN gateway may become unreachable, so keep Tailscale or another way back in.",
+      "to_router": "Applying disables IP passthrough and reboots the modem. The LAN gateway should return after the reboot."
     },
     "dialog": {
       "title": "Apply and reboot now?",
-      "body": "The settings are written and the modem reboots immediately. This page hands off to the reboot countdown and signs you out.",
+      "body": "The device stores the setting and reboots immediately. This page hands off to the reboot countdown and signs you out.",
       "body_gateway": "Once passthrough is active the modem stops answering at its LAN gateway address. Make sure you have Tailscale, the passthrough device itself, or a serial console to get back in.",
       "body_persist": "The setting persists across further reboots.",
       "cancel": "Cancel",
       "confirm": "Apply and reboot"
     },
-    "toast_apply_error": "Couldn't apply the IP Passthrough settings",
+    "toast_apply_error": "Couldn't apply the IP Passthrough setting",
     "errors": {
-      "read_title": "Couldn't read the passthrough configuration",
-      "read_body": "Nothing has been changed. Try again, or check that the modem is answering.",
+      "read_title": "Couldn't read the passthrough setting",
+      "read_body": "Nothing has been changed. Try again, or check that the device network service is running.",
       "retry": "Retry",
-      "card_unread": "The modem hasn't answered yet, so there is nothing to change until the first read lands.",
+      "card_unread": "The device network service hasn't answered yet, so there is nothing to change until the first read lands.",
       "mac_invalid": "Enter a full MAC address, six pairs of hex digits.",
       "no_changes": "Nothing has changed yet."
     }

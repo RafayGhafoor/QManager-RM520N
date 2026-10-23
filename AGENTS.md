@@ -42,6 +42,12 @@ Anything that *can* be met by extending the backend must still be.
    `public/locales/*/cellular.json`. The read path itself is backend-only
    (`scripts/www/cgi-bin/quecmanager/cellular/sms.sh`). Recorded in
    [`docs/specs/sms-vendor-store.md`](./docs/specs/sms-vendor-store.md).
+5. **O5A IP Passthrough matches the device's supported backend** (2026-10-23,
+   owner authorized this adaptation) — the upstream QMAP controls fail on the
+   RG520N-EB firmware, while the product backend exposes only an enabled flag.
+   `components/local-network/ip-passthrough/**`, `hooks/use-ip-passthrough.ts`,
+   `types/ip-passthrough.ts`, `public/locales/{en,id,it,zh-CN,zh-TW}/common.json`.
+   Recorded in [`docs/specs/ip-passthrough-o5a.md`](./docs/specs/ip-passthrough-o5a.md).
 
 Keep any such change minimal, add it here when you make it, and prefer extending
 the backend if a future need can be met without touching app code. An app-layer

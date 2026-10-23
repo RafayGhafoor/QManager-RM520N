@@ -3,74 +3,27 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { authFetch } from "@/lib/auth-fetch";
 import type {
-  PassthroughMode,
-  UsbMode,
-  DnsProxy,
-  IpptNat,
   IpPassthroughSettingsResponse,
-  IpPassthroughSaveRequest,
+  IpPassthroughApplyRequest,
   IpPassthroughSaveResponse,
 } from "@/types/ip-passthrough";
 
-// =============================================================================
-// useIpPassthrough — Fetch & Save Hook for IP Passthrough Settings
-// =============================================================================
-// Fetches current IPPT configuration on mount and exposes a saveSettings action.
-// Applying settings triggers an immediate device reboot — no separate reboot
-// action is needed.
-//
-// Backend endpoint:
-//   GET/POST /cgi-bin/quecmanager/network/ip_passthrough.sh
-// =============================================================================
-
 const CGI_ENDPOINT = "/cgi-bin/quecmanager/network/ip_passthrough.sh";
 
-export interface IpPassthroughApplyData {
-  passthrough_mode: PassthroughMode;
-  target_mac: string;
-  ippt_nat: IpptNat;
-  usb_mode: UsbMode;
-  dns_proxy: DnsProxy;
-}
-
 export interface UseIpPassthroughReturn {
-  /** Current passthrough mode (null before first fetch) */
-  passthroughMode: PassthroughMode | null;
-  /** Target device MAC — "FF:FF:FF:FF:FF:FF" = automatic, empty = none (null before first fetch) */
-  targetMac: string | null;
-  /** IPPT NAT mode (null before first fetch) */
-  ipptNat: IpptNat | null;
-  /** Current USB modem protocol (null before first fetch) */
-  usbMode: UsbMode | null;
-  /** DNS offloading state (null before first fetch) */
-  dnsProxy: DnsProxy | null;
-  /** True while initial fetch is in progress */
+  enabled: boolean | null;
   isLoading: boolean;
-  /** True while a save operation is in progress */
   isSaving: boolean;
-  /** Error message if fetch or save failed */
   error: string | null;
-  /**
-   * Apply all IP Passthrough settings. The backend will apply AT commands
-   * and immediately trigger a device reboot. Returns true if the request
-   * was accepted (reboot will follow).
-   */
-  saveSettings: (data: IpPassthroughApplyData) => Promise<boolean>;
-  /** Re-fetch settings */
+  saveSettings: (enabled: boolean) => Promise<boolean>;
   refresh: () => void;
 }
 
 export function useIpPassthrough(): UseIpPassthroughReturn {
-  const [passthroughMode, setPassthroughMode] =
-    useState<PassthroughMode | null>(null);
-  const [targetMac, setTargetMac] = useState<string | null>(null);
-  const [ipptNat, setIpptNat] = useState<IpptNat | null>(null);
-  const [usbMode, setUsbMode] = useState<UsbMode | null>(null);
-  const [dnsProxy, setDnsProxy] = useState<DnsProxy | null>(null);
+  const [enabled, setEnabled] = useState<boolean | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
   const mountedRef = useRef(true);
 
   useEffect(() => {
@@ -80,9 +33,6 @@ export function useIpPassthrough(): UseIpPassthroughReturn {
     };
   }, []);
 
-  // ---------------------------------------------------------------------------
-  // Fetch current settings
-  // ---------------------------------------------------------------------------
   const fetchSettings = useCallback(async (silent = false) => {
     if (!silent) setIsLoading(true);
     setError(null);
@@ -96,16 +46,12 @@ export function useIpPassthrough(): UseIpPassthroughReturn {
       const data: IpPassthroughSettingsResponse = await resp.json();
       if (!mountedRef.current) return;
 
-      if (!data.success) {
-        setError(data.error || "Failed to fetch IP Passthrough settings");
+      if (!data.success || typeof data.enabled !== "boolean") {
+        setError(data.detail || data.error || "Failed to fetch IP Passthrough settings");
         return;
       }
 
-      setPassthroughMode(data.passthrough_mode);
-      setTargetMac(data.target_mac);
-      setIpptNat(data.ippt_nat);
-      setUsbMode(data.usb_mode);
-      setDnsProxy(data.dns_proxy);
+      setEnabled(data.enabled);
     } catch (err) {
       if (!mountedRef.current) return;
       setError(
@@ -120,27 +66,19 @@ export function useIpPassthrough(): UseIpPassthroughReturn {
     }
   }, []);
 
-  // Fetch on mount
   useEffect(() => {
     fetchSettings();
   }, [fetchSettings]);
 
-  // ---------------------------------------------------------------------------
-  // Apply all IP Passthrough settings (backend reboots immediately after)
-  // ---------------------------------------------------------------------------
   const saveSettings = useCallback(
-    async (data: IpPassthroughApplyData): Promise<boolean> => {
+    async (nextEnabled: boolean): Promise<boolean> => {
       setError(null);
       setIsSaving(true);
 
       try {
-        const request: IpPassthroughSaveRequest = {
+        const request: IpPassthroughApplyRequest = {
           action: "apply",
-          passthrough_mode: data.passthrough_mode,
-          target_mac: data.target_mac,
-          ippt_nat: data.ippt_nat,
-          usb_mode: data.usb_mode,
-          dns_proxy: data.dns_proxy,
+          enabled: nextEnabled,
         };
 
         const resp = await authFetch(CGI_ENDPOINT, {
@@ -178,11 +116,7 @@ export function useIpPassthrough(): UseIpPassthroughReturn {
   );
 
   return {
-    passthroughMode,
-    targetMac,
-    ipptNat,
-    usbMode,
-    dnsProxy,
+    enabled,
     isLoading,
     isSaving,
     error,

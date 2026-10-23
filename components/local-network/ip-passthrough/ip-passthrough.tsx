@@ -13,29 +13,14 @@ import IPPassthroughCard from "./ip-passthrough-card";
 import StatusStrip from "./status-strip";
 import { HEADER_PILL, PAGE_HEAD, PAGE_ROOT, PILL_GLYPH } from "./shapes";
 
-// The shell owns the page's one read. The cascade root declares initial/animate once;
-// children carry only `variants`, or they detach from its clock.
-
 const K = "ipPassthrough";
 
 const IPPassthroughComponent = () => {
   const { t } = useTranslation("common");
+  const { enabled, isLoading, isSaving, error, saveSettings, refresh } =
+    useIpPassthrough();
 
-  const {
-    passthroughMode,
-    targetMac,
-    ipptNat,
-    usbMode,
-    dnsProxy,
-    isLoading,
-    isSaving,
-    error,
-    saveSettings,
-    refresh,
-  } = useIpPassthrough();
-
-  // A read that failed and left nothing behind, as distinct from still loading.
-  const failed = passthroughMode === null && !isLoading && error !== null;
+  const failed = enabled === null && !isLoading && error !== null;
 
   return (
     <motion.div
@@ -51,7 +36,6 @@ const IPPassthroughComponent = () => {
             <p className={PAGE_HEAD.DESC}>{t(`${K}.page.description`)}</p>
           </div>
           <div className={PAGE_HEAD.ACTIONS}>
-            {/* `refresh(silent?)`: a click event must never reach it. */}
             <Button
               type="button"
               variant="ghost"
@@ -71,24 +55,12 @@ const IPPassthroughComponent = () => {
       </motion.div>
 
       <motion.div variants={staggerItem}>
-        <StatusStrip
-          mode={passthroughMode}
-          targetMac={targetMac}
-          ipptNat={ipptNat}
-          usbMode={usbMode}
-          dnsProxy={dnsProxy}
-          failed={failed}
-          onRetry={() => refresh()}
-        />
+        <StatusStrip enabled={enabled} failed={failed} onRetry={() => refresh()} />
       </motion.div>
 
       <motion.div variants={staggerItem}>
         <IPPassthroughCard
-          passthroughMode={passthroughMode}
-          targetMac={targetMac}
-          ipptNat={ipptNat}
-          usbMode={usbMode}
-          dnsProxy={dnsProxy}
+          enabled={enabled}
           isLoading={isLoading}
           isSaving={isSaving}
           failed={failed}

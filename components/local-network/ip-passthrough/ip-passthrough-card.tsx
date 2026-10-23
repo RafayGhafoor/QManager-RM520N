@@ -1,14 +1,7 @@
 "use client";
 
 import * as React from "react";
-import {
-  useId,
-  useMemo,
-  useState,
-  type ChangeEvent,
-  type FormEvent,
-} from "react";
-import { AnimatePresence, motion } from "motion/react";
+import { useId, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { RotateCcwIcon, TriangleAlertIcon } from "lucide-react";
@@ -32,267 +25,109 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { CardFoot } from "@/components/ui/card-foot";
-import { HintIcon } from "@/components/ui/hint-icon";
-import { fieldVariants } from "@/components/ui/input";
 import { SaveButton, useSaveFlash } from "@/components/ui/save-button";
-import {
-  SegmentedField,
-  type SegmentedOption,
-} from "@/components/ui/segmented-field";
+import { SegmentedField, type SegmentedOption } from "@/components/ui/segmented-field";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useMotionReduced } from "@/components/motion-preference";
-import { DUR, EASE_STANDARD } from "@/lib/motion";
 import { cn } from "@/lib/utils";
-import type { IpPassthroughApplyData } from "@/hooks/use-ip-passthrough";
-import type {
-  DnsProxy,
-  IpptNat,
-  PassthroughMode,
-  UsbMode,
-} from "@/types/ip-passthrough";
 
 import {
-  AUTOMATIC_MAC,
   CARD_DESC,
   CARD_PAD,
   CARD_SHELL,
   CARD_TITLE,
   FOOT,
-  MAC_FIELD,
   MODE_NOTE,
   SETTING,
   SKELETON,
 } from "./shapes";
-import { USB_SHORT } from "./status-strip";
-
-// Applying writes every setting and reboots the modem; the AlertDialog stays in front of it.
-// The reboot hand-off order is a contract: docs/reference/ip-passthrough.md.
 
 const K = "ipPassthrough";
-
-/** Descriptive local values: Radix's Select treats a bare `"0"` as unset. */
-type MacSource = "automatic" | "manual";
-type NatMode = "nat-on" | "nat-off";
-type UsbModeLocal = "rmnet" | "ecm" | "mbim" | "rndis";
-
-const USB_TO_API: Record<UsbModeLocal, UsbMode> = {
-  rmnet: "0",
-  ecm: "1",
-  mbim: "2",
-  rndis: "3",
-};
-
-const USB_FROM_API: Record<string, UsbModeLocal> = {
-  "0": "rmnet",
-  "1": "ecm",
-  "2": "mbim",
-  "3": "rndis",
-};
-
-const USB_ORDER: readonly UsbModeLocal[] = ["rmnet", "ecm", "mbim", "rndis"];
-
-const MAC_PATTERN = /^[0-9A-F]{2}(:[0-9A-F]{2}){5}$/;
-
-/** The fill marks the pick; no check glyph on this surface. */
-const NO_GLYPH = () => null;
-
-interface Draft {
-  mode: PassthroughMode;
-  macSource: MacSource;
-  macInput: string;
-  nat: NatMode;
-  usb: UsbModeLocal;
-  dns: DnsProxy;
-}
-
-/** The MAC actually sent; both the dirty check and the apply go through it. */
-function resolveMac(d: Draft): string {
-  if (d.mode === "disabled") return "";
-  return d.macSource === "automatic" ? AUTOMATIC_MAC : d.macInput;
-}
+type Choice = "disabled" | "enabled";
 
 function SettingRow({
   label,
   dirty,
-  hint,
-  sub,
-  held = false,
-  wide = false,
   children,
 }: {
   label: string;
   dirty: boolean;
-  hint?: React.ReactNode;
-  sub?: string;
-  held?: boolean;
-  wide?: boolean;
   children: React.ReactNode;
 }) {
   return (
     <div className={SETTING.ROW}>
-      <div className={cn(SETTING.KEY, held && SETTING.HELD)}>
+      <div className={SETTING.KEY}>
         <span className={SETTING.KEY_LINE}>
           {label}
-          {hint}
           <span
             aria-hidden
             className={cn(SETTING.DOT, dirty ? SETTING.DOT_ON : SETTING.DOT_OFF)}
           />
         </span>
-        {sub ? <span className={SETTING.KEY_SUB}>{sub}</span> : null}
       </div>
-      <div className={wide ? SETTING.CONTROL_WIDE : SETTING.CONTROL}>
-        {children}
-      </div>
+      <div className={SETTING.CONTROL}>{children}</div>
     </div>
   );
 }
 
 function SettingsSkeleton() {
-  const row = (pill: string, i: number) => (
-    <div key={i} className={SETTING.ROW}>
-      <Skeleton className={SKELETON.ROW_KEY} />
-      <Skeleton className={cn(SKELETON.PILL, "ml-auto", pill)} />
-    </div>
-  );
   return (
     <div className={SETTING.BODY} aria-hidden>
       <div className={SETTING.GROUP}>
         <Skeleton className={SKELETON.EYEBROW} />
-        {row("w-60", 0)}
-        <div className="flex flex-col gap-1">
-          <Skeleton className={cn(SKELETON.NOTE_LINE, "w-full")} />
-          <Skeleton className={cn(SKELETON.NOTE_LINE, "w-3/4")} />
-          <Skeleton className={cn(SKELETON.NOTE_LINE, "w-1/2 @2xl/card:hidden")} />
+        <div className={SETTING.ROW}>
+          <Skeleton className={SKELETON.ROW_KEY} />
+          <Skeleton className={cn(SKELETON.PILL, "ml-auto w-36")} />
         </div>
-        {row("w-48", 1)}
-      </div>
-      <div className={SETTING.GROUP}>
-        <Skeleton className={SKELETON.EYEBROW} />
-        {["w-52", "w-72", "w-28"].map(row)}
+        <Skeleton className={cn(SKELETON.NOTE_LINE, "w-full")} />
+        <Skeleton className={cn(SKELETON.NOTE_LINE, "w-3/4")} />
       </div>
     </div>
   );
 }
 
-export interface IpPassthroughCardProps {
-  /** `null` until the first successful read. */
-  passthroughMode: PassthroughMode | null;
-  targetMac: string | null;
-  ipptNat: IpptNat | null;
-  usbMode: UsbMode | null;
-  dnsProxy: DnsProxy | null;
+export interface IPPassthroughCardProps {
+  enabled: boolean | null;
   isLoading: boolean;
   isSaving: boolean;
-  /** True when a read failed and left nothing behind. */
   failed: boolean;
-  saveSettings: (data: IpPassthroughApplyData) => Promise<boolean>;
+  saveSettings: (enabled: boolean) => Promise<boolean>;
 }
 
 export function IPPassthroughCard({
-  passthroughMode,
-  targetMac,
-  ipptNat,
-  usbMode,
-  dnsProxy,
+  enabled,
   isLoading,
   isSaving,
   failed,
   saveSettings,
-}: IpPassthroughCardProps) {
+}: IPPassthroughCardProps) {
   const { t } = useTranslation("common");
   const { saved, markSaved } = useSaveFlash();
-  const reduced = useMotionReduced();
   const formId = useId();
-
-  // Edits laid over the saved baseline: a re-read re-bases them instead of erasing them.
-  const [edits, setEdits] = useState<Partial<Draft>>({});
+  const [draft, setDraft] = useState<boolean | null>(null);
   const [showConfirm, setShowConfirm] = useState(false);
 
-  const baseline = useMemo<Draft | null>(() => {
-    if (
-      passthroughMode === null ||
-      ipptNat === null ||
-      usbMode === null ||
-      dnsProxy === null
-    ) {
-      return null;
-    }
-    const mac = (targetMac ?? "").toUpperCase();
-    const automatic = mac === "" || mac === AUTOMATIC_MAC;
-    return {
-      mode: passthroughMode,
-      macSource: automatic ? "automatic" : "manual",
-      macInput: automatic ? "" : mac,
-      nat: ipptNat === "1" ? "nat-on" : "nat-off",
-      usb: USB_FROM_API[usbMode] ?? "ecm",
-      dns: dnsProxy,
-    };
-  }, [passthroughMode, targetMac, ipptNat, usbMode, dnsProxy]);
-
-  const draft = useMemo<Draft | null>(
-    () => (baseline === null ? null : { ...baseline, ...edits }),
-    [baseline, edits],
-  );
-
-  const state = draft !== null && baseline !== null ? { draft, baseline } : null;
-
-  const setField = <F extends keyof Draft>(field: F, value: Draft[F]) => {
-    setEdits((prev) => ({ ...prev, [field]: value }));
-  };
-
-  const modeDirty = state !== null && state.draft.mode !== state.baseline.mode;
-  const targetDirty =
-    state !== null && resolveMac(state.draft) !== resolveMac(state.baseline);
-  const natDirty = state !== null && state.draft.nat !== state.baseline.nat;
-  const usbDirty = state !== null && state.draft.usb !== state.baseline.usb;
-  const dnsDirty = state !== null && state.draft.dns !== state.baseline.dns;
-
-  const dirtyCount = [
-    modeDirty,
-    targetDirty,
-    natDirty,
-    usbDirty,
-    dnsDirty,
-  ].filter(Boolean).length;
-
-  const macRequired = state !== null && state.draft.mode !== "disabled";
-  const macManual =
-    state !== null && macRequired && state.draft.macSource === "manual";
-  const macValid =
-    state === null || !macManual || MAC_PATTERN.test(state.draft.macInput);
-
+  const nextEnabled = draft ?? enabled;
+  const dirty = enabled !== null && nextEnabled !== enabled;
   const blockedReason =
-    state === null
+    enabled === null
       ? t(`${K}.errors.card_unread`)
-      : !macValid
-        ? t(`${K}.errors.mac_invalid`)
-        : dirtyCount === 0
-          ? t(`${K}.errors.no_changes`)
-          : null;
+      : !dirty
+        ? t(`${K}.errors.no_changes`)
+        : null;
 
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault();
-    if (state === null || !macValid || dirtyCount === 0) return;
+    if (enabled === null || !dirty) return;
     setShowConfirm(true);
   };
 
-  const handleDiscard = () => {
-    setEdits({});
-  };
+  const handleDiscard = () => setDraft(null);
 
   const handleConfirmedApply = async () => {
     setShowConfirm(false);
-    if (draft === null) return;
+    if (nextEnabled === null) return;
 
-    const ok = await saveSettings({
-      passthrough_mode: draft.mode,
-      target_mac: resolveMac(draft),
-      ippt_nat: draft.nat === "nat-on" ? "1" : "0",
-      usb_mode: USB_TO_API[draft.usb],
-      dns_proxy: draft.dns,
-    });
-
+    const ok = await saveSettings(nextEnabled);
     if (!ok) {
       toast.error(t(`${K}.toast_apply_error`));
       return;
@@ -305,35 +140,12 @@ export function IPPassthroughCard({
     window.location.href = "/reboot/";
   };
 
-  // Strip non-hex, uppercase, re-insert colons: typing is format-correct by construction.
-  const handleMacChange = (event: ChangeEvent<HTMLInputElement>) => {
-    const raw = event.target.value.replace(/[^0-9A-Fa-f]/g, "").toUpperCase();
-    const formatted = raw.match(/.{1,2}/g)?.join(":") ?? raw;
-    setField("macInput", formatted.slice(0, 17));
-  };
-
-  const held = isSaving || state === null;
-
-  const modeOptions: readonly SegmentedOption<PassthroughMode>[] = [
+  const options: readonly SegmentedOption<Choice>[] = [
     { value: "disabled", label: t(`${K}.options.mode_disabled`) },
-    { value: "eth", label: t(`${K}.options.mode_eth`) },
-    { value: "usb", label: t(`${K}.options.mode_usb`) },
+    { value: "enabled", label: t(`${K}.options.mode_eth`) },
   ];
-  const targetOptions: readonly SegmentedOption<MacSource>[] = [
-    { value: "automatic", label: t(`${K}.options.target_automatic`) },
-    { value: "manual", label: t(`${K}.options.target_manual`) },
-  ];
-  const natOptions: readonly SegmentedOption<NatMode>[] = [
-    { value: "nat-on", label: t(`${K}.options.nat_on`) },
-    { value: "nat-off", label: t(`${K}.options.nat_off`) },
-  ];
-  const usbOptions: readonly SegmentedOption<UsbModeLocal>[] = USB_ORDER.map(
-    (v) => ({ value: v, label: USB_SHORT[USB_TO_API[v]] }),
-  );
-  const dnsOptions: readonly SegmentedOption<DnsProxy>[] = [
-    { value: "disabled", label: t(`${K}.options.dns_off`) },
-    { value: "enabled", label: t(`${K}.options.dns_on`) },
-  ];
+  const selection: Choice = nextEnabled ? "enabled" : "disabled";
+  const held = isSaving || enabled === null;
 
   return (
     <>
@@ -346,7 +158,7 @@ export function IPPassthroughCard({
         </CardHeader>
 
         <CardContent className={CARD_PAD}>
-          {state === null ? (
+          {enabled === null ? (
             isLoading || !failed ? (
               <SettingsSkeleton />
             ) : (
@@ -356,16 +168,15 @@ export function IPPassthroughCard({
             <form id={formId} className={SETTING.BODY} onSubmit={handleSubmit}>
               <div className={SETTING.GROUP}>
                 <p className={SETTING.LABEL}>{t(`${K}.groups.passthrough`)}</p>
-
-                <SettingRow label={t(`${K}.rows.mode.label`)} dirty={modeDirty}>
+                <SettingRow label={t(`${K}.rows.mode.label`)} dirty={dirty}>
                   <SegmentedField
-                    value={state.draft.mode}
-                    onValueChange={(v) => setField("mode", v)}
-                    options={modeOptions}
+                    value={selection}
+                    onValueChange={(value) => setDraft(value === "enabled")}
+                    options={options}
                     ariaLabel={t(`${K}.rows.mode.label`)}
                     disabled={held}
                     breakpoint="never"
-                    glyph={NO_GLYPH}
+                    glyph={() => null}
                   />
                 </SettingRow>
 
@@ -373,10 +184,10 @@ export function IPPassthroughCard({
                   role="status"
                   className={cn(
                     MODE_NOTE.ROOT,
-                    modeDirty ? MODE_NOTE.DIRTY : MODE_NOTE.REST,
+                    dirty ? MODE_NOTE.DIRTY : MODE_NOTE.REST,
                   )}
                 >
-                  {modeDirty ? (
+                  {dirty ? (
                     <RotateCcwIcon className={MODE_NOTE.GLYPH} aria-hidden />
                   ) : (
                     <TriangleAlertIcon
@@ -385,130 +196,25 @@ export function IPPassthroughCard({
                     />
                   )}
                   <span>
-                    {!modeDirty
+                    {!dirty
                       ? t(`${K}.mode_note.rest`)
-                      : state.draft.mode === "disabled"
-                        ? t(`${K}.mode_note.to_router`)
-                        : t(`${K}.mode_note.to_passthrough`)}
+                      : nextEnabled
+                        ? t(`${K}.mode_note.to_passthrough`)
+                        : t(`${K}.mode_note.to_router`)}
                   </span>
                 </div>
-
-                <SettingRow
-                  label={t(`${K}.rows.target.label`)}
-                  dirty={targetDirty}
-                  sub={macRequired ? undefined : t(`${K}.rows.target.pick_mode`)}
-                  held={!macRequired}
-                >
-                  <SegmentedField
-                    value={state.draft.macSource}
-                    onValueChange={(v) => setField("macSource", v)}
-                    options={targetOptions}
-                    ariaLabel={t(`${K}.rows.target.label`)}
-                    disabled={held || !macRequired}
-                    breakpoint="never"
-                    glyph={NO_GLYPH}
-                  />
-                  <AnimatePresence initial={false}>
-                    {macManual ? (
-                      <motion.div
-                        key="mac-entry"
-                        className={MAC_FIELD.WRAP}
-                        initial={{ opacity: 0, y: reduced ? 0 : -6 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: reduced ? 0 : -6 }}
-                        transition={{ duration: DUR.quick, ease: EASE_STANDARD }}
-                      >
-                        <input
-                          type="text"
-                          autoComplete="off"
-                          spellCheck={false}
-                          maxLength={17}
-                          value={state.draft.macInput}
-                          onChange={handleMacChange}
-                          disabled={held}
-                          aria-label={t(`${K}.card.mac_label`)}
-                          aria-invalid={!macValid || undefined}
-                          placeholder={t(`${K}.card.mac_placeholder`)}
-                          className={cn(fieldVariants(), MAC_FIELD.INPUT)}
-                        />
-                        {!macValid ? (
-                          <span className={MAC_FIELD.ERROR} role="alert">
-                            {t(`${K}.errors.mac_invalid`)}
-                          </span>
-                        ) : null}
-                      </motion.div>
-                    ) : null}
-                  </AnimatePresence>
-                </SettingRow>
-              </div>
-
-              <div className={SETTING.GROUP}>
-                <p className={SETTING.LABEL}>{t(`${K}.groups.network`)}</p>
-
-                <SettingRow
-                  label={t(`${K}.rows.nat.label`)}
-                  dirty={natDirty}
-                  hint={
-                    <HintIcon label={t(`${K}.rows.nat.hint_label`)}>
-                      {t(`${K}.rows.nat.hint`)}
-                    </HintIcon>
-                  }
-                >
-                  <SegmentedField
-                    value={state.draft.nat}
-                    onValueChange={(v) => setField("nat", v)}
-                    options={natOptions}
-                    ariaLabel={t(`${K}.rows.nat.label`)}
-                    disabled={held}
-                    breakpoint="never"
-                    glyph={NO_GLYPH}
-                  />
-                </SettingRow>
-
-                <SettingRow label={t(`${K}.rows.usb.label`)} dirty={usbDirty} wide>
-                  <SegmentedField
-                    value={state.draft.usb}
-                    onValueChange={(v) => setField("usb", v)}
-                    options={usbOptions}
-                    ariaLabel={t(`${K}.rows.usb.label`)}
-                    disabled={held}
-                    breakpoint="lg"
-                    glyph={NO_GLYPH}
-                  />
-                </SettingRow>
-
-                <SettingRow
-                  label={t(`${K}.rows.dns.label`)}
-                  dirty={dnsDirty}
-                  hint={
-                    <HintIcon label={t(`${K}.rows.dns.hint_label`)}>
-                      {t(`${K}.rows.dns.hint`)}
-                    </HintIcon>
-                  }
-                >
-                  <SegmentedField
-                    value={state.draft.dns}
-                    onValueChange={(v) => setField("dns", v)}
-                    options={dnsOptions}
-                    ariaLabel={t(`${K}.rows.dns.label`)}
-                    disabled={held}
-                    breakpoint="never"
-                    glyph={NO_GLYPH}
-                  />
-                </SettingRow>
               </div>
             </form>
           )}
         </CardContent>
 
-        {/* Outside the form so `mt-auto` reaches the card edge; `form=` keeps Enter-to-submit. */}
         <CardFoot
           className={CARD_PAD}
           status={
-            dirtyCount > 0 ? (
+            dirty ? (
               <span className={FOOT.LINE}>
                 <span className={FOOT.DOT} aria-hidden />
-                {t(`${K}.card.unsaved`, { count: dirtyCount })}
+                {t(`${K}.card.unsaved_one`, { count: 1 })}
               </span>
             ) : undefined
           }
@@ -518,7 +224,7 @@ export function IPPassthroughCard({
                 type="button"
                 variant="ghost"
                 onClick={handleDiscard}
-                disabled={isSaving || dirtyCount === 0}
+                disabled={isSaving || !dirty}
                 size="action"
               >
                 {t(`${K}.card.discard`)}
@@ -526,7 +232,7 @@ export function IPPassthroughCard({
               <SaveButton
                 type="submit"
                 form={formId}
-                variant={modeDirty ? "destructive" : "default"}
+                variant={dirty && nextEnabled ? "destructive" : "default"}
                 isSaving={isSaving}
                 saved={saved}
                 label={t(`${K}.card.apply`)}
@@ -545,7 +251,7 @@ export function IPPassthroughCard({
             <AlertDialogDescription asChild>
               <div className="flex flex-col gap-3 text-sm">
                 <p>{t(`${K}.dialog.body`)}</p>
-                {state !== null && state.draft.mode !== "disabled" ? (
+                {nextEnabled ? (
                   <p className="text-on-surface font-medium">
                     {t(`${K}.dialog.body_gateway`)}
                   </p>

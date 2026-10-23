@@ -484,21 +484,21 @@
   "ipPassthrough": {
     "page": {
       "title": "IP 直通",
-      "description": "将调制解调器的公网 IP 直接交给一台连接设备，而不是为整个局域网做路由。"
+      "description": "通过设备支持的网络后端启用或停用 IP 直通。"
     },
     "header": {
       "refresh": "刷新"
     },
     "status": {
-      "label": "上次应用",
+      "label": "设备设置",
       "mode_title": {
-        "disabled": "路由模式",
-        "eth": "以太网直通",
+        "disabled": "已关闭",
+        "eth": "已开启",
         "usb": "USB 直通"
       },
       "blurb": {
-        "disabled": "调制解调器为局域网做路由",
-        "eth": "设置为将 WAN IP 交给以太网设备",
+        "disabled": "设备后端报告 IP 直通已关闭。",
+        "eth": "设备后端报告 IP 直通已开启。",
         "usb": "设置为将 WAN IP 交给 USB 设备"
       },
       "no_target": "未选择设备",
@@ -508,7 +508,7 @@
     },
     "card": {
       "title": "直通配置",
-      "description": "应用会写入所有设置并重启调制解调器。",
+      "description": "应用后会通过设备后端保存设置并重启调制解调器。",
       "apply": "应用并重启",
       "discard": "放弃更改",
       "unsaved_one": "{{count}} 项未保存的更改",
@@ -522,7 +522,7 @@
     },
     "rows": {
       "mode": {
-        "label": "模式"
+        "label": "IP 直通"
       },
       "target": {
         "label": "目标设备",
@@ -543,8 +543,8 @@
       }
     },
     "options": {
-      "mode_disabled": "路由",
-      "mode_eth": "以太网",
+      "mode_disabled": "关闭",
+      "mode_eth": "开启",
       "mode_usb": "USB",
       "target_automatic": "自动",
       "target_manual": "按 MAC",
@@ -554,13 +554,13 @@
       "dns_on": "开启"
     },
     "mode_note": {
-      "rest": "以太网或 USB 会把 WAN IP 交给一台设备，调制解调器将不再在其局域网网关地址上响应。请保留 Tailscale 或其他登入方式。",
-      "to_passthrough": "应用会重启调制解调器，此标签页将与其断开。之后局域网网关不再响应，请保留 Tailscale 或其他登入方式。",
-      "to_router": "应用会重启调制解调器，此标签页将与其断开。重启后局域网网关会恢复响应。"
+      "rest": "启用 IP 直通可能导致局域网网关无法访问。请保留 Tailscale 或其他登入方式。",
+      "to_passthrough": "启用 IP 直通会重启调制解调器。局域网网关可能无法访问，请保留 Tailscale 或其他登入方式。",
+      "to_router": "停用 IP 直通会重启调制解调器。重启后局域网网关应可恢复访问。"
     },
     "dialog": {
       "title": "现在应用并重启？",
-      "body": "设置会被写入，调制解调器随即重启。本页面将转到重启倒计时并让你退出登录。",
+      "body": "设备会保存此设置并立即重启。本页面将转到重启倒计时并让你退出登录。",
       "body_gateway": "直通生效后，调制解调器将不再在局域网网关地址上应答。请确认你有 Tailscale、直通设备本身或串口控制台可以重新登入。",
       "body_persist": "该设置会在后续重启后继续保持。",
       "cancel": "取消",
@@ -568,10 +568,10 @@
     },
     "toast_apply_error": "无法应用 IP 直通设置",
     "errors": {
-      "read_title": "无法读取直通配置",
-      "read_body": "未做任何更改。请重试，或检查调制解调器是否在响应。",
+      "read_title": "无法读取直通设置",
+      "read_body": "未做任何更改。请重试，或检查设备网络服务是否正在运行。",
       "retry": "重试",
-      "card_unread": "调制解调器尚未响应，在首次读取完成前没有可更改的内容。",
+      "card_unread": "设备网络服务尚未响应，在首次读取完成前没有可更改的内容。",
       "mac_invalid": "请输入完整的 MAC 地址，即六组十六进制数字。",
       "no_changes": "尚未有任何更改。"
     }

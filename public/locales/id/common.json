@@ -484,21 +484,21 @@
   "ipPassthrough": {
     "page": {
       "title": "Passthrough IP",
-      "description": "Serahkan IP publik modem langsung ke satu perangkat yang terhubung, bukan merutekan untuk seluruh LAN."
+      "description": "Aktifkan atau nonaktifkan passthrough IP melalui backend jaringan yang didukung perangkat."
     },
     "header": {
       "refresh": "Segarkan"
     },
     "status": {
-      "label": "Terakhir diterapkan",
+      "label": "Pengaturan perangkat",
       "mode_title": {
-        "disabled": "Mode router",
-        "eth": "Passthrough Ethernet",
+        "disabled": "Nonaktif",
+        "eth": "Aktif",
         "usb": "Passthrough USB"
       },
       "blurb": {
-        "disabled": "Modem merutekan untuk LAN",
-        "eth": "Disetel untuk menyerahkan IP WAN ke perangkat Ethernet",
+        "disabled": "Backend perangkat melaporkan passthrough IP nonaktif.",
+        "eth": "Backend perangkat melaporkan passthrough IP aktif.",
         "usb": "Disetel untuk menyerahkan IP WAN ke perangkat USB"
       },
       "no_target": "Tidak ada perangkat dipilih",
@@ -508,7 +508,7 @@
     },
     "card": {
       "title": "Konfigurasi passthrough",
-      "description": "Menerapkan akan menulis semua pengaturan dan me-reboot modem.",
+      "description": "Menerapkan akan menyimpan pengaturan melalui backend perangkat dan me-reboot modem.",
       "apply": "Terapkan dan reboot",
       "discard": "Buang perubahan",
       "unsaved_one": "{{count}} perubahan belum tersimpan",
@@ -522,7 +522,7 @@
     },
     "rows": {
       "mode": {
-        "label": "Mode"
+        "label": "Passthrough IP"
       },
       "target": {
         "label": "Perangkat target",
@@ -543,8 +543,8 @@
       }
     },
     "options": {
-      "mode_disabled": "Router",
-      "mode_eth": "Ethernet",
+      "mode_disabled": "Nonaktif",
+      "mode_eth": "Aktif",
       "mode_usb": "USB",
       "target_automatic": "Otomatis",
       "target_manual": "Lewat MAC",
@@ -554,13 +554,13 @@
       "dns_on": "Aktif"
     },
     "mode_note": {
-      "rest": "Ethernet atau USB menyerahkan IP WAN ke satu perangkat, dan modem berhenti menjawab di gateway LAN-nya. Siapkan Tailscale atau jalan masuk lain.",
-      "to_passthrough": "Menerapkan akan me-reboot modem dan tab ini kehilangan koneksinya. Setelah itu gateway LAN berhenti menjawab, jadi siapkan Tailscale atau jalan masuk lain.",
-      "to_router": "Menerapkan akan me-reboot modem dan tab ini kehilangan koneksinya. Gateway LAN kembali menjawab setelah reboot."
+      "rest": "Mengaktifkan passthrough IP mungkin membuat gateway LAN tidak dapat dijangkau. Siapkan Tailscale atau jalan masuk lain.",
+      "to_passthrough": "Mengaktifkan passthrough IP akan me-reboot modem. Gateway LAN mungkin tidak dapat dijangkau, jadi siapkan Tailscale atau jalan masuk lain.",
+      "to_router": "Menonaktifkan passthrough IP akan me-reboot modem. Gateway LAN seharusnya dapat dijangkau kembali setelah reboot."
     },
     "dialog": {
       "title": "Terapkan dan reboot sekarang?",
-      "body": "Pengaturan ditulis dan modem langsung reboot. Halaman ini beralih ke hitung mundur reboot dan mengeluarkan Anda dari sesi.",
+      "body": "Perangkat menyimpan pengaturan dan langsung reboot. Halaman ini beralih ke hitung mundur reboot dan mengeluarkan Anda dari sesi.",
       "body_gateway": "Begitu passthrough aktif, modem berhenti menjawab di alamat gateway LAN-nya. Pastikan Anda punya Tailscale, perangkat passthrough itu sendiri, atau konsol serial untuk masuk kembali.",
       "body_persist": "Pengaturan ini bertahan pada reboot berikutnya.",
       "cancel": "Batal",
@@ -568,10 +568,10 @@
     },
     "toast_apply_error": "Tidak dapat menerapkan pengaturan Passthrough IP",
     "errors": {
-      "read_title": "Tidak dapat membaca konfigurasi passthrough",
-      "read_body": "Tidak ada yang diubah. Coba lagi, atau periksa apakah modem menjawab.",
+      "read_title": "Tidak dapat membaca pengaturan passthrough",
+      "read_body": "Tidak ada yang diubah. Coba lagi, atau periksa apakah layanan jaringan perangkat berjalan.",
       "retry": "Coba lagi",
-      "card_unread": "Modem belum menjawab, jadi tidak ada yang dapat diubah sampai pembacaan pertama masuk.",
+      "card_unread": "Layanan jaringan perangkat belum menjawab, jadi belum ada yang dapat diubah.",
       "mac_invalid": "Masukkan alamat MAC lengkap, enam pasang digit heksadesimal.",
       "no_changes": "Belum ada yang berubah."
     }
