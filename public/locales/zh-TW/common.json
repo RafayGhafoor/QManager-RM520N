@@ -481,101 +481,86 @@
     "toast_saved": "自訂 DNS 已套用。快取更新期間，區域網路用戶端可能會有短暫停頓。",
     "toast_error": "無法套用 DNS 變更。"
   },
-  "ipPassthrough": {
-    "page": {
-      "title": "IP 直通",
-      "description": "透過裝置支援的網路後端啟用或停用 IP 直通。"
-    },
-    "header": {
-      "refresh": "重新整理"
-    },
-    "status": {
-      "label": "裝置設定",
-      "mode_title": {
-        "disabled": "已關閉",
-        "eth": "已開啟",
-        "usb": "USB 直通"
+    "ipPassthrough": {
+      "page": {
+        "title": "IP 直通",
+        "description": "將電信業者配發的 IP 位址直接交給這台數據機後方的路由器，而不是透過 NAT 共用。"
       },
-      "blurb": {
-        "disabled": "裝置後端回報 IP 直通已關閉。",
-        "eth": "裝置後端回報 IP 直通已開啟。",
-        "usb": "設定為將 WAN IP 交給 USB 裝置"
+      "header": {
+        "refresh": "重新整理"
       },
-      "no_target": "未選擇裝置",
-      "gateway": "區域網路閘道",
-      "gateway_served": "提供服務",
-      "gateway_not_served": "不提供服務"
-    },
-    "card": {
-      "title": "直通設定",
-      "description": "套用後會透過裝置後端儲存設定並重新啟動數據機。",
-      "apply": "套用並重啟",
-      "discard": "捨棄變更",
-      "unsaved_one": "{{count}} 項未儲存的變更",
-      "unsaved_other": "{{count}} 項未儲存的變更",
-      "mac_label": "目標 MAC 位址",
-      "mac_placeholder": "XX:XX:XX:XX:XX:XX"
-    },
-    "groups": {
-      "passthrough": "直通",
-      "network": "網路"
-    },
-    "rows": {
-      "mode": {
-        "label": "IP 直通"
+      "status": {
+        "label": "直通",
+        "title": {
+          "off": "已關閉",
+          "active": "已啟用",
+          "pending": "等待裝置",
+          "off_pending": "正在關閉"
+        },
+        "blurb": {
+          "off": "數據機與區域網路內所有裝置共用一個位址。",
+          "active": "電信業者 IP 已交給 {{mac}}。這台數據機仍可透過其區域網路位址連線。",
+          "pending": "已開啟，但尚未生效。一有裝置連接到區域網路連接埠就會生效。",
+          "off_pending": "在數據機重新啟動前仍然生效。"
+        }
       },
-      "target": {
-        "label": "目標裝置",
-        "pick_mode": "請先選擇模式。"
+      "card": {
+        "title": "直通",
+        "description": "開啟後立即生效，無需重新啟動。關閉會重新啟動數據機。",
+        "apply": "套用",
+        "discard": "捨棄變更",
+        "unsaved_one": "{{count}} 項未儲存的變更",
+        "unsaved_other": "{{count}} 項未儲存的變更"
       },
-      "nat": {
-        "label": "NAT 轉換",
-        "hint": "幾乎所有情境都適合啟用 NAT。",
-        "hint_label": "關於 NAT"
+      "groups": {
+        "passthrough": "直通"
       },
-      "usb": {
-        "label": "USB 連線"
+      "rows": {
+        "mode": {
+          "label": "IP 直通"
+        }
       },
-      "dns": {
-        "label": "DNS 代理",
-        "hint": "開啟後，由數據機為目標裝置回應 DHCP DNS。",
-        "hint_label": "關於 DNS 代理"
+      "options": {
+        "off": "關閉",
+        "on": "開啟"
+      },
+      "mode_note": {
+        "rest": "數據機會自動選擇裝置：連接在其區域網路連接埠上的路由器。這台數據機仍可透過其區域網路位址連線。",
+        "to_on": "立即生效，無需重新啟動。您的路由器會取得電信業者 IP，並可能短暫重新連線。",
+        "to_off": "已儲存。目前沒有生效的直通，因此無需重新啟動。",
+        "to_off_reboot": "關閉需要重新啟動數據機才會生效。"
+      },
+      "dialog": {
+        "on": {
+          "title": "開啟 IP 直通？",
+          "body": "連接在區域網路連接埠上的路由器將取得電信業者 IP。立即生效，無需重新啟動，您的連線可能短暫中斷。",
+          "confirm": "開啟"
+        },
+        "off": {
+          "title": "關閉 IP 直通？",
+          "body": "已儲存。目前沒有生效的直通，因此無需重新啟動。",
+          "confirm": "關閉"
+        },
+        "off_reboot": {
+          "title": "關閉並重新啟動？",
+          "body": "執行中的直通只有在數據機重新啟動後才會清除。本頁面會轉到重啟倒數並將您登出。",
+          "confirm": "關閉並重新啟動"
+        },
+        "cancel": "取消"
+      },
+      "toast_apply_error": "無法套用 IP 直通設定",
+      "toast_active": "IP 直通已啟用",
+      "toast_pending": "已儲存。有裝置連接後就會生效。",
+      "toast_off": "IP 直通已關閉",
+      "errors": {
+        "read_title": "無法讀取直通設定",
+        "read_body": "未做任何變更。請再試一次，或確認數據機是否有回應。",
+        "retry": "重試",
+        "card_unread": "數據機尚未回應，在首次讀取完成前沒有可變更的內容。",
+        "no_changes": "尚未有任何變更。",
+        "many_clients": "已連接多台裝置。直通只綁定一台，即最近連接的那台。"
       }
     },
-    "options": {
-      "mode_disabled": "關閉",
-      "mode_eth": "開啟",
-      "mode_usb": "USB",
-      "target_automatic": "自動",
-      "target_manual": "依 MAC",
-      "nat_on": "啟用 NAT",
-      "nat_off": "不啟用 NAT",
-      "dns_off": "關閉",
-      "dns_on": "開啟"
-    },
-    "mode_note": {
-      "rest": "啟用 IP 直通可能導致區域網路閘道無法連線。請保留 Tailscale 或其他連入方式。",
-      "to_passthrough": "啟用 IP 直通會重新啟動數據機。區域網路閘道可能無法連線，請保留 Tailscale 或其他連入方式。",
-      "to_router": "停用 IP 直通會重新啟動數據機。重新啟動後區域網路閘道應可恢復連線。"
-    },
-    "dialog": {
-      "title": "現在套用並重啟？",
-      "body": "裝置會儲存此設定並立即重新啟動。本頁面會轉到重啟倒數並將您登出。",
-      "body_gateway": "直通生效後，數據機將不再於區域網路閘道位址上回應。請確認您有 Tailscale、直通裝置本身或序列主控台可以重新連入。",
-      "body_persist": "此設定會在後續重啟後繼續保留。",
-      "cancel": "取消",
-      "confirm": "套用並重啟"
-    },
-    "toast_apply_error": "無法套用 IP 直通設定",
-    "errors": {
-      "read_title": "無法讀取直通設定",
-      "read_body": "未做任何變更。請再試一次，或確認裝置網路服務是否正在執行。",
-      "retry": "重試",
-      "card_unread": "裝置網路服務尚未回應，在首次讀取完成前沒有可變更的內容。",
-      "mac_invalid": "請輸入完整的 MAC 位址，即六組十六進位數字。",
-      "no_changes": "尚未有任何變更。"
-    }
-  },
   "trafficEngine": {
     "page": {
       "title": "流量引擎",

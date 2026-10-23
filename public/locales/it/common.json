@@ -481,101 +481,86 @@
     "toast_saved": "DNS personalizzati applicati. I client della LAN potrebbero avere una breve pausa mentre le cache si aggiornano.",
     "toast_error": "Impossibile applicare la modifica al DNS."
   },
-  "ipPassthrough": {
-    "page": {
-      "title": "Passthrough IP",
-      "description": "Attiva o disattiva il passthrough IP tramite il backend di rete supportato dal dispositivo."
-    },
-    "header": {
-      "refresh": "Aggiorna"
-    },
-    "status": {
-      "label": "Impostazione del dispositivo",
-      "mode_title": {
-        "disabled": "Disattivato",
-        "eth": "Attivato",
-        "usb": "Passthrough USB"
+    "ipPassthrough": {
+      "page": {
+        "title": "Passthrough IP",
+        "description": "Assegna direttamente l'indirizzo IP dell'operatore al router collegato a questo modem, invece di condividerlo tramite NAT."
       },
-      "blurb": {
-        "disabled": "Il backend del dispositivo segnala il passthrough IP disattivato.",
-        "eth": "Il backend del dispositivo segnala il passthrough IP attivato.",
-        "usb": "Impostato per assegnare l'IP WAN al dispositivo USB"
+      "header": {
+        "refresh": "Aggiorna"
       },
-      "no_target": "Nessun dispositivo selezionato",
-      "gateway": "Gateway LAN",
-      "gateway_served": "Servito",
-      "gateway_not_served": "Non servito"
-    },
-    "card": {
-      "title": "Configurazione del passthrough",
-      "description": "L'applicazione salva l'impostazione tramite il backend del dispositivo e riavvia il modem.",
-      "apply": "Applica e riavvia",
-      "discard": "Scarta le modifiche",
-      "unsaved_one": "{{count}} modifica non salvata",
-      "unsaved_other": "{{count}} modifiche non salvate",
-      "mac_label": "Indirizzo MAC di destinazione",
-      "mac_placeholder": "XX:XX:XX:XX:XX:XX"
-    },
-    "groups": {
-      "passthrough": "Passthrough",
-      "network": "Rete"
-    },
-    "rows": {
-      "mode": {
-        "label": "Passthrough IP"
+      "status": {
+        "label": "Passthrough",
+        "title": {
+          "off": "Disattivato",
+          "active": "Attivo",
+          "pending": "In attesa di un dispositivo",
+          "off_pending": "Disattivazione in corso"
+        },
+        "blurb": {
+          "off": "Il modem condivide un solo indirizzo con tutta la LAN.",
+          "active": "L'IP dell'operatore è assegnato a {{mac}}. Questo modem resta raggiungibile al suo indirizzo LAN.",
+          "pending": "Attivato ma non ancora operativo. Parte appena un dispositivo è collegato alla porta LAN.",
+          "off_pending": "Resta attivo finché il modem non si riavvia."
+        }
       },
-      "target": {
-        "label": "Dispositivo di destinazione",
-        "pick_mode": "Scegli prima una modalità."
+      "card": {
+        "title": "Passthrough",
+        "description": "L'attivazione è immediata e non richiede un riavvio. La disattivazione riavvia il modem.",
+        "apply": "Applica",
+        "discard": "Scarta le modifiche",
+        "unsaved_one": "{{count}} modifica non salvata",
+        "unsaved_other": "{{count}} modifiche non salvate"
       },
-      "nat": {
-        "label": "NAT",
-        "hint": "Con NAT va bene per quasi ogni configurazione.",
-        "hint_label": "Informazioni sul NAT"
+      "groups": {
+        "passthrough": "Passthrough"
       },
-      "usb": {
-        "label": "Connessione USB"
+      "rows": {
+        "mode": {
+          "label": "Passthrough IP"
+        }
       },
-      "dns": {
-        "label": "Proxy DNS",
-        "hint": "Attivo, il modem risponde al DNS via DHCP per il dispositivo di destinazione.",
-        "hint_label": "Informazioni sul proxy DNS"
+      "options": {
+        "off": "Disattivato",
+        "on": "Attivo"
+      },
+      "mode_note": {
+        "rest": "Il modem sceglie il dispositivo da solo: il router collegato alla sua porta LAN. Questo modem resta raggiungibile al suo indirizzo LAN.",
+        "to_on": "Si applica subito, senza riavvio. Il router riceve l'IP dell'operatore e potrebbe riconnettersi per un momento.",
+        "to_off": "Salvato. Nulla è attivo, quindi non serve riavviare.",
+        "to_off_reboot": "La disattivazione riavvia il modem per avere effetto."
+      },
+      "dialog": {
+        "on": {
+          "title": "Attivare il Passthrough IP?",
+          "body": "Il router collegato alla porta LAN riceve l'IP dell'operatore. Si applica subito, senza riavvio, e la connessione potrebbe cadere per un momento.",
+          "confirm": "Attiva"
+        },
+        "off": {
+          "title": "Disattivare il Passthrough IP?",
+          "body": "Salvato. Nulla è attivo, quindi non serve riavviare.",
+          "confirm": "Disattiva"
+        },
+        "off_reboot": {
+          "title": "Disattivare e riavviare?",
+          "body": "Un passthrough in esecuzione si cancella solo con il riavvio del modem. Questa pagina passa il testimone al conto alla rovescia del riavvio e ti disconnette.",
+          "confirm": "Disattiva e riavvia"
+        },
+        "cancel": "Annulla"
+      },
+      "toast_apply_error": "Impossibile applicare l'impostazione di Passthrough IP",
+      "toast_active": "Il Passthrough IP è attivo",
+      "toast_pending": "Salvato. Parte appena un dispositivo è collegato.",
+      "toast_off": "Il Passthrough IP è disattivato",
+      "errors": {
+        "read_title": "Impossibile leggere l'impostazione del passthrough",
+        "read_body": "Non è stato modificato nulla. Riprova, oppure controlla che il modem stia rispondendo.",
+        "retry": "Riprova",
+        "card_unread": "Il modem non ha ancora risposto, quindi non c'è nulla da modificare finché non arriva la prima lettura.",
+        "no_changes": "Non è ancora cambiato nulla.",
+        "many_clients": "Sono collegati più dispositivi. Il passthrough ne associa uno solo, l'ultimo collegato."
       }
     },
-    "options": {
-      "mode_disabled": "Disattivato",
-      "mode_eth": "Attivato",
-      "mode_usb": "USB",
-      "target_automatic": "Automatico",
-      "target_manual": "Per MAC",
-      "nat_on": "Con NAT",
-      "nat_off": "Senza NAT",
-      "dns_off": "Disattivo",
-      "dns_on": "Attivo"
-    },
-    "mode_note": {
-      "rest": "Attivare il passthrough IP potrebbe rendere irraggiungibile il gateway LAN. Tieni pronto Tailscale o un altro modo per rientrare.",
-      "to_passthrough": "L'attivazione del passthrough IP riavvia il modem. Il gateway LAN potrebbe diventare irraggiungibile: tieni pronto Tailscale o un altro modo per rientrare.",
-      "to_router": "La disattivazione del passthrough IP riavvia il modem. Il gateway LAN dovrebbe tornare raggiungibile dopo il riavvio."
-    },
-    "dialog": {
-      "title": "Applicare e riavviare adesso?",
-      "body": "Il dispositivo salva l'impostazione e si riavvia subito. Questa pagina passa il testimone al conto alla rovescia del riavvio e ti disconnette.",
-      "body_gateway": "Una volta attivo il passthrough, il modem smette di rispondere al suo indirizzo di gateway sulla LAN. Assicurati di avere Tailscale, il dispositivo in passthrough stesso o una console seriale per rientrare.",
-      "body_persist": "L'impostazione resta anche ai riavvii successivi.",
-      "cancel": "Annulla",
-      "confirm": "Applica e riavvia"
-    },
-    "toast_apply_error": "Impossibile applicare l'impostazione di Passthrough IP",
-    "errors": {
-      "read_title": "Impossibile leggere l'impostazione del passthrough",
-      "read_body": "Non è stato modificato nulla. Riprova o controlla che il servizio di rete del dispositivo sia in esecuzione.",
-      "retry": "Riprova",
-      "card_unread": "Il servizio di rete del dispositivo non ha ancora risposto, quindi non c'è nulla da modificare.",
-      "mac_invalid": "Inserisci un indirizzo MAC completo, sei coppie di cifre esadecimali.",
-      "no_changes": "Non è ancora cambiato nulla."
-    }
-  },
   "trafficEngine": {
     "page": {
       "title": "Motore di traffico",

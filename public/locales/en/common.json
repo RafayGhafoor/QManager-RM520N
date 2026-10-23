@@ -481,101 +481,86 @@
     "toast_saved": "Custom DNS applied. LAN clients may see a brief pause as caches refresh.",
     "toast_error": "Couldn't apply the DNS change."
   },
-  "ipPassthrough": {
-    "page": {
-      "title": "IP Passthrough",
-      "description": "Enable or disable IP passthrough through the device's supported network backend."
-    },
-    "header": {
-      "refresh": "Refresh"
-    },
-    "status": {
-      "label": "Device setting",
-      "mode_title": {
-        "disabled": "Disabled",
-        "eth": "Enabled",
-        "usb": "USB passthrough"
+    "ipPassthrough": {
+      "page": {
+        "title": "IP Passthrough",
+        "description": "Give the router behind this modem the carrier's IP address directly, instead of sharing it through NAT."
       },
-      "blurb": {
-        "disabled": "The device backend reports IP passthrough is disabled.",
-        "eth": "The device backend reports IP passthrough is enabled.",
-        "usb": "Set to hand the WAN IP to the USB device"
+      "header": {
+        "refresh": "Refresh"
       },
-      "no_target": "No device selected",
-      "gateway": "LAN gateway",
-      "gateway_served": "Served",
-      "gateway_not_served": "Not served"
-    },
-    "card": {
-      "title": "Passthrough configuration",
-      "description": "Applying stores the setting through the device backend and reboots the modem.",
-      "apply": "Apply and reboot",
-      "discard": "Discard changes",
-      "unsaved_one": "{{count}} unsaved change",
-      "unsaved_other": "{{count}} unsaved changes",
-      "mac_label": "Target MAC address",
-      "mac_placeholder": "XX:XX:XX:XX:XX:XX"
-    },
-    "groups": {
-      "passthrough": "Passthrough",
-      "network": "Network"
-    },
-    "rows": {
-      "mode": {
-        "label": "IP Passthrough"
+      "status": {
+        "label": "Passthrough",
+        "title": {
+          "off": "Off",
+          "active": "Active",
+          "pending": "Waiting for a device",
+          "off_pending": "Turning off"
+        },
+        "blurb": {
+          "off": "The modem shares one address with everything on the LAN.",
+          "active": "The carrier IP is handed to {{mac}}. This modem stays reachable at its LAN address.",
+          "pending": "On, but not active yet. It starts as soon as a device is connected to the LAN port.",
+          "off_pending": "Still active until the modem reboots."
+        }
       },
-      "target": {
-        "label": "Target device",
-        "pick_mode": "Pick a mode first."
+      "card": {
+        "title": "Passthrough",
+        "description": "Turning it on applies immediately with no reboot. Turning it off reboots the modem.",
+        "apply": "Apply",
+        "discard": "Discard changes",
+        "unsaved_one": "{{count}} unsaved change",
+        "unsaved_other": "{{count}} unsaved changes"
       },
-      "nat": {
-        "label": "NAT",
-        "hint": "With NAT suits almost every setup.",
-        "hint_label": "About NAT"
+      "groups": {
+        "passthrough": "Passthrough"
       },
-      "usb": {
-        "label": "USB connection"
+      "rows": {
+        "mode": {
+          "label": "IP Passthrough"
+        }
       },
-      "dns": {
-        "label": "DNS proxy",
-        "hint": "On, the modem answers DHCP DNS for the target device.",
-        "hint_label": "About DNS proxy"
+      "options": {
+        "off": "Off",
+        "on": "On"
+      },
+      "mode_note": {
+        "rest": "The modem picks the device by itself: the router connected to its LAN port. This modem stays reachable at its LAN address.",
+        "to_on": "Applies now with no reboot. Your router gets the carrier IP and may reconnect for a moment.",
+        "to_off": "Saved. Nothing is active, so no reboot is needed.",
+        "to_off_reboot": "Turning it off reboots the modem to take effect."
+      },
+      "dialog": {
+        "on": {
+          "title": "Turn on IP Passthrough?",
+          "body": "The router connected to the LAN port gets the carrier IP. It applies now, with no reboot, and your connection may drop for a moment.",
+          "confirm": "Turn on"
+        },
+        "off": {
+          "title": "Turn off IP Passthrough?",
+          "body": "Saved. Nothing is active, so no reboot is needed.",
+          "confirm": "Turn off"
+        },
+        "off_reboot": {
+          "title": "Turn off and reboot?",
+          "body": "A running passthrough only clears when the modem reboots. This page hands off to the reboot countdown and signs you out.",
+          "confirm": "Turn off and reboot"
+        },
+        "cancel": "Cancel"
+      },
+      "toast_apply_error": "Couldn't apply the IP Passthrough setting",
+      "toast_active": "IP Passthrough is active",
+      "toast_pending": "Saved. It starts once a device is connected.",
+      "toast_off": "IP Passthrough is off",
+      "errors": {
+        "read_title": "Couldn't read the passthrough setting",
+        "read_body": "Nothing has been changed. Try again, or check that the modem is answering.",
+        "retry": "Retry",
+        "card_unread": "The modem hasn't answered yet, so there is nothing to change until the first read lands.",
+        "no_changes": "Nothing has changed yet.",
+        "many_clients": "More than one device is connected. Passthrough binds one, the most recently connected."
       }
     },
-    "options": {
-      "mode_disabled": "Off",
-      "mode_eth": "On",
-      "mode_usb": "USB",
-      "target_automatic": "Automatic",
-      "target_manual": "By MAC",
-      "nat_on": "With NAT",
-      "nat_off": "Without NAT",
-      "dns_off": "Off",
-      "dns_on": "On"
-    },
-    "mode_note": {
-      "rest": "Enabling IP passthrough may make the LAN gateway unreachable. Keep Tailscale or another way back in.",
-      "to_passthrough": "Applying enables IP passthrough and reboots the modem. The LAN gateway may become unreachable, so keep Tailscale or another way back in.",
-      "to_router": "Applying disables IP passthrough and reboots the modem. The LAN gateway should return after the reboot."
-    },
-    "dialog": {
-      "title": "Apply and reboot now?",
-      "body": "The device stores the setting and reboots immediately. This page hands off to the reboot countdown and signs you out.",
-      "body_gateway": "Once passthrough is active the modem stops answering at its LAN gateway address. Make sure you have Tailscale, the passthrough device itself, or a serial console to get back in.",
-      "body_persist": "The setting persists across further reboots.",
-      "cancel": "Cancel",
-      "confirm": "Apply and reboot"
-    },
-    "toast_apply_error": "Couldn't apply the IP Passthrough setting",
-    "errors": {
-      "read_title": "Couldn't read the passthrough setting",
-      "read_body": "Nothing has been changed. Try again, or check that the device network service is running.",
-      "retry": "Retry",
-      "card_unread": "The device network service hasn't answered yet, so there is nothing to change until the first read lands.",
-      "mac_invalid": "Enter a full MAC address, six pairs of hex digits.",
-      "no_changes": "Nothing has changed yet."
-    }
-  },
   "trafficEngine": {
     "page": {
       "title": "Traffic Engine",

@@ -29,6 +29,8 @@ import { SaveButton, useSaveFlash } from "@/components/ui/save-button";
 import { SegmentedField, type SegmentedOption } from "@/components/ui/segmented-field";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import type { SaveOutcome } from "@/hooks/use-ip-passthrough";
+import type { PassthroughState } from "@/types/ip-passthrough";
 
 import {
   CARD_DESC,
@@ -42,7 +44,7 @@ import {
 } from "./shapes";
 
 const K = "ipPassthrough";
-type Choice = "disabled" | "enabled";
+type Choice = "off" | "on";
 
 function SettingRow({
   label,
@@ -86,19 +88,28 @@ function SettingsSkeleton() {
 }
 
 export interface IPPassthroughCardProps {
+  /** What was asked for; `null` until the first successful read. */
   enabled: boolean | null;
+  /** What QCMAP reports; decides whether turning off needs a reboot. */
+  state: PassthroughState | null;
+  /** Live LAN clients; passthrough binds exactly one. */
+  clients: number;
   isLoading: boolean;
   isSaving: boolean;
   failed: boolean;
-  saveSettings: (enabled: boolean) => Promise<boolean>;
+  saveSettings: (enabled: boolean) => Promise<SaveOutcome>;
+  refresh: () => void;
 }
 
 export function IPPassthroughCard({
   enabled,
+  state,
+  clients,
   isLoading,
   isSaving,
   failed,
   saveSettings,
+  refresh,
 }: IPPassthroughCardProps) {
   const { t } = useTranslation("common");
   const { saved, markSaved } = useSaveFlash();
@@ -106,8 +117,10 @@ export function IPPassthroughCard({
   const [draft, setDraft] = useState<boolean | null>(null);
   const [showConfirm, setShowConfirm] = useState(false);
 
-  const nextEnabled = draft ?? enabled;
-  const dirty = enabled !== null && nextEnabled !== enabled;
+  const next = draft ?? enabled;
+  const dirty = enabled !== null && next !== enabled;
+  // Turning off only costs a reboot when passthrough is actually running.
+  const offNeedsReboot = !next && state === "active";
   const blockedReason =
     enabled === null
       ? t(`${K}.errors.card_unread`)
@@ -125,27 +138,52 @@ export function IPPassthroughCard({
 
   const handleConfirmedApply = async () => {
     setShowConfirm(false);
-    if (nextEnabled === null) return;
+    if (next === null) return;
 
-    const ok = await saveSettings(nextEnabled);
-    if (!ok) {
+    const outcome = await saveSettings(next);
+
+    if (outcome === "failed") {
       toast.error(t(`${K}.toast_apply_error`));
       return;
     }
 
     markSaved();
-    // The deferred-reboot contract: all three lines, in this order.
-    sessionStorage.setItem("qm_rebooting", "1");
-    document.cookie = "qm_logged_in=; Path=/; Max-Age=0";
-    window.location.href = "/reboot/";
+    setDraft(null);
+
+    if (outcome === "rebooting") {
+      // The deferred-reboot contract: all three lines, in this order.
+      sessionStorage.setItem("qm_rebooting", "1");
+      document.cookie = "qm_logged_in=; Path=/; Max-Age=0";
+      window.location.href = "/reboot/";
+      return;
+    }
+
+    toast.success(
+      t(
+        outcome === "active"
+          ? `${K}.toast_active`
+          : outcome === "pending"
+            ? `${K}.toast_pending`
+            : `${K}.toast_off`,
+      ),
+    );
+    refresh();
   };
 
   const options: readonly SegmentedOption<Choice>[] = [
-    { value: "disabled", label: t(`${K}.options.mode_disabled`) },
-    { value: "enabled", label: t(`${K}.options.mode_eth`) },
+    { value: "off", label: t(`${K}.options.off`) },
+    { value: "on", label: t(`${K}.options.on`) },
   ];
-  const selection: Choice = nextEnabled ? "enabled" : "disabled";
+  const selection: Choice = next ? "on" : "off";
   const held = isSaving || enabled === null;
+
+  const noteKey = !dirty
+    ? "rest"
+    : next
+      ? "to_on"
+      : offNeedsReboot
+        ? "to_off_reboot"
+        : "to_off";
 
   return (
     <>
@@ -171,7 +209,7 @@ export function IPPassthroughCard({
                 <SettingRow label={t(`${K}.rows.mode.label`)} dirty={dirty}>
                   <SegmentedField
                     value={selection}
-                    onValueChange={(value) => setDraft(value === "enabled")}
+                    onValueChange={(value) => setDraft(value === "on")}
                     options={options}
                     ariaLabel={t(`${K}.rows.mode.label`)}
                     disabled={held}
@@ -184,10 +222,10 @@ export function IPPassthroughCard({
                   role="status"
                   className={cn(
                     MODE_NOTE.ROOT,
-                    dirty ? MODE_NOTE.DIRTY : MODE_NOTE.REST,
+                    dirty && offNeedsReboot ? MODE_NOTE.DIRTY : MODE_NOTE.REST,
                   )}
                 >
-                  {dirty ? (
+                  {dirty && offNeedsReboot ? (
                     <RotateCcwIcon className={MODE_NOTE.GLYPH} aria-hidden />
                   ) : (
                     <TriangleAlertIcon
@@ -195,14 +233,12 @@ export function IPPassthroughCard({
                       aria-hidden
                     />
                   )}
-                  <span>
-                    {!dirty
-                      ? t(`${K}.mode_note.rest`)
-                      : nextEnabled
-                        ? t(`${K}.mode_note.to_passthrough`)
-                        : t(`${K}.mode_note.to_router`)}
-                  </span>
+                  <span>{t(`${K}.mode_note.${noteKey}`)}</span>
                 </div>
+
+                {clients > 1 ? (
+                  <p className={SETTING.UNREAD}>{t(`${K}.errors.many_clients`)}</p>
+                ) : null}
               </div>
             </form>
           )}
@@ -232,7 +268,7 @@ export function IPPassthroughCard({
               <SaveButton
                 type="submit"
                 form={formId}
-                variant={dirty && nextEnabled ? "destructive" : "default"}
+                variant={dirty && offNeedsReboot ? "destructive" : "default"}
                 isSaving={isSaving}
                 saved={saved}
                 label={t(`${K}.card.apply`)}
@@ -247,23 +283,21 @@ export function IPPassthroughCard({
       <AlertDialog open={showConfirm} onOpenChange={setShowConfirm}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{t(`${K}.dialog.title`)}</AlertDialogTitle>
+            <AlertDialogTitle>
+              {t(`${K}.dialog.${next ? "on" : offNeedsReboot ? "off_reboot" : "off"}.title`)}
+            </AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div className="flex flex-col gap-3 text-sm">
-                <p>{t(`${K}.dialog.body`)}</p>
-                {nextEnabled ? (
-                  <p className="text-on-surface font-medium">
-                    {t(`${K}.dialog.body_gateway`)}
-                  </p>
-                ) : null}
-                <p>{t(`${K}.dialog.body_persist`)}</p>
+                <p>
+                  {t(`${K}.dialog.${next ? "on" : offNeedsReboot ? "off_reboot" : "off"}.body`)}
+                </p>
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t(`${K}.dialog.cancel`)}</AlertDialogCancel>
             <AlertDialogAction onClick={handleConfirmedApply}>
-              {t(`${K}.dialog.confirm`)}
+              {t(`${K}.dialog.${next ? "on" : offNeedsReboot ? "off_reboot" : "off"}.confirm`)}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

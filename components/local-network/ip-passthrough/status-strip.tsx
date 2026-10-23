@@ -2,12 +2,19 @@
 
 import * as React from "react";
 import { useTranslation } from "react-i18next";
-import { CircleAlertIcon, CircleCheckIcon, RefreshCcwIcon, RouterIcon } from "lucide-react";
+import {
+  CircleAlertIcon,
+  CircleCheckIcon,
+  HourglassIcon,
+  RefreshCcwIcon,
+  RouterIcon,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import type { PassthroughState } from "@/types/ip-passthrough";
 
 import {
   CONDITION,
@@ -24,13 +31,23 @@ import {
 const K = "ipPassthrough";
 
 export interface StatusStripProps {
-  /** Configured flag read from the device's own backend. */
+  /** What was asked for. */
   enabled: boolean | null;
+  /** What QCMAP reports right now. */
+  state: PassthroughState | null;
+  /** The device that is, or would be, bound. */
+  targetMac: string;
   failed: boolean;
   onRetry: () => void;
 }
 
-export function StatusStrip({ enabled, failed, onRetry }: StatusStripProps) {
+export function StatusStrip({
+  enabled,
+  state,
+  targetMac,
+  failed,
+  onRetry,
+}: StatusStripProps) {
   const { t } = useTranslation("common");
 
   if (enabled === null) {
@@ -62,10 +79,21 @@ export function StatusStrip({ enabled, failed, onRetry }: StatusStripProps) {
     );
   }
 
-  const Glyph = enabled ? CircleCheckIcon : RouterIcon;
-  // Reuse the former `eth` locale slot as the O5A's generic enabled state; the
-  // product endpoint reports no transport, so do not name Ethernet or USB here.
-  const titleKey = enabled ? "eth" : "disabled";
+  // Four honest states: what was asked for crossed with what QCMAP says.
+  const live = state === "active";
+  const phase = enabled
+    ? live
+      ? "active"
+      : "pending"
+    : live
+      ? "off_pending"
+      : "off";
+  const Glyph =
+    phase === "active"
+      ? CircleCheckIcon
+      : phase === "off"
+        ? RouterIcon
+        : HourglassIcon;
 
   return (
     <Card className={HERO_SHELL} role="region" aria-label={t(`${K}.status.label`)}>
@@ -76,15 +104,17 @@ export function StatusStrip({ enabled, failed, onRetry }: StatusStripProps) {
             className={cn(
               STATUS.DISC,
               DISC_TRANSITION,
-              enabled ? DISC_TONE.info : DISC_TONE.neutral,
+              phase === "active" ? DISC_TONE.info : DISC_TONE.neutral,
             )}
           >
             <Glyph className={STATUS.GLYPH} />
           </span>
           <div className={STATUS.TEXT}>
             <span className={EYEBROW}>{t(`${K}.status.label`)}</span>
-            <p className={STATUS.TITLE}>{t(`${K}.status.mode_title.${titleKey}`)}</p>
-            <p className={STATUS.BLURB}>{t(`${K}.status.blurb.${titleKey}`)}</p>
+            <p className={STATUS.TITLE}>{t(`${K}.status.title.${phase}`)}</p>
+            <p className={STATUS.BLURB}>
+              {t(`${K}.status.blurb.${phase}`, { mac: targetMac })}
+            </p>
           </div>
         </div>
       </CardContent>

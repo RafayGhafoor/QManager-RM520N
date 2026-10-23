@@ -1537,28 +1537,21 @@ Notes that matter for a port:
   entire compound response on `*ERROR*`, so keep groups small.
 - **Unverified on RM520N-GL.** Do not assume either presence or absence there; re-probe.
 
-### RG520N-EB (GreenPacket O5A Pro) — IP Passthrough backend (measured 2026-10-23)
+### RG520N-EB (GreenPacket O5A Pro) — IP Passthrough (measured 2026-10-23)
 
-**Scope:** this O5A Pro firmware only (`LE.UM.6.2.3.r1-03100-SDX65.0`). Do not
-infer that every RG520N variant has the same QMAP support.
+**Scope: this O5A firmware only** (`LE.UM.6.2.3.r1-03100-SDX65.0`). Full record: [`ip-passthrough.md`](./ip-passthrough.md).
 
 | Probe / path | Observed on this unit | Porting consequence |
 | --- | --- | --- |
-| `qcmd 'AT+QMAP="MPDN_rule"'` | `ERROR: command_failed` | Do not use the QMAP MPDN rule to read this unit's passthrough state |
-| `qcmd 'AT+QMAP="IPPT_NAT"'` | `ERROR: command_failed` | NAT mode is not readable through this QMAP path |
-| `qcmd 'AT+QMAP="DHCPV4DNS"'` | `ERROR: command_failed` | DHCP DNS mode is not readable through this QMAP path |
-| `qcmd 'AT+QCFG="usbnet"'` | answered successfully | This command works, but it is not an IP Passthrough control exposed by the product API |
-| Product `GET /passthrough` on loopback `:8091` | `{"enabled":false,"rebootRequired":false,"reboot_required":false}` | Use the product API for the supported configured boolean |
-| Product `POST /passthrough/set` | Source validates the boolean, atomically updates only `<IPPassthroughEnable>` in `/etc/data/mobileap_cfg.xml`, and returns `rebootRequired:true` | QManager must call the API rather than edit vendor config or claim support for fields the endpoint lacks |
-
-The live QManager apply attempt logged the MPDN setter failure at 2026-10-23
-18:37:14 UTC and stopped before its config write or reboot. The product API
-implementation is in sibling repo `/data/gp/radio-handler.sh:3465-3504`:
-`handle_passthrough_get()` reads the XML flag (`:3471-3477`), and
-`handle_passthrough_set()` validates and changes it (`:3479-3504`). The O5A page
-therefore exposes enable/disable only; target MAC, NAT, USB and DHCP DNS settings
-are out of scope until an O5A backend provides them. Enabling may make the LAN
-gateway unreachable; validation must not turn it on automatically.
+| `AT+QMAP="MPDN_rule"` / `"IPPT_NAT"` / `"DHCPV4DNS"` | `ERROR: command_failed` | the upstream AT path cannot be used |
+| `<IPPassthroughEnable>` XML flag (vendor UI, product `:8091/passthrough/set`) | flips, but QCMAP stays `Device Type Not Set` / `NOT ACTIVATED`, also after a reboot | the flag is intent only |
+| `QCMAP_CLI` 6→2→16 | `IP Passthrough is ACTIVATED` / `NOT ACTIVATED` | the only trustworthy state read; **never capture its output** (it floods ~93 MB / 8 s) |
+| `ql_qmap LAN IPPT set 0 1 <mac>` | ACTIVATED in ~4 s, router lease becomes the carrier IP, no reboot | the working setter |
+| `ql_qmap LAN IPPT set 0 0` | `CMD OK`, state stays ACTIVATED | disabling needs a reboot |
+| restarting `QCMAP_ConnectionManagerd` while active | auto-reboots the device | never use it to disable |
+| persistence | runtime-only (XML not updated) | re-apply every boot |
+| `timeout` | BusyBox 1.31, no `-k`; `QCMAP_CLI` ignores `SIGTERM` at boot | use `timeout -s KILL` |
+| `systemctl` | `/bin/systemctl` | not `/usr/bin` |
 
 ### RG520N-EB (GreenPacket O5A Pro) — platform facts a port must not assume
 

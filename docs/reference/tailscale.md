@@ -184,3 +184,18 @@ IP". That was a wrong-path error (`tailscale` is not on `PATH`; use
 
 **Do not** use QManager's own VPN page "install" action on this unit: it would overwrite the
 product's `tailscaled.service` (see `deploy/README.md`).
+
+### Reaching the unit when the Mac's Tailscale will not connect (2026-10-23)
+
+IP Passthrough hides `192.168.0.1`, so the tailnet is the only way in. Diagnosed on the owner's Mac: the app
+installed is the **Mac App Store** build (1.102.4, valid signature, Gatekeeper accepts it), but the activated
+system extension is the old **standalone** `io.tailscale.ipn.macsys.network-extension` **1.38.2**. The App Store
+app's own `IPNExtension` then fails macOS's code-requirement check (`Signature check failed: code failed to
+satisfy specified code requirement(s)` in `log show`, relaunching in a loop) and the VPN sits on `Connecting`.
+It is not a missing permission. Fix on the Mac: remove the stale standalone extension (System Settings → General
+→ Login Items & Extensions → Network Extensions), or use one build consistently. Other tunnel/filter extensions
+are active there too (ESET, GlobalProtect, ProtonVPN, OneXray), which can interfere.
+
+**Workaround that needs nothing from the Mac:** a tailnet host as a jump:
+`ssh -J hayden -i ~/.ssh/id_rsa_rafayghafoor -p 2222 root@100.106.128.119` (the `greenpacket-ts` alias needs the
+Mac's own Tailscale for MagicDNS). The router's QManager is at `http://100.106.128.119:8080` over the tailnet.

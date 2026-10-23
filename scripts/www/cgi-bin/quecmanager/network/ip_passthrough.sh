@@ -1,67 +1,55 @@
 #!/bin/sh
 . /usr/lib/qmanager/cgi_base.sh
+. /usr/lib/qmanager/ippt.sh
 # =============================================================================
 # ip_passthrough.sh — O5A IP Passthrough endpoint (GET + POST)
+# =============================================================================
+# Drives Quectel's ql_qmap (see lib/ippt.sh for why not AT+QMAP and what was
+# measured). The device that receives the carrier IP is found automatically from
+# the router's DHCP leases + ARP table; the page never asks for a MAC.
 #
-# The RG520N-EB firmware used by the GreenPacket O5A Pro does not answer the
-# QMAP IPPT commands used by upstream QManager. The product's loopback
-# radio-handler owns this setting and exposes only an enabled boolean. Keep
-# this CGI as a thin authenticated adapter; never write the vendor XML directly
-# and never report success unless the product endpoint confirms the requested
-# value and says a reboot is required.
-#
-# Product API:
-#   GET  http://127.0.0.1:8091/passthrough
-#   POST http://127.0.0.1:8091/passthrough/set {"enabled":true|false}
-#
-# Enabling can make the LAN gateway unreachable. The UI confirms this before
-# POST; cgi_reboot_response performs the existing acknowledged reboot handoff.
+# GET  -> {success, enabled, state, target_mac, clients}
+#           enabled    what the owner asked for (/etc/qmanager/ippt.json)
+#           state      active | inactive | unknown   (read from QCMAP, never guessed)
+#           target_mac the device that is / would be bound ("" if none connected)
+#           clients    number of live LAN clients (passthrough binds exactly one)
+# POST {"action":"apply","enabled":true}
+#        persist, bind the target now, confirm ACTIVATED; no reboot. With no client
+#        connected it stays "inactive" and a background waiter binds one as soon as
+#        a device appears.
+# POST {"action":"apply","enabled":false}
+#        persist. A live disable does not work on this firmware, so if passthrough
+#        is currently active the response is the usual acknowledged reboot handoff
+#        ({"success":true}); if it is not active nothing needs to happen.
 # =============================================================================
 
 qlog_init "cgi_ip_passthrough"
 cgi_headers
 cgi_handle_options
 
-PASSTHROUGH_GET_URL="http://127.0.0.1:8091/passthrough"
-PASSTHROUGH_SET_URL="http://127.0.0.1:8091/passthrough/set"
-
-# fetch_enabled sets PT_ENABLED to the literal JSON boolean text true/false.
-# Transport, HTTP, malformed JSON and wrong-type failures are all distinct from
-# the legitimate false state.
-fetch_enabled() {
-    _pt_response=$(curl -fsS --connect-timeout 2 --max-time 8 "$PASSTHROUGH_GET_URL" 2>/dev/null)
-    _pt_rc=$?
-    if [ "$_pt_rc" -ne 0 ] || [ -z "$_pt_response" ]; then
-        return 1
-    fi
-
-    PT_ENABLED=$(printf '%s' "$_pt_response" | jq -r \
-        'if type == "object" and (.enabled | type) == "boolean" then (.enabled | tostring) else empty end' \
-        2>/dev/null)
-    case "$PT_ENABLED" in
-        true|false) return 0 ;;
-        *) PT_ENABLED=""; return 1 ;;
-    esac
+# Detached retry for "enabled but nothing to bind yet". qmanager_ippt_apply holds a
+# lock, so spawning it repeatedly is harmless.
+spawn_waiter() {
+    ( setsid nohup /usr/bin/qmanager_ippt_apply --boot </dev/null >/dev/null 2>&1 & ) >/dev/null 2>&1
 }
 
-# =============================================================================
-# GET — Read the product backend's configured passthrough flag
-# =============================================================================
-if [ "$REQUEST_METHOD" = "GET" ]; then
-    if ! fetch_enabled; then
-        qlog_error "Product passthrough GET failed or returned an invalid enabled flag"
-        cgi_error "passthrough_backend_unavailable" "The device passthrough service did not return a valid state"
-        exit 0
-    fi
+emit_state() {
+    # $1 detail (optional)
+    _want=$(ippt_desired)
+    _st=$(ippt_state)
+    _cl=$(ippt_clients | wc -l | tr -d ' ')
+    _mac=$(ippt_target_mac)
+    jq -n --argjson enabled "$_want" --arg state "$_st" --arg mac "$_mac" \
+        --argjson clients "${_cl:-0}" --arg detail "${1:-}" \
+        '{success:true, enabled:$enabled, state:$state, target_mac:$mac, clients:$clients}
+         + (if $detail != "" then {detail:$detail} else {} end)'
+}
 
-    jq -n --argjson enabled "$PT_ENABLED" \
-        '{success:true, enabled:$enabled}'
+if [ "$REQUEST_METHOD" = "GET" ]; then
+    emit_state
     exit 0
 fi
 
-# =============================================================================
-# POST — Set enabled flag through the product API and reboot after confirmation
-# =============================================================================
 if [ "$REQUEST_METHOD" = "POST" ]; then
     cgi_read_post
 
@@ -77,37 +65,49 @@ if [ "$REQUEST_METHOD" = "POST" ]; then
         2>/dev/null)
     case "$ENABLED" in
         true|false) ;;
-        *)
-            cgi_error "invalid_enabled" "enabled must be a JSON boolean"
-            exit 0
-            ;;
+        *) cgi_error "invalid_enabled" "enabled must be a JSON boolean"; exit 0 ;;
     esac
 
-    qlog_info "Apply: enabled=$ENABLED via product passthrough API"
-    PT_BODY=$(printf '{"enabled":%s}' "$ENABLED")
-    PT_RESPONSE=$(curl -fsS --connect-timeout 2 --max-time 8 \
-        -H 'Content-Type: application/json' \
-        --data-binary "$PT_BODY" "$PASSTHROUGH_SET_URL" 2>/dev/null)
-    PT_RC=$?
-    if [ "$PT_RC" -ne 0 ] || [ -z "$PT_RESPONSE" ]; then
-        qlog_error "Product passthrough setter transport failed (curl rc=$PT_RC)"
-        cgi_error "passthrough_backend_failed" "The device passthrough service could not apply the setting"
+    if [ "$ENABLED" = "true" ]; then
+        qlog_info "Apply: enable"
+        PREV=$(ippt_desired)
+        ippt_set_desired true || { cgi_error "save_failed" "Could not save the setting"; exit 0; }
+        MAC=$(ippt_apply_on); RC=$?
+        case "$RC" in
+            0)
+                qlog_info "passthrough active for $MAC"
+                emit_state
+                ;;
+            2)
+                # Saved; nothing to bind yet. Not an error: it starts when a device connects.
+                qlog_info "no LAN client yet; waiting in the background"
+                spawn_waiter
+                emit_state "no_client"
+                ;;
+            4)
+                qlog_warn "ql_qmap answered but QCMAP did not confirm; retrying in the background"
+                spawn_waiter
+                emit_state "unconfirmed"
+                ;;
+            *)
+                qlog_error "ql_qmap failed (rc=$RC)"
+                ippt_set_desired "$PREV" 2>/dev/null
+                cgi_error "apply_failed" "The modem refused the passthrough setting"
+                ;;
+        esac
         exit 0
     fi
 
-    # The product API owns persistence; accept only an exact matching state and
-    # its rebootRequired acknowledgement. Never reboot after an ambiguous write.
-    if ! printf '%s' "$PT_RESPONSE" | jq -e --argjson expected "$ENABLED" \
-        'type == "object" and .enabled == $expected and (.rebootRequired == true or .reboot_required == true)' \
-        >/dev/null 2>&1; then
-        qlog_error "Product passthrough setter did not confirm enabled=$ENABLED and rebootRequired"
-        cgi_error "passthrough_backend_unconfirmed" "The device did not confirm the requested setting; no reboot was scheduled"
-        exit 0
+    # Disable.
+    qlog_info "Apply: disable"
+    WAS=$(ippt_state)
+    ippt_set_desired false || { cgi_error "save_failed" "Could not save the setting"; exit 0; }
+    if [ "$WAS" = "active" ]; then
+        qlog_info "was active; rebooting to clear it (a live disable does not work here)"
+        cgi_reboot_response
     fi
-
-    qlog_info "Product backend confirmed enabled=$ENABLED; scheduling acknowledged reboot"
-    cgi_reboot_response
+    emit_state
+    exit 0
 fi
 
-# --- Method not allowed -------------------------------------------------------
 cgi_method_not_allowed

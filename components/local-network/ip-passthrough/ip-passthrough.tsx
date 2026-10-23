@@ -17,8 +17,17 @@ const K = "ipPassthrough";
 
 const IPPassthroughComponent = () => {
   const { t } = useTranslation("common");
-  const { enabled, isLoading, isSaving, error, saveSettings, refresh } =
-    useIpPassthrough();
+  const {
+    enabled,
+    state,
+    targetMac,
+    clients,
+    isLoading,
+    isSaving,
+    error,
+    saveSettings,
+    refresh,
+  } = useIpPassthrough();
 
   const failed = enabled === null && !isLoading && error !== null;
 
@@ -55,16 +64,25 @@ const IPPassthroughComponent = () => {
       </motion.div>
 
       <motion.div variants={staggerItem}>
-        <StatusStrip enabled={enabled} failed={failed} onRetry={() => refresh()} />
+        <StatusStrip
+          enabled={enabled}
+          state={state}
+          targetMac={targetMac}
+          failed={failed}
+          onRetry={() => refresh()}
+        />
       </motion.div>
 
       <motion.div variants={staggerItem}>
         <IPPassthroughCard
           enabled={enabled}
+          state={state}
+          clients={clients}
           isLoading={isLoading}
           isSaving={isSaving}
           failed={failed}
           saveSettings={saveSettings}
+          refresh={() => refresh(true)}
         />
       </motion.div>
     </motion.div>

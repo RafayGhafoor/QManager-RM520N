@@ -1,0 +1,79 @@
+#!/bin/sh
+# =============================================================================
+# qmanager_ippt_apply — (re)apply IP Passthrough after boot or on demand
+# =============================================================================
+# Why it exists: the O5A's passthrough binding is runtime-only. `ql_qmap LAN IPPT
+# set` is not written to the XML, so every reboot (and QCMAP's own auto-reboot)
+# drops it. /etc/qmanager/ippt.json holds what the owner asked for; this reads it
+# and, if enabled, binds the connected device again. See lib/ippt.sh for the
+# measured behaviour and docs/reference/ip-passthrough.md.
+#
+# Usage:
+#   qmanager_ippt_apply --boot    wait (up to 10 min) for QCMAP + a LAN client, apply
+#   qmanager_ippt_apply --once    one attempt now, exit 0 if active
+#
+# Touches: nothing persistent. It calls ql_qmap, which changes QCMAP's runtime state.
+# Never reboots, never writes the vendor XML, never restarts QCMAP (a QCMAP
+# restart while passthrough is active auto-reboots the device).
+# Failure modes: no client connected -> keeps polling until the window ends, logs
+# once, exits 1. QCMAP not answering -> same. A second instance exits at once
+# (mkdir lock), so a CGI-spawned retry and the boot unit cannot race.
+# =============================================================================
+PATH="/usrdata/qmanager/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+export PATH
+. /usr/lib/qmanager/qlog.sh 2>/dev/null || { qlog_init() { :; }; qlog_info() { :; }; qlog_warn() { :; }; }
+. /usr/lib/qmanager/ippt.sh
+qlog_init "ippt_apply"
+
+MODE="${1:---once}"
+LOCK=/tmp/qmanager_ippt.lock
+WINDOW="${IPPT_WINDOW:-600}"   # seconds
+STEP=10
+
+# Single instance. The lock records its owner's pid, so a lock left by a killed
+# process (kill -9 skips the trap) is taken over instead of blocking forever.
+if ! mkdir "$LOCK" 2>/dev/null; then
+    _owner=$(cat "$LOCK/pid" 2>/dev/null)
+    if [ -n "$_owner" ] && [ -d "/proc/$_owner" ]; then exit 0; fi
+    rm -rf "$LOCK"; mkdir "$LOCK" 2>/dev/null || exit 0
+fi
+echo $$ > "$LOCK/pid"
+trap 'rm -rf "$LOCK"' EXIT INT TERM
+
+[ "$(ippt_desired)" = "true" ] || { qlog_info "passthrough not requested; nothing to do"; exit 0; }
+
+attempt() {
+    [ "$(ippt_state)" = "active" ] && { qlog_info "already active"; return 0; }
+    _m=$(ippt_apply_on); _rc=$?
+    case "$_rc" in
+        0) qlog_info "passthrough active for $_m"; return 0 ;;
+        2) _why="no LAN client yet" ;;
+        3) _why="ql_qmap failed" ;;
+        *) _why="QCMAP did not confirm" ;;
+    esac
+    _LAST="$_why"
+    return 1
+}
+
+if [ "$MODE" = "--once" ]; then
+    attempt && exit 0
+    qlog_warn "passthrough not applied: $_LAST"
+    exit 1
+fi
+
+# --boot: do not touch QCMAP while the box is still coming up. At ~40 s QCMAP_CLI
+# blocks, and every vendor call at boot also competes with WAN bring-up. Wait for
+# 90 s of uptime first (the same settle point tailscaled uses). Uptime, not date:
+# the modem steps the wall clock at boot.
+_up=$(cut -d. -f1 /proc/uptime)
+[ "$_up" -lt "${IPPT_SETTLE:-90}" ] && sleep $(( ${IPPT_SETTLE:-90} - _up ))
+# Then poll. The window is measured from here, also on uptime.
+_start=$(cut -d. -f1 /proc/uptime)
+while :; do
+    attempt && exit 0
+    _now=$(cut -d. -f1 /proc/uptime)
+    [ $((_now - _start)) -ge "$WINDOW" ] && break
+    sleep "$STEP"
+done
+qlog_warn "passthrough not applied after ${WINDOW}s: $_LAST"
+exit 1

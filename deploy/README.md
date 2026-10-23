@@ -36,6 +36,7 @@ bind-mounted along with `/etc`, `/data`, `/cache`, `/persist`). Nothing outside
 | `qmanager-ping.service` | systemd unit: ping/reachability daemon. Fills `/tmp/qmanager_ping.json`; required for Latency Monitor and the Internet tile. |
 | `qmanager-dpi.service` | systemd unit: Traffic Engine (`tpws`). Without it the engine can be installed *and enabled* and still never run — the UI then reports `engine_start_failed` while `binary_installed` is true. |
 | `qmanager-dpi-ensure.service` / `.timer` | Re-asserts the engine's `nat REDIRECT` and the QUIC REJECT every 60 s: QCMAP flushes the nat table on each re-dial. **Since 2026-10-22 the service is a resident loop (`qmanager_dpi_run --ensure-loop`, `Restart=always`) and the timer fires it once (`OnBootSec=60`)** — a per-minute oneshot put 3 PID-1 lines a minute into dmesg. Monotonic schedule only (no RTC on this SoC). |
+| `qmanager-ippt.service` | systemd unit: re-applies IP Passthrough after boot (`qmanager_ippt_apply --boot`). The binding is runtime-only on this firmware, so without it an enabled setting is lost on every reboot. Exits at once when passthrough was not requested. |
 
 ## The AT path (the non-obvious part)
 
@@ -145,6 +146,10 @@ tar czf - -C deploy qmanager-httpd.service qmanager-poller.service qmanager-ping
 tar czf - -C deploy qmanager-dpi.service qmanager-dpi-ensure.service qmanager-dpi-ensure.timer | ssh root@<device> \
   'tar xzf - -C /etc/systemd/system && chmod 644 /etc/systemd/system/qmanager-dpi*.service /etc/systemd/system/qmanager-dpi-ensure.timer && \
    systemctl daemon-reload && systemctl enable qmanager-dpi.service qmanager-dpi-ensure.timer'
+
+# 5c. IP Passthrough boot re-apply (the setting is runtime-only; see docs/reference/ip-passthrough.md)
+tar czf - -C deploy qmanager-ippt.service | ssh root@<device> \
+  'tar xzf - -C /etc/systemd/system && chmod 644 /etc/systemd/system/qmanager-ippt.service && systemctl daemon-reload'
 
 # 6. Boot wiring — `enable` alone does NOT survive this firmware's boot
 #    transaction (see qm_boot_hook.sh). This is what actually starts them.

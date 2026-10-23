@@ -1,6 +1,6 @@
 # IP Passthrough: use the O5A device backend
 
-**Status:** source deployed and pushed (`03e916cd`); owner then authorized a one-time live enable test without reboot. Runtime verification/rollback is in progress.
+**SUPERSEDED, see the Final outcome at the bottom.** Earlier status: source deployed and pushed (`03e916cd`); owner then authorized a one-time live enable test without reboot. Runtime verification/rollback is in progress.
 
 ## Goal
 
@@ -151,3 +151,26 @@ These separate short windows are noisy and do not support a speedup claim. The
 observed system fork counter advanced by 59 more over the post-change batch; this
 is not isolated CGI attribution. The page is not polled continuously, and no new
 resident process was added.
+
+
+## Final outcome (2026-10-23, later)
+
+The approach in the sections above (drive the product's `:8091/passthrough` XML flag) **did not activate
+passthrough** and was replaced. What shipped:
+
+- `ql_qmap LAN IPPT set 0 1 <mac>` with an auto-detected target (found by reading the vendor SDK on `petros1`:
+  Port Mode → `mpdn` → `ql_qmap_lan_ippt_set_v1`, and the `/usr/bin/ql_qmap` CLI on the unit).
+- On = live, no reboot. Off = reboot (a live disable does not work). Re-applied each boot by
+  `qmanager-ippt.service` (~90 s in). Page rebuilt around four states.
+- Tailscale was fixed first at the owner's request (`/data/gp/tailscale-enabled` was `0`; set via the product
+  toggle and proven by a real reboot; see `docs/reference/tailscale.md`).
+
+**What went wrong on the way, kept for the next person:** `QCMAP_CLI` floods its menu on EOF (93 MB into `/tmp`
+in 8 s); plain `timeout` does not kill it at boot (needs `-s KILL`); `systemctl` is in `/bin`; a QCMAP restart
+while passthrough is active auto-reboots the box; passthrough hides `192.168.0.1`, so the LAN SSH path dies and
+Tailscale (or a tailnet jump host) is required. Full list: `docs/reference/ip-passthrough.md`.
+
+**Safety nets used:** a timed revert script on the device for each live write (backups and logs in
+`/usrdata/qmanager/backup/ippt-live-test-20261023/`); the setting is runtime-only so a reboot always clears it.
+
+**Still open:** no-client and multi-client paths are untested on the unit; full-repo lint has unrelated failures.

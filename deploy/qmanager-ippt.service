@@ -1,0 +1,23 @@
+# /etc/systemd/system/qmanager-ippt.service
+#
+# Deployment unit for the GreenPacket O5A Pro (see deploy/README.md).
+#
+# IP Passthrough is runtime-only on this firmware: `ql_qmap LAN IPPT set` is not
+# persisted, so every boot starts with it OFF. If the owner enabled it
+# (/etc/qmanager/ippt.json), qmanager_ippt_apply waits for QCMAP and a LAN client
+# and binds the device again. It exits at once when passthrough was not requested.
+#
+# Type=simple on purpose: the script may poll for up to 10 minutes and a oneshot
+# would hold `systemctl start` (and the boot script that issues it) for that long.
+# Started from /etc/init.d/turin_web.sh by deploy/qm_boot_hook.sh, because this
+# firmware drops /etc units from PID 1's boot transaction.
+[Unit]
+Description=QManager IP Passthrough re-apply (boot)
+
+[Service]
+Type=simple
+StandardOutput=null
+StandardError=null
+Environment=PATH=/usrdata/qmanager/bin:/usr/local/sbin:/usr/local/bin:/usr/bin:/usr/sbin:/bin:/sbin
+ExecStart=/usrdata/qmanager/bin/qmanager_ippt_apply --boot
+Restart=no

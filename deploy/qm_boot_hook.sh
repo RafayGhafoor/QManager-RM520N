@@ -56,7 +56,7 @@ MODE=${1:-apply}
 # a new QManager unit up at boot — the hook is additive, so an already-hooked
 # device picks up the new line without losing the existing ones.
 UNITS="qmanager-httpd.service qmanager-poller.service qmanager-ping.service
-qmanager-dpi.service qmanager-dpi-ensure.timer"
+qmanager-dpi.service qmanager-dpi-ensure.timer qmanager-ippt.service"
 
 [ -f "$TURIN" ] || { echo "ERROR: $TURIN not found" >&2; exit 1; }
 

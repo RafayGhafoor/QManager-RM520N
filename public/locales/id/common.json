@@ -481,101 +481,86 @@
     "toast_saved": "DNS kustom diterapkan. Klien LAN mungkin mengalami jeda singkat saat cache disegarkan.",
     "toast_error": "Tidak dapat menerapkan perubahan DNS."
   },
-  "ipPassthrough": {
-    "page": {
-      "title": "Passthrough IP",
-      "description": "Aktifkan atau nonaktifkan passthrough IP melalui backend jaringan yang didukung perangkat."
-    },
-    "header": {
-      "refresh": "Segarkan"
-    },
-    "status": {
-      "label": "Pengaturan perangkat",
-      "mode_title": {
-        "disabled": "Nonaktif",
-        "eth": "Aktif",
-        "usb": "Passthrough USB"
+    "ipPassthrough": {
+      "page": {
+        "title": "Passthrough IP",
+        "description": "Berikan alamat IP operator langsung ke router di belakang modem ini, bukan membagikannya lewat NAT."
       },
-      "blurb": {
-        "disabled": "Backend perangkat melaporkan passthrough IP nonaktif.",
-        "eth": "Backend perangkat melaporkan passthrough IP aktif.",
-        "usb": "Disetel untuk menyerahkan IP WAN ke perangkat USB"
+      "header": {
+        "refresh": "Segarkan"
       },
-      "no_target": "Tidak ada perangkat dipilih",
-      "gateway": "Gateway LAN",
-      "gateway_served": "Dilayani",
-      "gateway_not_served": "Tidak dilayani"
-    },
-    "card": {
-      "title": "Konfigurasi passthrough",
-      "description": "Menerapkan akan menyimpan pengaturan melalui backend perangkat dan me-reboot modem.",
-      "apply": "Terapkan dan reboot",
-      "discard": "Buang perubahan",
-      "unsaved_one": "{{count}} perubahan belum tersimpan",
-      "unsaved_other": "{{count}} perubahan belum tersimpan",
-      "mac_label": "Alamat MAC target",
-      "mac_placeholder": "XX:XX:XX:XX:XX:XX"
-    },
-    "groups": {
-      "passthrough": "Passthrough",
-      "network": "Jaringan"
-    },
-    "rows": {
-      "mode": {
-        "label": "Passthrough IP"
+      "status": {
+        "label": "Passthrough",
+        "title": {
+          "off": "Nonaktif",
+          "active": "Aktif",
+          "pending": "Menunggu perangkat",
+          "off_pending": "Sedang dimatikan"
+        },
+        "blurb": {
+          "off": "Modem berbagi satu alamat dengan semua perangkat di LAN.",
+          "active": "IP operator diberikan ke {{mac}}. Modem ini tetap dapat dijangkau di alamat LAN-nya.",
+          "pending": "Diaktifkan, tetapi belum berjalan. Mulai begitu ada perangkat terhubung ke port LAN.",
+          "off_pending": "Masih aktif sampai modem di-reboot."
+        }
       },
-      "target": {
-        "label": "Perangkat target",
-        "pick_mode": "Pilih mode terlebih dahulu."
+      "card": {
+        "title": "Passthrough",
+        "description": "Mengaktifkan langsung diterapkan tanpa reboot. Menonaktifkan akan me-reboot modem.",
+        "apply": "Terapkan",
+        "discard": "Buang perubahan",
+        "unsaved_one": "{{count}} perubahan belum tersimpan",
+        "unsaved_other": "{{count}} perubahan belum tersimpan"
       },
-      "nat": {
-        "label": "NAT",
-        "hint": "Dengan NAT cocok untuk hampir semua pengaturan.",
-        "hint_label": "Tentang NAT"
+      "groups": {
+        "passthrough": "Passthrough"
       },
-      "usb": {
-        "label": "Koneksi USB"
+      "rows": {
+        "mode": {
+          "label": "Passthrough IP"
+        }
       },
-      "dns": {
-        "label": "Proxy DNS",
-        "hint": "Aktif, modem menjawab DNS lewat DHCP untuk perangkat target.",
-        "hint_label": "Tentang proxy DNS"
+      "options": {
+        "off": "Nonaktif",
+        "on": "Aktif"
+      },
+      "mode_note": {
+        "rest": "Modem memilih perangkat sendiri: router yang terhubung ke port LAN-nya. Modem ini tetap dapat dijangkau di alamat LAN-nya.",
+        "to_on": "Diterapkan sekarang tanpa reboot. Router Anda mendapat IP operator dan mungkin tersambung ulang sejenak.",
+        "to_off": "Tersimpan. Tidak ada yang aktif, jadi tidak perlu reboot.",
+        "to_off_reboot": "Menonaktifkan akan me-reboot modem agar berlaku."
+      },
+      "dialog": {
+        "on": {
+          "title": "Aktifkan Passthrough IP?",
+          "body": "Router yang terhubung ke port LAN mendapat IP operator. Diterapkan sekarang tanpa reboot, dan koneksi Anda mungkin terputus sejenak.",
+          "confirm": "Aktifkan"
+        },
+        "off": {
+          "title": "Nonaktifkan Passthrough IP?",
+          "body": "Tersimpan. Tidak ada yang aktif, jadi tidak perlu reboot.",
+          "confirm": "Nonaktifkan"
+        },
+        "off_reboot": {
+          "title": "Nonaktifkan dan reboot?",
+          "body": "Passthrough yang berjalan baru hilang setelah modem di-reboot. Halaman ini beralih ke hitung mundur reboot dan mengeluarkan Anda dari sesi.",
+          "confirm": "Nonaktifkan dan reboot"
+        },
+        "cancel": "Batal"
+      },
+      "toast_apply_error": "Tidak dapat menerapkan pengaturan Passthrough IP",
+      "toast_active": "Passthrough IP aktif",
+      "toast_pending": "Tersimpan. Mulai begitu ada perangkat terhubung.",
+      "toast_off": "Passthrough IP nonaktif",
+      "errors": {
+        "read_title": "Tidak dapat membaca pengaturan passthrough",
+        "read_body": "Tidak ada yang diubah. Coba lagi, atau periksa apakah modem menjawab.",
+        "retry": "Coba lagi",
+        "card_unread": "Modem belum menjawab, jadi tidak ada yang dapat diubah sampai pembacaan pertama masuk.",
+        "no_changes": "Belum ada yang berubah.",
+        "many_clients": "Lebih dari satu perangkat terhubung. Passthrough hanya mengikat satu, yaitu yang terakhir terhubung."
       }
     },
-    "options": {
-      "mode_disabled": "Nonaktif",
-      "mode_eth": "Aktif",
-      "mode_usb": "USB",
-      "target_automatic": "Otomatis",
-      "target_manual": "Lewat MAC",
-      "nat_on": "Dengan NAT",
-      "nat_off": "Tanpa NAT",
-      "dns_off": "Nonaktif",
-      "dns_on": "Aktif"
-    },
-    "mode_note": {
-      "rest": "Mengaktifkan passthrough IP mungkin membuat gateway LAN tidak dapat dijangkau. Siapkan Tailscale atau jalan masuk lain.",
-      "to_passthrough": "Mengaktifkan passthrough IP akan me-reboot modem. Gateway LAN mungkin tidak dapat dijangkau, jadi siapkan Tailscale atau jalan masuk lain.",
-      "to_router": "Menonaktifkan passthrough IP akan me-reboot modem. Gateway LAN seharusnya dapat dijangkau kembali setelah reboot."
-    },
-    "dialog": {
-      "title": "Terapkan dan reboot sekarang?",
-      "body": "Perangkat menyimpan pengaturan dan langsung reboot. Halaman ini beralih ke hitung mundur reboot dan mengeluarkan Anda dari sesi.",
-      "body_gateway": "Begitu passthrough aktif, modem berhenti menjawab di alamat gateway LAN-nya. Pastikan Anda punya Tailscale, perangkat passthrough itu sendiri, atau konsol serial untuk masuk kembali.",
-      "body_persist": "Pengaturan ini bertahan pada reboot berikutnya.",
-      "cancel": "Batal",
-      "confirm": "Terapkan dan reboot"
-    },
-    "toast_apply_error": "Tidak dapat menerapkan pengaturan Passthrough IP",
-    "errors": {
-      "read_title": "Tidak dapat membaca pengaturan passthrough",
-      "read_body": "Tidak ada yang diubah. Coba lagi, atau periksa apakah layanan jaringan perangkat berjalan.",
-      "retry": "Coba lagi",
-      "card_unread": "Layanan jaringan perangkat belum menjawab, jadi belum ada yang dapat diubah.",
-      "mac_invalid": "Masukkan alamat MAC lengkap, enam pasang digit heksadesimal.",
-      "no_changes": "Belum ada yang berubah."
-    }
-  },
   "trafficEngine": {
     "page": {
       "title": "Mesin Lalu Lintas",

@@ -1,94 +1,71 @@
-# SPEC: O5A IP Passthrough backend parity
+# SPEC: O5A IP Passthrough
 
-**Status:** Source pushed in `03e916cd` and deployed. The owner-authorized no-reboot test and rollback completed 2026-10-23; the configured flag changed but live forwarding was not demonstrated. The owner accepts the existing Apply-and-reboot behavior; the flag is currently disabled.
+**Status:** Built and verified on the unit, 2026-10-23. Reference: [`docs/reference/ip-passthrough.md`](../reference/ip-passthrough.md).
 
-**Background.** Upstream QManager's page sends five Quectel `AT+QMAP`/`AT+QCFG`
-settings. On this GreenPacket O5A Pro (RG520N-EB, firmware
-`LE.UM.6.2.3.r1-03100-SDX65.0`), the passthrough/NAT/DNS `AT+QMAP` commands
-return errors. The O5A product backend already exposes the native
-`GET /passthrough` and `POST /passthrough/set` API on loopback port 8091, but it
-only controls the enable flag. Keeping the upstream MAC/NAT/USB/DNS controls
-would falsely imply the O5A backend can apply them.
+**Background.** Upstream QManager drives passthrough with `AT+QMAP`, which answers `ERROR` on the O5A. The
+vendor UI and the product's `POST :8091/passthrough/set` only flip an XML flag and never activate it. What the
+vendor stack itself calls is Quectel's `ql_qmap LAN IPPT` (`libql_qmap`), shipped on the unit as
+`/usr/bin/ql_qmap`. The owner asked for a page that works, with no MAC to type and no reboot to turn it on.
 
 ## In Scope
 
-1. Use the product's loopback passthrough API for reads and writes; do not issue
-   the unsupported AT command family from this CGI.
-2. Match the O5A page to the native contract with one enabled/disabled control,
-   an accurate configured-state display, and a confirmation warning about losing
-   LAN gateway access.
-3. Verify a successful backend response before returning success and queuing the
-   existing acknowledged reboot handoff.
-4. Record the measured command availability and integration contract for RG520N.
+1. Drive `ql_qmap LAN IPPT set 0 1 <mac>` from the CGI, with the target **auto-detected** from the DHCP leases
+   and ARP table, and confirm with QCMAP's own state.
+2. Persist the owner's intent in `/etc/qmanager/ippt.json` and **re-apply after every boot** (the binding is
+   runtime-only).
+3. A page with one Off/On control and four honest states (Off / Active / Waiting for a device / Turning off).
+4. Turning **on** needs no reboot; turning **off** while active uses the acknowledged reboot hand-off.
 
-## Out of Scope
+## Out of Scope (with reasoning)
 
-- **Per-MAC targeting.** The product endpoint has no target-device parameter; do
-  not keep a control that would be ignored.
-- **NAT mode, USB protocol, and DHCP DNS offloading.** The O5A endpoint does not
-  expose these; adding AT writes would reintroduce the observed failure, and
-  editing the vendor XML directly is outside this deployment's allowed paths.
-- **Changing `/data/gp/radio-handler.sh`, `/etc/data/mobileap_cfg.xml`, `/web`,
-  or any vendor service.** The integration consumes its existing loopback API.
-- **Rebooting the live device during validation.** The owner authorized one
-  temporary API-mediated enable test without reboot. Enabling can remove the LAN
-  management path, so a backup and timed API rollback are required before the
-  write; do not use QManager's current rebooting Apply path for this test.
-- **Claiming that QMAP commands are unsupported on every RG520N variant.** The
-  observation applies only to this O5A firmware until another device is measured.
+- **A MAC, NAT, USB-protocol or DNS control.** The target is the newest LAN client, found by the backend;
+  `ql_qmap LAN IPPTNAT` exists but was not needed and is untested as a writer.
+- **A live disable.** Measured: `ql_qmap LAN IPPT set 0 0` answers OK and the state stays `ACTIVATED`; a QCMAP
+  restart auto-reboots the device. A reboot is the only clearing mechanism, so it is surfaced, not hidden.
+- **`AT+QMAP`, the XML flag, the product `:8091/passthrough` API, `QCMAP_CLI` item 14, `ql_qmap ... adaptive`.**
+  Each was tried and is recorded under "What did NOT work" in the reference. Do not re-add them.
+- **Re-enabling `turin_mpdn.service`.** It is masked because it tears the PDN down; the vendor Port Mode path
+  depends on it.
+- **Choosing among several clients.** Passthrough binds exactly one; the newest wins and the page says so.
+- **Keeping the modem UI reachable at `192.168.0.1`.** It is not reachable while passthrough is active
+  (measured); Tailscale is the way in, so it must be working (see `docs/reference/tailscale.md`).
 
 ## Requirements
 
-- [x] GET returns the `enabled` boolean read from `http://127.0.0.1:8091/passthrough`;
-      live CGI GET returned `success:true, enabled:false`. The failure branches
-      for missing service, non-2xx and malformed JSON are fail-closed by inspection
-      but were not fault-injected on the live unit.
-- [ ] POST accepts only `enabled: true|false`, calls the product setter with a
-      JSON boolean, and requires the returned state to match the request before
-      reporting success. The invalid string value was exercised and rejected
-      before the setter; the QManager CGI setter path still schedules reboot and
-      is not used for the no-reboot live test.
-- [x] The CGI never issues `AT+QMAP` or `AT+QCFG="usbnet"` for passthrough (source
-      review; live CGI returned state without AT activity).
-- [x] The existing `cgi_reboot_response` handoff remains gated on a verified
-      setter response; the no-reboot test invoked the product API directly, not
-      the QManager CGI, and did not reboot.
-- [x] The page exposes only controls supported by the endpoint and clearly warns
-      that enabling passthrough may make the LAN gateway unreachable.
-- [x] All five shipped locales remain structurally in parity and describe the
-      narrowed controls truthfully.
-- [x] Shell syntax, `bun run i18n:check`, targeted ESLint and `bun run build` pass.
-      Full `bun run lint` remains blocked by pre-existing errors in unrelated files.
-- [x] The source was reviewed and pushed only to the owner's `greenpacket` branch.
+- [x] GET returns `{enabled, state, target_mac, clients}`; `state` comes from QCMAP and `unknown` is never
+      reported as `inactive`.
+- [x] POST `enabled:true` binds the detected device and returns `state:"active"` without a reboot (verified:
+      same boot ID, lease became the carrier IP).
+- [x] POST `enabled:false` persists, and reboots only when the state is `active` (verified both: off + reboot
+      → inactive, router back on `192.168.0.39`).
+- [x] The setting survives a reboot: `qmanager-ippt.service` re-applies it (verified by two real reboots).
+- [x] No call can flood RAM or hang: the vendor tools run under `timeout -s KILL`, and `QCMAP_CLI` output is cut
+      at the first match.
+- [x] Five locales in parity; `bun run i18n:check`, targeted ESLint and `bun run build` pass.
+- [ ] Full-repo `bun run lint` — still fails on unrelated existing files (`app/not-found.tsx`,
+      `cellular-information.tsx`, `carrier-aggregation.tsx`, `recent-activities.tsx`, `reboot-countdown.tsx`).
 
 ## Edge cases (close-out)
 
 | Edge case | How it was exercised | Observed |
 | --- | --- | --- |
-| Product API missing | Not fault-injected; fail-closed branch reviewed | Not exercised |
-| Empty/non-JSON response | Not fault-injected; jq/type guard reviewed | Not exercised |
-| Backend reports a different enabled value | Not fault-injected; exact equality guard reviewed | Not exercised |
-| Invalid request boolean | Direct CGI POST with `enabled:"true"` | `invalid_enabled`; no setter call; product flag remained false |
-| Temporary passthrough enable / no-reboot behavior | Owner-authorized product API setter; backup plus 120-second disabled rollback; no reboot | API/XML flag changed to enabled then returned to disabled; boot ID unchanged and services stayed up. The user's traceroute still showed `192.168.0.1` as a hop, so live forwarding was not demonstrated. Product API reports `rebootRequired:true`; owner accepts Apply-and-reboot for actual enable. |
+| Boot with intent on | real reboot ×2 | re-bound ~90 s in |
+| Boot with intent off | real reboot | "not requested", inactive |
+| `QCMAP_CLI` wedged at boot | first version of the applier | hung → fixed (`-s KILL`, 90 s settle) |
+| Invalid boolean | direct POST | `invalid_enabled`, no change |
+| No client / several clients | not exercised on the unit | by code: persist + background waiter / newest wins |
 
 ## Benchmark
 
-| Run | Conditions | CPU share of one core | RSS | Fork rate |
-| --- | --- | --- | --- | --- |
-| Before | Live device, 10 GETs, no AT write/scan; 2.11 s window | 100% system-wide (211 busy ticks; noisy, not CGI attribution) | QManager httpd 68 kB | +223 system forks |
-| After | Live device, 10 GETs, no setter/scan; 1.45 s window | 100% system-wide (145 busy ticks; noisy, not CGI attribution) | QManager httpd 116 kB after restart | +282 system forks |
+| Run | Per GET | Forks / GET |
+| --- | --- | --- |
+| Before (XML-flag CGI) | ~211 ms | ~22 |
+| After (this CGI) | 174 ms | 42 |
 
-Memory headroom during the before run was 48,920 → 47,324 kB and after was
-55,012 → 48,784 kB; these are system snapshots, not per-CGI RSS peaks. The
-system fork counter advanced by 59 more in the after batch, but background
-activity makes that an upper-bound observation, not isolated CGI attribution.
-This functional compatibility change makes no performance claim.
+Not cheaper (one extra `QCMAP_CLI` spawn per GET); nothing polls the page. Details in the reference.
 
 ## Branch scope
 
-The owner explicitly authorized the minimal app-layer exception required to
-remove controls the O5A backend cannot provide:
-`components/local-network/ip-passthrough/**`, `hooks/use-ip-passthrough.ts`,
-`types/ip-passthrough.ts`, and
-`public/locales/{en,id,it,zh-CN,zh-TW}/common.json`. The backend-only alternative
-would falsely retain and accept unsupported fields, so it is not a valid fix.
+Owner-authorised app-layer exception (AGENTS.md exception 5): `components/local-network/ip-passthrough/**`,
+`hooks/use-ip-passthrough.ts`, `types/ip-passthrough.ts`, `public/locales/{en,id,it,zh-CN,zh-TW}/common.json`.
+The backend half lives in `scripts/` and `deploy/`.
