@@ -127,6 +127,37 @@ asked for USB. Untried next step: set `IPPassthroughDevice`/`IPPassthroughMacAdd
 `mobileap_cfg.xml` and reboot so QCMAP reads them at start (direct vendor-file edit,
 needs owner approval, backup `/usrdata/qmanager/backup/ippt-live-test-20261023/`).
 
+**XML-target experiment (2026-10-23, owner-approved, QCMAP restarted, no reboot).**
+Target confirmed by the owner: Ethernet, MAC `cc:2d:21:1d:21:79` (the router at
+`192.168.6.1`, the only DHCP client). Findings:
+
+- **Tag names differ.** QCMAP's *reader* strings are `IPPassthroughDeviceType`,
+  `IPPassthroughHostName`, `IPPassthroughMacAddr` (and `IPPassthroughAdaptive`), but
+  its *writer template* (and the vendor `/passthrough/set` file) emits
+  `<IPPassthroughDevice>%d</...>` with HostName and MacAddr hardcoded to `NULL`
+  (`strings /usr/bin/QCMAP_ConnectionManager`). `factory_mobileap_cfg.xml` uses
+  `IPPassthroughDeviceType`, `0` placeholders. So a QCMAP-written file can never keep
+  the target.
+- **Writing the reader's tags did not help.** With `Enable=1`, `IPPassthroughDeviceType`
+  = `0`, `1`, `2`, `3` and `4` in turn (HostName `0`, the MAC above), and a real
+  `systemctl restart QCMAP_ConnectionManagerd` between each (PID changed; the XML was
+  kept intact), QCMAP's read-only getters still said `Device Type Not Set` /
+  `NOT ACTIVATED`. The XML-only route does not populate QCMAP's passthrough config
+  with any of the five values.
+- `QCMAP_CLI` -> `1` -> `3` reports `Mobile AP is Connected`, so the earlier `0x9` is
+  not simply "MobileAP not enabled".
+- The router was restored byte-for-byte afterwards (flag `1`, original block). Backups
+  and logs: `/usrdata/qmanager/backup/ippt-live-test-20261023/`.
+- **Pitfall in my own safety net:** `systemctl` is `/bin/systemctl` on this unit, not
+  `/usr/bin/systemctl`; a rollback script that hardcoded the latter would have failed
+  silently, including its reboot fallback.
+
+Not yet tried: disassembling `GetIPPassthroughConfigXMLNode` /
+`ResetIPPassthroughConfigFromXML` for the exact accepted values and format;
+`IPPassthroughAdaptive`; running the CLI's "Enable/Disable mobileap" (can drop the WAN).
+Auto-binding the MAC from `/var/run/data/dnsmasq.leases` + `/proc/net/arp` in the page
+remains viable once the vendor side accepts any target.
+
 ## Related
 
 - [`at-command-transport.md`](at-command-transport.md) — qcmd response and
