@@ -74,8 +74,12 @@
 # reads them and that contract is unchanged.
 #
 # Output: /tmp/qmanager_ping.json (atomic writes, slim — no stats/history)
-# Also: /tmp/qmanager_dns.json — carrier-resolver lookup time, sampled by a detached
-# background job (never inline in the probe loop; see the DNS section below).
+# Also: /tmp/qmanager_dns.json — DNS lookup time, sampled by a detached background job
+# (never inline in the probe loop; see the DNS section below). Two independent
+# samples: the CARRIER resolver named in resolv.conf, and — only when
+# DNS_LAN_RESOLVER is set — the resolver LAN clients actually query. They answer
+# two different questions and must not be merged into one field; see
+# docs/specs/dns-probe-two-paths.md.
 # History: /tmp/qmanager_ping_history (flat-file ring buffer, read by poller)
 #
 # The history file is TRUNCATED whenever the winning target changes, so a
@@ -488,6 +492,12 @@ write_cache() {
 DNS_NAME="one.one.one.one"
 DNS_FILE="${DNS_FILE:-/tmp/qmanager_dns.json}"
 RESOLV_CONF="${RESOLV_CONF:-/etc/resolv.conf}"
+# Opt-in SECOND probe: the resolver LAN clients query (dnsmasq on the LAN address).
+# Empty = disabled, which is the upstream default — an unset device must not grow a
+# fork. The O5A deployment sets it in deploy/qmanager-ping.service.
+# NEVER point this at loopback: dnsmasq runs `interface=bridge0` with
+# `except-interface=lo` and refuses 127.0.0.1:53 (measured — "connection timed out").
+DNS_LAN_RESOLVER="${DNS_LAN_RESOLVER:-}"
 DNS_INTERVAL=60          # seconds between scheduled lookups
 DNS_MIN_GAP=10           # floor between lookups when an outage edge forces one
 DNS_LOOKUP_TIMEOUT=5     # hard bound on the nslookup itself
@@ -509,36 +519,73 @@ _uptime_cs() {
     _CS=$(( ${_u_up%%.*} * 100 + ${_u_frac:-0} ))
 }
 
-# The detached job: first nameserver in resolv.conf, re-read every run (it changes on reattach).
+# One bounded lookup against one resolver. Sets _p_ms ("null" or an integer) and
+# _p_ok. Shared by both tiers on purpose: two numbers compared side by side are only
+# comparable if they were taken the same way.
+#
+# The clock is /proc/uptime, the only fork-free source on this device. Its
+# centisecond field QUANTISES the result to 10 ms with a floor of 10, so a warm
+# cache hit cannot read below 10. That floor is deliberate: the alternatives
+# (`date +%N`) cost a fork whose overhead is the same order as the measurement.
+_dns_probe() {
+    _p_ms="null"
+    _p_ok="false"
+    case "$1" in ''|null|*[!0-9A-Za-z:.%_-]*) return 0 ;; esac
+    _p_out=$(mktemp /tmp/qmanager_dns_out.XXXXXX 2>/dev/null) || return 0
+    _uptime_cs; _p_t0="$_CS"
+    qm_timeout "$DNS_LOOKUP_TIMEOUT" nslookup "$DNS_NAME" "$1" >"$_p_out" 2>&1 </dev/null
+    _p_rc=$?
+    _uptime_cs; _p_t1="$_CS"
+    # Success = exit 0 and an Address line after a Name line (the server header has one too).
+    if [ "$_p_rc" -eq 0 ] && awk '/^Name:/ { n = 1; next } n && /^Address/ { f = 1 } END { exit !f }' "$_p_out"; then
+        _p_ok="true"
+        _p_ms=$(( (_p_t1 - _p_t0) * 10 ))
+        [ "$_p_ms" -lt 10 ] && _p_ms=10
+    fi
+    rm -f "$_p_out"
+    return 0
+}
+
+# The detached job. Tier 1 is the first nameserver in resolv.conf, re-read every run
+# (it changes on reattach); tier 2 is the opt-in LAN resolver.
 dns_job() {
     trap - EXIT INT TERM
+    # Tier 1 — the CARRIER resolver. This is the answer to "is the network's resolver
+    # working", and it is what the UI's "ICMP silent but DNS resolves, so the ping is
+    # filtered rather than the link down" inference rests on. Do not repoint it at the
+    # LAN cache: smartdns serve-expired (1 h) keeps answering after the WAN is gone, so
+    # a LAN-sourced answer would claim a healthy link during a real outage.
     _res=$(awk '$1 == "nameserver" { print $2; exit }' "$RESOLV_CONF" 2>/dev/null)
     case "$_res" in *[!0-9A-Za-z:.%_-]*) _res="" ;; esac
-    _ms="null"
-    _ok="false"
-    if [ -n "$_res" ]; then
-        _out=$(mktemp /tmp/qmanager_dns_out.XXXXXX 2>/dev/null)
-        if [ -n "$_out" ]; then
-            _uptime_cs; _t0="$_CS"
-            qm_timeout "$DNS_LOOKUP_TIMEOUT" nslookup "$DNS_NAME" "$_res" >"$_out" 2>&1 </dev/null
-            _rc=$?
-            _uptime_cs; _t1="$_CS"
-            # Success = exit 0 and an Address line after a Name line (the server header has one too).
-            if [ "$_rc" -eq 0 ] && awk '/^Name:/ { n = 1; next } n && /^Address/ { f = 1 } END { exit !f }' "$_out"; then
-                _ok="true"
-                _ms=$(( (_t1 - _t0) * 10 ))
-                [ "$_ms" -lt 10 ] && _ms=10
-            fi
-            rm -f "$_out"
-        fi
-    fi
+    _dns_probe "$_res"
+    _ms="$_p_ms"
+    _ok="$_p_ok"
+
+    # Tier 2 — the resolver LAN clients query. Opt-in, and its failure is isolated:
+    # _p_* is overwritten but the tier-1 result is already copied out above, so a dead
+    # LAN resolver can never corrupt the carrier sample. Two 5 s lookups plus jq still
+    # fit inside DNS_JOB_MAX=15 even in the worst case (both timeout).
+    _dns_probe "$DNS_LAN_RESOLVER"
+    _ms_lan="$_p_ms"
+    _ok_lan="$_p_ok"
 
     _uptime_cs
     _tmp=$(mktemp "${DNS_FILE}.XXXXXX" 2>/dev/null) || exit 0
-    if jq -n --argjson ms "$_ms" --argjson ok "$_ok" --arg res "$_res" --arg name "$DNS_NAME" \
-            --argjson mono "$((_CS / 100))" --argjson ts "$(date +%s)" \
-            '{ms: $ms, ok: $ok, resolver: $res, name: $name, mono: $mono, ts: $ts}' > "$_tmp" 2>/dev/null \
-        && chmod 644 "$_tmp" && mv "$_tmp" "$DNS_FILE"; then
+    # The LAN keys are written ONLY when the tier-2 probe is enabled, so a device that
+    # leaves DNS_LAN_RESOLVER unset emits byte-for-byte the old key set and nothing
+    # downstream has to learn about a field that is permanently null.
+    if [ -n "$DNS_LAN_RESOLVER" ]; then
+        jq -n --argjson ms "$_ms" --argjson ok "$_ok" --arg res "$_res" --arg name "$DNS_NAME" \
+                --argjson ms_lan "$_ms_lan" --argjson ok_lan "$_ok_lan" --arg res_lan "$DNS_LAN_RESOLVER" \
+                --argjson mono "$((_CS / 100))" --argjson ts "$(date +%s)" \
+                '{ms: $ms, ok: $ok, resolver: $res, name: $name, mono: $mono, ts: $ts,
+                  ms_lan: $ms_lan, ok_lan: $ok_lan, resolver_lan: $res_lan}' > "$_tmp" 2>/dev/null
+    else
+        jq -n --argjson ms "$_ms" --argjson ok "$_ok" --arg res "$_res" --arg name "$DNS_NAME" \
+                --argjson mono "$((_CS / 100))" --argjson ts "$(date +%s)" \
+                '{ms: $ms, ok: $ok, resolver: $res, name: $name, mono: $mono, ts: $ts}' > "$_tmp" 2>/dev/null
+    fi
+    if [ -s "$_tmp" ] && chmod 644 "$_tmp" && mv "$_tmp" "$DNS_FILE"; then
         :
     else
         rm -f "$_tmp"

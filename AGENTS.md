@@ -49,6 +49,14 @@ Anything that *can* be met by extending the backend must still be.
    `public/locales/{en,id,it,zh-CN,zh-TW}/common.json`. The backend is `scripts/`/`deploy/` only
    (`network/ip_passthrough.sh`, `lib/ippt.sh`, `qmanager_ippt_apply`, `qmanager-ippt.service`). Recorded in
    [`docs/specs/ip-passthrough-o5a.md`](./docs/specs/ip-passthrough-o5a.md).
+6. **Connection Quality's DNS row shows the LAN resolver sample** (2026-10-23, owner authorized "go ahead and
+   optimize") — the backend half went in first and entirely (`qmanager_ping` now times two resolvers, the poller
+   publishes both). What could not be done without app code is the *rendering*: the row is a component and the
+   field it reads is typed. The displayed figure moved from the carrier resolver (~80–120 ms) to the resolver LAN
+   clients actually use (~30–50 ms), while `dns_lookup_ms` — which the "ICMP filtered, not link down" inference
+   reads — deliberately stayed on the carrier sample. `components/dashboard/connection-quality.tsx` (one
+   expression plus the presence test), `types/modem-status.ts` (two optional fields). No new i18n strings; the row
+   reuses `connection_quality.dns`. Recorded in [`docs/specs/dns-probe-two-paths.md`](./docs/specs/dns-probe-two-paths.md).
 
 Keep any such change minimal, add it here when you make it, and prefer extending
 the backend if a future need can be met without touching app code. An app-layer

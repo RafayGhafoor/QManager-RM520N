@@ -25,7 +25,7 @@
 | Poller | `qmanager_poller` (`scripts/usr/bin/qmanager_poller`) — derives latency/jitter/loss/history **and** the `status` verdict; runs the one link detector (`detect_data_connection_events`) and the alert engine each cycle |
 | Consumer (recovery) | `qmanager_watchcat` — reads the cache through `conn_state.sh`, never probes; see [connection-watchdog.md](connection-watchdog.md) |
 | Ping verdict cache | `/tmp/qmanager_ping.json` (written by `qmanager_ping`, read only through `conn_state.sh`) — **slim schema, no stats/history** |
-| DNS lookup cache | `/tmp/qmanager_dns.json` (root, atomic; written by `qmanager_ping`'s detached DNS job, read by the poller) — [see below](#dns-lookup-time--tmpqmanager_dnsjson) |
+| DNS lookup cache | `/tmp/qmanager_dns.json` (root, atomic; written by `qmanager_ping`'s detached DNS job, read by the poller) — [see below](#dns-lookup-time--tmpqmanager_dnsjson). Carries a second, opt-in LAN-resolver sample (`ms_lan`/`ok_lan`/`resolver_lan`) → `connectivity.dns_lan_ms` → the DNS row, while `dns_lookup_ms` stays the carrier sample the verdict uses |
 | History ring buffer | `/tmp/qmanager_ping_history` (flat file, one RTT float or `null` per line, read by poller for stats) |
 | History-as-array CGI | `GET /cgi-bin/quecmanager/at_cmd/fetch_ping_history.sh` (serves `/tmp/qmanager_ping_history.json` NDJSON as a JSON array) |
 | Daemon config | `/etc/qmanager/ping_profile.json` — owned by Connection Quality; two CGIs write it, both by atomic key-merge — [see below](#ping_profilejson--one-owner-two-write-paths) |
@@ -187,27 +187,40 @@ If you add a key to `write_cache()`, add it to the list above in the same change
 <a id="dns-lookup-time--tmpqmanager_dnsjson"></a>
 ### DNS lookup time — `/tmp/qmanager_dns.json`
 
-`qmanager_ping` is still the only prober, and it also times one DNS lookup: `one.one.one.one` against the **carrier resolver**, the first `nameserver` line in `/etc/resolv.conf`, re-read on every run because it changes on reattach. The file is a separate key set, not part of the thirteen-key contract above:
+`qmanager_ping` is still the only prober, and it times **up to two** DNS lookups of `one.one.one.one`. Tier 1 is the **carrier resolver** — the first `nameserver` line in `/etc/resolv.conf`, re-read on every run because it changes on reattach. Tier 2 is opt-in (see `DNS_LAN_RESOLVER` below) and targets **the resolver LAN clients actually query**. They exist side by side because they answer different questions and must never be merged: tier 1 is "is the network's DNS working", tier 2 is "what does a user experience". The file is a separate key set, not part of the thirteen-key contract above:
 
 ```json
 { "ms": 250, "ok": true, "resolver": "10.151.151.44", "name": "one.one.one.one", "mono": 84213, "ts": 1760000000 }
 ```
 
+With `DNS_LAN_RESOLVER` set, three more keys are added **in the same atomic write**:
+
+```json
+{ "ms": 70, "ok": true, "resolver": "119.160.122.146", "name": "one.one.one.one", "mono": 2056, "ts": 1792798525,
+  "ms_lan": 40, "ok_lan": true, "resolver_lan": "192.168.0.1" }
+```
+
 | Key | Meaning |
 |-----|---------|
-| `ms` | Lookup time in milliseconds, in **10 ms steps** (`/proc/uptime` brackets, floored at 10). `null` when the lookup failed. |
+| `ms` | Lookup time in milliseconds, in **10 ms steps** (`/proc/uptime` brackets, floored at 10). `null` when the lookup failed. **Carrier resolver.** |
 | `ok` | `true` only when `nslookup` exited 0 **and** printed an `Address` line after a `Name:` line. The resolver header has its own `Address` line, so a bare `Address` match would pass a failed lookup. |
 | `resolver` | The nameserver used, or `""` when `/etc/resolv.conf` had none. |
-| `mono` / `ts` | `/proc/uptime` seconds and wall-clock epoch of the write. |
+| `ms_lan` / `ok_lan` / `resolver_lan` | The same three fields for the tier-2 LAN resolver. **Absent** (not null) when the probe is disabled. |
+| `mono` / `ts` | `/proc/uptime` seconds and wall-clock epoch of the write. Shared by both tiers, so one freshness verdict covers both. |
+
+Both tiers go through the **same** `_dns_probe` helper on purpose: two numbers shown side by side are only comparable if they were taken the same way (same name, same 10 ms clock, same success test, same 5 s bound).
 
 Invariants:
 
 - **Never inside the probe loop.** `dns_probe_maybe` spawns `dns_job` as a detached background job after each cycle's verdict is written. A dead resolver takes the full `qm_timeout 5`, which would break the [cycle budget](#the-cycle-budget) (`12 < 15`).
 - **Cadence:** once at start, then every 60 s (`DNS_INTERVAL`). A `reachable` true → false edge forces a lookup on the next free slot, but never sooner than 10 s after the previous one (`DNS_MIN_GAP`), so an outage never shows the last good number. At most one job runs; one older than 15 s (`DNS_JOB_MAX`) is presumed gone, which guards against PID reuse.
 - **Every exec pins `</dev/null`**, and the write is `mktemp` + `chmod 644` + `mv` as root.
-- **The poller trusts it only while fresh.** `read_dns_data` publishes `connectivity.dns_lookup_ms` as a number only when `ok` is `true` and the file's `mono` age is 0–180 s (`DNS_MAX_AGE_SEC`); otherwise `null`. `dns_resolver` follows the same freshness gate. A stale number is never shown.
+- **The poller trusts it only while fresh.** `read_dns_data` publishes `connectivity.dns_lookup_ms` as a number only when `ok` is `true` and the file's `mono` age is 0–180 s (`DNS_MAX_AGE_SEC`); otherwise `null`. `dns_resolver` follows the same freshness gate. A stale number is never shown. `dns_lan_ms` / `dns_lan_resolver` obey the identical gate.
+- **The card shows the LAN figure, the verdict uses the carrier one.** `connection-quality.tsx` renders `dns_lan_ms ?? dns_lookup_ms` in the "DNS lookup" row, but the "ICMP silent yet DNS resolves ⇒ ping is filtered, not the link down" inference deliberately keeps reading `dns_lookup_ms`. A LAN-path answer cannot prove the link is up: smartdns `serve-expired` keeps answering for an hour after the WAN dies.
 
 Measured on RM520N-GL `61368cd2`: live resolver `10.151.151.44` → `{"ms":250,"ok":true}`; dead `192.0.2.1` → `ms: null, ok: false` after 5.08 s; during a simulated 2-minute outage `dns_lookup_ms` read `null` and returned within 15 s of the restore.
+
+Measured on the **O5A Pro** 2026-10-23 (both tiers on, `DNS_LAN_RESOLVER=192.168.0.1`), four consecutive cycles: carrier `100/90/80/120` ms against LAN `370/50/30/30` ms. The LAN figure is the same `nslookup` harness, so part of its floor is the fork itself — it reads 30–50 ms warm where a `dig` applet measures 3–11 ms. The first sample after a restart was 370 ms because the name was genuinely cold and smartdns had to run its DoH race; see [`../plans/2026-10-23-dns-ping-latency-attribution.md`](../plans/2026-10-23-dns-ping-latency-attribution.md).
 
 ### Config and live reload
 

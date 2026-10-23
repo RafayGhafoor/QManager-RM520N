@@ -29,6 +29,15 @@ StartLimitBurst=20
 [Service]
 Type=simple
 Environment=PATH=/usrdata/qmanager/bin:/usr/bin:/bin:/sbin:/usr/sbin
+# The resolver LAN clients actually query. dnsmasq holds the bridge's :53 and forwards
+# to smartdns, so this is the path a user experiences; without it the daemon can only
+# time the CARRIER resolver and QManager is blind to its own LAN resolver.
+#   measured 2026-10-23, same name: carrier 80-90 ms vs LAN 3-11 ms warm
+#   (docs/plans/2026-10-23-dns-ping-latency-attribution.md)
+# 192.168.0.1 and NOT 127.0.0.1: dnsmasq runs interface=bridge0 with
+# except-interface=lo and refuses loopback (verified — "connection timed out").
+# The daemon treats an empty value as "feature off", so this line is what enables it.
+Environment=DNS_LAN_RESOLVER=192.168.0.1
 ExecStart=/usrdata/qmanager/bin/qmanager_ping
 # Deliberately outside /etc/qmanager: that directory is www-data-owned, and a
 # web-writable EnvironmentFile feeding a root daemon would be code execution.

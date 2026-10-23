@@ -265,6 +265,25 @@ the same commit.
 | Owner decision needed | Which number *should* the dashboard show — network resolver health (carrier) or user experience (LAN cache)? Defensible answer: both, labelled |
 | Repo | **this branch** (`scripts/`) |
 
+**✅ BUILT 2026-10-23.** Decision taken: show **both**, each with one provenance —
+the carrier sample stays `dns_lookup_ms` (the verdict reads it) and the LAN sample
+becomes `dns_lan_ms`, which the card renders when present. Spec
+[`../specs/dns-probe-two-paths.md`](../specs/dns-probe-two-paths.md), deployed and
+verified on the unit:
+
+| | before | after |
+| --- | --- | --- |
+| DNS figure the card shows | **90 ms** (carrier) | **30–50 ms** (LAN resolver) |
+| Carrier sample (unchanged, still the verdict's input) | 80–90 ms | 70–120 ms |
+| `qmanager_ping` CPU | 1.40 % of one core | **1.35 %** |
+| `qmanager_ping` RSS | 824 kB | 832 kB |
+
+Two honest notes: the LAN figure is measured through the same `nslookup` fork, so
+part of its floor is the fork itself (30–50 ms, where a `dig` applet measures
+3–11 ms), and the **first** sample after a restart read **370 ms** because the name
+was genuinely cold and smartdns had to run its DoH race. The `10 ms` quantisation
+means neither figure can show sub-10 ms detail.
+
 ### O2 — stop the router's own lookups bypassing the LAN cache
 
 | | |
@@ -309,6 +328,83 @@ recorded so the next person does not read a 240 ms `1.1.1.1` sample as a fault.
 dnsmasq owns DHCP, `:53`, lease hostnames and `dnsmasq_script.sh` on this device.
 smartdns is a cache-and-race layer, not a DHCP server. Serving in front is the right
 shape; do not collapse them.
+
+---
+
+## YouTube resolves to a 333 ms edge — measured, and the fix is proven
+
+Reported by the owner after the DNS work landed: *"youtube ping very high … dns
+change selects the best server, so it could do that."* The premise is right about the
+mechanism and wrong about the cause. All measured 2026-10-23 23:44–23:55 UTC.
+
+### What clients actually get
+
+| Name (via the LAN path) | Answer | ICMP RTT |
+| --- | --- | --- |
+| `youtube.com` (apex) | `142.250.195.46` then `192.178.211.x` | **333 ms / 330 ms** |
+| `m.youtube.com` | `142.250.122.101` | **345 ms** |
+| `www.youtube.com` | `142.251.15x` (8 records) | **61 ms** |
+| `redirector.googlevideo.com` | `142.250.202.x` | **61–72 ms** |
+
+So the slow thing is real, and it is not the video path: `www.` and the googlevideo
+redirector are fast. The apex and `m.` are not.
+
+### Why — and it is not "speed-check isn't configured" alone
+
+Two findings, one of which contradicts the config's own assumption:
+
+1. **The far answers come from specific upstreams.** For `youtube.com`, queried per
+   member: `dns.google` → `142.250.203.174` (near), `dns.quad9.net` →
+   `142.251.37.142` (near), `doh.opendns.com` → `142.250.203.174` (near), but
+   **`cloudflare-dns.com` → `192.178.211.93/.91`** and **`1.1.1.1` →
+   `192.178.211.190/.136`** — Google's far range. Under `FastestResponse` the first
+   NOERROR answer wins, so whether a client gets 65 ms or 333 ms is a **race**.
+2. **The config's range assumption is wrong.** It records the far ranges as
+   `192.178.158.0/23`, `192.178.134.0/23`, `192.178.177.0/24` and treats
+   `142.250.0.0/15` as "near ~50 ms". Measured now: `192.178.211.x` (a range not in
+   that list) is far, **and** `142.250.122.101` — squarely inside the "near" /15 —
+   is **345 ms**, while `142.250.203.14` in the same /15 is **62 ms**. **No range
+   test can separate these; only a per-IP measurement can.**
+
+### What does NOT fix it (measured, do not retry)
+
+- **`domain-rules /youtube.com/ -speed-check-mode ping`** — on a scratch instance
+   (`:5356`, live config as control) this *did* engage: answers collapsed from 2
+   records to 1, i.e. ranking happened. But every candidate the winning upstream had
+   offered was far, so it picked the best *far* IP: `192.178.211.93`, still 330 ms.
+   **Speed-check cannot invent a near candidate that the race never delivered.**
+- **The same rule on `m.youtube.com` picked the slower IP** — `142.250.122.101`
+   (345 ms measured) over `142.250.203.14` (62 ms), consistently across 8 rounds. A
+   negative result about trusting `speed-check-mode ping` for these names: its probe
+   and our probe do not agree here.
+- **`domain-rules /youtube.com/ -nameserver <name>`** — produced **no answer at all**
+   (empty response, 8/8). Broken in 0.13.1; not a usable lever in that spelling.
+
+### What DOES fix it (proven on a scratch port, not yet applied)
+
+Route the Google-family names to a **Google-only group** instead of the open race:
+
+```
+server https://dns.google/dns-query -group g -exclude-default-group
+nameserver /youtube.com/g
+nameserver /googlevideo.com/g
+```
+
+Measured on `:5358`, live config unmodified, **8/8 rounds**: `youtube.com` →
+`142.250.203.174` every time, instead of the far `192.178.211.x`. RTT:
+
+| Answer | RTT |
+| --- | --- |
+| `192.178.211.93` (what the live config currently serves) | 329/333/338 ms |
+| `142.250.203.174` (what the group returns) | **53/65/74 ms** |
+
+That is **333 → 65 ms, 5.1×**, for the apex. Control name `debian.org` still resolved
+from the default pool (unchanged), and the scratch instance was removed afterwards.
+
+**Not applied.** It is a live vendor-DNS change (`/data/gp/smartdns.conf`), the
+sibling repo owns that file until this branch absorbs it, and the choice trades
+race diversity for determinism on Google names. It is the first thing to apply when
+smartdns moves into this repo — recorded here so the measurement is not redone.
 
 ---
 

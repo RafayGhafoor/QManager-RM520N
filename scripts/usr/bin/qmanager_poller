@@ -2051,21 +2051,34 @@ PING_DAEMON_STALE_EVENT_THRESHOLD=60  # seconds before emitting ping_daemon_stal
 
 # DNS lookup time from qmanager_ping's detached job. A number only when the last
 # lookup succeeded and the sample is fresh (mono age 0..DNS_MAX_AGE_SEC).
+#
+# TWO SAMPLES, TWO QUESTIONS — never merge them:
+#   dns_lookup_ms  the CARRIER resolver from resolv.conf — "is the network's DNS
+#                  working". The Connection Quality card infers "ICMP filtered, not
+#                  the link down" from this being non-null, so it must stay a network
+#                  signal (see components/dashboard/connection-quality.tsx).
+#   dns_lan_ms     the resolver LAN clients query — "what a user experiences". Only
+#                  present when the daemon was given DNS_LAN_RESOLVER.
 DNS_CACHE="${DNS_CACHE:-/tmp/qmanager_dns.json}"
 DNS_MAX_AGE_SEC=180
 dns_lookup_ms="null"
 dns_resolver=""
+dns_lan_ms="null"
+dns_lan_resolver=""
 
 read_dns_data() {
     dns_lookup_ms="null"
     dns_resolver=""
+    dns_lan_ms="null"
+    dns_lan_resolver=""
     [ -f "$DNS_CACHE" ] || return 0
 
-    local _row _ok _ms _mono _res _up _idle _age
-    _row=$(jq -r '[(.ok|tostring), (.ms|tostring), (.mono|tostring), (.resolver|tostring)] | @tsv' \
+    local _row _ok _ms _mono _res _ok_lan _ms_lan _res_lan _up _idle _age
+    _row=$(jq -r '[(.ok|tostring), (.ms|tostring), (.mono|tostring), (.resolver|tostring),
+                   (.ok_lan|tostring), (.ms_lan|tostring), (.resolver_lan|tostring)] | @tsv' \
         "$DNS_CACHE" 2>/dev/null </dev/null)
     [ -n "$_row" ] || return 0
-    IFS=$'\t' read -r _ok _ms _mono _res <<< "$_row"
+    IFS=$'\t' read -r _ok _ms _mono _res _ok_lan _ms_lan _res_lan <<< "$_row"
 
     case "$_mono" in ''|*[!0-9]*) return 0 ;; esac
     { read -r _up _idle < /proc/uptime; } 2>/dev/null
@@ -2077,6 +2090,12 @@ read_dns_data() {
     case "$_res" in ''|null) ;; *) dns_resolver="$_res" ;; esac
     if [ "$_ok" = "true" ]; then
         case "$_ms" in ''|*[!0-9]*) ;; *) dns_lookup_ms="$_ms" ;; esac
+    fi
+    # Missing keys (a sidecar from a daemon without the tier-2 probe) arrive as the
+    # literal "null" from jq's tostring, so they simply fall through to null here.
+    case "$_res_lan" in ''|null) ;; *) dns_lan_resolver="$_res_lan" ;; esac
+    if [ "$_ok_lan" = "true" ]; then
+        case "$_ms_lan" in ''|*[!0-9]*) ;; *) dns_lan_ms="$_ms_lan" ;; esac
     fi
     return 0
 }
@@ -2624,6 +2643,8 @@ write_cache() {
         --arg conn_profile "$conn_profile" \
         --arg conn_last_family "$conn_last_family" \
         --argjson dns_ms "${dns_lookup_ms:-null}" \
+        --argjson dns_lan_ms "${dns_lan_ms:-null}" \
+        --arg dns_lan_res "$dns_lan_resolver" \
         --arg dns_res "$dns_resolver" \
         --argjson wc_enabled "${wc_enabled:-false}" \
         --arg wc_state "${wc_state:-disabled}" \
@@ -2751,6 +2772,8 @@ write_cache() {
                 thresholds: {latency_ms: $thr_lat, loss_pct: $thr_loss},
                 profile: $conn_profile,
                 dns_lookup_ms: $dns_ms,
+                dns_lan_ms: $dns_lan_ms,
+                dns_lan_resolver: (if $dns_lan_res == "" then null else $dns_lan_res end),
                 dns_resolver: (if $dns_res == "" then null else $dns_res end),
                 last_family: (if $conn_last_family == "null" then null else $conn_last_family end)
             },

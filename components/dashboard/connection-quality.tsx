@@ -586,8 +586,15 @@ const ConnectionQualityComponent = ({
   const latencyMs = connectivity?.latency_ms ?? null;
   // Absent field = no DNS probe on this poller (omit the row); null = probed, no answer.
   const hasDnsField =
-    connectivity !== null && connectivity.dns_lookup_ms !== undefined;
-  const dnsMs = connectivity?.dns_lookup_ms ?? null;
+    connectivity !== null &&
+    (connectivity.dns_lookup_ms !== undefined || connectivity.dns_lan_ms !== undefined);
+  // Show the resolver the LAN actually uses when the daemon measured it: that is the
+  // latency a user experiences. Fall back to the network resolver otherwise. The
+  // "ICMP filtered" inference in reachState deliberately keeps reading
+  // dns_lookup_ms — the carrier sample — because smartdns serves expired answers for
+  // an hour and would keep a dead WAN looking healthy.
+  const dnsMs =
+    connectivity?.dns_lan_ms ?? connectivity?.dns_lookup_ms ?? null;
   // While the current probe fails, `jitter_ms` is a stale window statistic.
   const jitterMs = latencyMs === null ? null : (connectivity?.jitter_ms ?? null);
   const reach = reachState(connectivity);

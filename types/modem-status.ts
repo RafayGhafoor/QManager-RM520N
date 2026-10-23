@@ -599,10 +599,19 @@ export interface ConnectivityStatus {
       or "unknown" (daemon dead/stale). Typed as string to admit all three. */
   profile: string;
   /** Carrier-resolver lookup time in ms (10 ms steps). null when the last lookup
-      failed or the sample is stale — never a stale number. Absent on an older poller. */
+      failed or the sample is stale — never a stale number. Absent on an older poller.
+      This samples the NETWORK's resolver, which is what the "ICMP silent but DNS
+      resolves, so the ping is filtered" inference rests on. For the figure a user
+      actually experiences, read dns_lan_ms. */
   dns_lookup_ms?: number | null;
   /** Resolver the lookup was timed against. null when unknown. Absent on an older poller. */
   dns_resolver?: string | null;
+  /** LAN resolver lookup time in ms (10 ms steps, floored at 10): the path LAN clients
+      query, i.e. what a user experiences. Only emitted when the ping daemon was given
+      DNS_LAN_RESOLVER, so it is absent — not null — on a device that did not opt in. */
+  dns_lan_ms?: number | null;
+  /** The LAN resolver the lookup was timed against. Absent when the probe is off. */
+  dns_lan_resolver?: string | null;
   /** Alert thresholds the poller applies (Connection Quality settings). Absent on an older poller. */
   thresholds?: { latency_ms: number; loss_pct: number };
 }
