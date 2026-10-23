@@ -154,3 +154,33 @@ One page cascade (`staggerContainer` / `staggerItem`, 120ms, 10px), row cascades
 - [`platform-profile.md`](./platform-profile.md) — why `/etc/qmanager` cannot hold a root-pinned file
 - [`connection-watchdog.md`](./connection-watchdog.md) — the `/monitoring` sibling this family's shape grammar was restated alongside
 - `docs/BACKEND.md` §2.1 — the rootfs remount contract the installer follows
+
+## GreenPacket O5A Pro: Tailscale does not start at boot unless opted in (2026-10-23)
+
+**Scope: RG520N (O5A Pro) only.** The product firmware ships `tailscaled` **off by
+default**. Measured on the unit:
+
+| Fact | Value |
+| --- | --- |
+| `tailscaled.service` | reads `enabled`, but this firmware drops `/etc` units from PID 1's boot transaction, so that alone starts nothing |
+| Real boot switch | `/data/gp/tailscale-enabled` (`1` = start at boot, `0`/absent = off). `/etc/init.d/turin_web.sh:190-200` reads it and starts the unit |
+| Boot delay | the drop-in `tailscaled.service.d/gp-lazy.conf` runs `/data/gp/tailscale-lazy-start.sh`, which holds the start until 90 s of uptime |
+| Binary | `/data/tailscale/tailscale` (`/usr/sbin/tailscale` does **not** exist; `/usrdata/tailscale` is a symlink to it) |
+| Observed before the fix | flag `0`; the daemon ran only because something started it by hand (448 s after boot) |
+
+**Fix:** use the product's own toggle, not a hand edit of `/data/gp`:
+`POST http://127.0.0.1:8091/tailscale` with body `on` (handler `handle_tailscale_set`,
+`radio-handler.sh:3211`) writes `1` to the flag and starts the unit with `--no-block`.
+`GET /tailscale` reports `"boot":true` once the flag is set.
+
+**Verified by a real reboot** (boot ID changed `c42bceaf...` -> `fba3cd6f...`):
+`tailscaled` became active at **93 s** after boot by itself, `GET /tailscale` ->
+`{"running":true,"state":"active","boot":true,"ip":"100.106.128.119"}`, `tailscale status`
+lists the tailnet, `netcheck` shows UDP and IPv4 working.
+
+**Correction to earlier notes in this work:** an earlier check concluded "Tailscale has no
+IP". That was a wrong-path error (`tailscale` is not on `PATH`; use
+`/data/tailscale/tailscale`). The unit did have an address.
+
+**Do not** use QManager's own VPN page "install" action on this unit: it would overwrite the
+product's `tailscaled.service` (see `deploy/README.md`).
