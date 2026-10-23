@@ -8,7 +8,7 @@ Scope: this branch is **deployment-only**. The application code (`app/`,
 `components/`, `lib/`, `types/`, `hooks/`) tracks upstream QManager and should
 not be modified here — the product-specific work lives in `deploy/`.
 
-**Four recorded exceptions.** The criterion is the same in every case: the feature
+**Five recorded exceptions.** The criterion is the same in every case: the feature
 needs a control the backend cannot provide, so it could not live in `deploy/` alone.
 Anything that *can* be met by extending the backend must still be.
 
@@ -141,7 +141,7 @@ already caused a failed install:
 7. **Never overwrite `/etc/init.d/turin_web.sh`** — the product repo owns it and
    edits it continuously. QManager joins the boot path by *inserting*
    `start_service_async` lines via `deploy/qm_boot_hook.sh` (currently httpd,
-   poller, ping, dpi and the dpi-ensure timer; idempotent and additive, anchored
+   poller, ping, dpi, the dpi-ensure timer and the IP Passthrough re-apply unit; idempotent and additive, anchored
    on `systemctl daemon-reload`, one-time backup kept as `.pre-qmanager`). Add
    new boot-started units there, not by shipping a copy of the script.
 8. **Gate the poller on a real modem answer, not the device node.** Device
