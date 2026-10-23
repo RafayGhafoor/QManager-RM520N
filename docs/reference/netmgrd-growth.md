@@ -1,4 +1,4 @@
-# netmgrd — unbounded memory growth in the vendor network manager
+# netmgrd — monotonic heap growth in the vendor network manager
 
 **Scope:** RG520N (GreenPacket O5A Pro, `LE.UM.6.2.3.r1-03100-SDX65.0`, SDX6X)
 · all numbers measured 2026-10-23 on this unit · nothing here is a claim about
@@ -48,14 +48,13 @@ the SDK cannot symbolicate live memory:
 The **only** source-level visibility available anywhere is DWARF on the SDK's
 netmgr **library** (`ql-sysroots/usr/lib/.debug/libnetmgr.so.0.0.0`, 282,712 B,
 3,008 `DW_AT_name` entries across `netmgr_client.c`, `netmgr_netlink.c`,
-`netmgr_unix.c`, `netmgr_util.c`). It names the lifecycle a leak would sit in —
-`netmgr_client_alloc` / `netmgr_client_register` / `netmgr_client_release`,
-`netmgr_client_start_listener` / `stop_listener`, `netmgr_nl_alloc_msg`,
-`netmgr_nl_decode_rtm_{link,addr,prefix}`, and `netmgr_daemonize` — but it is a
-**different build** from the deployed library (75,312 B vs 75,048 B), so it
-cannot be used to resolve a live address.
+`netmgr_unix.c`, `netmgr_util.c`). It exposes generic client/listener APIs, but
+there is no evidence yet that one of them allocates the observed objects. It is
+a **different build** from the deployed library (75,312 B vs 75,048 B), so it
+cannot resolve live addresses. The pointers found in the allocations point into
+the deployed `netmgrd` executable, not this library.
 
-## The growth: monotonic, ~2.1 MB/hour, reset only by restart
+## The process footprint: monotonic, ~2.1 MB/hour; observed reset on restart
 
 `/data/gp/gp-memwatch.sh` records its `top=` column as **`VmRSS + VmSwap`**, not
 RSS (`gp-memwatch.sh:359` — `printf "%d %s\n", rs + sw`). That is the right
@@ -74,8 +73,8 @@ recently the kernel swapped it. Footprint this boot:
 | 14:17 (direct `/proc` read) | **38.0 MB** |
 
 **+32 MB in 15.3 h = 2.1 MB/h.** Across the 30 consecutive 10-minute samples
-from 08:50 to 13:40 it never decreased. Only a restart resets it — the 5 MB at
-22:38 is the reboot, and the 2026-10-13 OOM kill reset it the same way. Baselines
+from 08:50 to 13:40 it never decreased. The observed footprint reset only on restart — the 5 MB at 22:38 is the
+reboot, and the 2026-10-13 OOM kill reset it the same way. Baselines
 for comparison: **5.7 MB** on the sibling's 2026-08-25 measurement
 (`plans/2026-08-25-memory-pressure-reduction.md:33`) and **13.5 MB** in
 `memory.md:4952`.
@@ -86,7 +85,7 @@ Direct census of `/proc/248/smaps`, one VMA at a time:
 
 | Region | Count | Holds |
 | --- | --- | --- |
-| `~1 MB` anonymous VMAs (`0xfd000`-ish, 1 MB-aligned, consecutive addresses) | **81** | **31,228 kB** — 85 % of the footprint |
+| glibc anonymous arena-heap VMAs (`0xfd000` bytes, 1 MB-spaced addresses; all sampled `heap_info.ar_ptr` fields point to the same arena) | **81** | **31,228 kB** RSS+swap-backed at census time — not allocation size |
 | `[heap]` | 1 | 664 kB |
 | Thread stacks (8 MB virtual each) | 34 | a few kB each resident |
 
@@ -98,42 +97,60 @@ That is expected with `vm.swappiness=100`: its cold pages are evicted within
 minutes, so an RSS sample of this daemon is nearly meaningless and will look like
 "it shrank" when nothing was freed.
 
-## What the leaked blocks actually are (read out of the live process)
+## What the anonymous mappings actually are (read out of the live process)
 
-Dumped from `/proc/248/mem` as root (`bs=4096 skip=$((addr/4096))`, read-only,
-~1 MB page-in). Three blocks sampled — `0xa2700000` (the fullest), `0x91800000`,
-`0x8f600000` — share a fixed header:
+Dumped from `/proc/248/mem` as root. The first four words of a mapping at
+`0x91800000` are:
 
 ```
-+0x00  10 00 70 a2   → 0xa2700010, identical in ALL sampled blocks
-+0x04  <block base>  → own base (newest block: 0x00000000)
-+0x08  00 d0 0f 00   → 0x000fd000 = 1,036,288 = the chunk size
-+0x0c  00 d0 0f 00   → same value again
-+0x18  …             → a list head initialised to point at itself (+0x20 = self+0x18)
-+0x40  …             → (( newest chunk )) a long run of {self, self} pointer pairs
++0x00  10 00 70 a2   → ar_ptr = 0xa2700010 (same arena in sampled mappings)
++0x04  00 00 70 91   → prev = 0x91700000 (previous heap segment)
++0x08  00 d0 0f 00   → size = 0x000fd000
++0x0c  00 d0 0f 00   → mprotect_size = 0x000fd000
++0x10  00 00 00 00   → first malloc chunk's prev_size
++0x14  a5 af 00 00   → malloc chunk size/flags = 0xafa5
 ```
 
-The newest block is ~100 % touched (`32 kB` resident + `980 kB` swapped = the
-whole chunk) and its body from `+0x40` on is an array of **self-referential
-`{next, prev}` pairs** — empty doubly-linked list heads — stepping by 8 bytes.
-`strings -n 5` over 64 kB of it returns **nothing**: no XML, no log text, no
-message payload.
+This is the **glibc 2.31 `heap_info` layout**: these `0xfd000` anonymous VMAs
+are arena heap segments, not 81 application-level objects. They are spaced at
+1 MB intervals, and the sampled segments' `ar_ptr` values agree. The first
+segment (`0xa2700000`, `prev=0`) also contains the arena state; its pointers at
+`+0x40` are allocator-state data, not the repeated application payload.
 
-**Conclusion (evidence-backed):** this is a **growable administrative table/pool
-carved in ~1 MB chunks and initialised as empty lists**, not a data buffer, not a
-libxml parse tree, and not log accumulation. One new chunk is committed roughly
-every 25–30 minutes. Which netmgr operation allocates one is **not** established
-— the callers are closed vendor daemons and the daemon is stripped.
+Three complete segment dumps (`0x8f300000`, `0x90500000`, `0x91800000`) each
+show **23 allocated malloc chunks of `0xafa0` bytes** (44,960 bytes including
+the 8-byte malloc header), followed by a ~2.1 kB top chunk. All 69 sampled
+allocated payloads are 44,952 bytes and share the same sparse pattern: the same
+pair of Thumb code addresses (`0x49c7e1`, `0x49c6f1`) at offsets `+0`/`+4`, a
+self pointer at `+8`, and a single `1` at `+0xaf90`; those are the only four
+nonzero 32-bit words in each sampled payload. The code pointers resolve into
+the deployed stripped executable at file offsets `0xb7e0` and `0xb6f0`.
+Disassembly of the former references `stm2_get_state` /
+`stm2_instance_process_input`, but neither that nor the sparse object contents
+identifies what the 45 kB allocation represents or which caller requested it.
+`strings -n 5` over sampled payloads returns nothing.
 
-## Why it matters even though its real RAM cost is small
+**What this establishes:** the sampled 45 kB chunks are marked **allocated** in
+glibc metadata, not free chunks awaiting `malloc_trim`. The growth is therefore
+not explained by glibc merely retaining freed blocks. It is consistent with a growing set of live allocated objects or a growing
+pool/cache; whether that growth is a bug or intentional is **not established**. The 81 VMA
+count is arena segment growth, not the number of leaked application objects.
+Do not call the payloads empty list heads or claim that an allocator defect has
+been proven.
+
+## Why the footprint matters — and what physical RAM cost is unknown
 
 This is the part that is easy to get wrong in either direction.
 
-- netmgrd owns **61 % of the zram swap budget**: `61,348 kB` used of `91,264 kB`.
-- But zram holds `68,841,472` bytes of swapped pages compressed into `6,632,564`
-  (≈ **10.4 : 1**), so the entire swap in use costs ~7.4 MB of physical RAM and
-  netmgrd's share is roughly **3.9 MB**. The leak is **not** eating RAM at the
-  rate of its footprint.
+- At the 14:17 sample `netmgrd` had **35.8 MB VmSwap**, about 52 % of the
+  67.6 MB of swap slots in use and 39 % of the 91.3 MB capacity. It is the
+  largest individual swap user, but not 61 % of the whole budget.
+- Global zram accounting at a later sample (`mm_stat`: 69.0 MB original,
+  7.26 MB compressed data, 8.02 MB allocator memory, 7,886 same-pages) is
+  dominated by compressible/identical pages. It does **not** tell us how much
+  physical zram memory belongs to netmgrd, and the earlier per-process estimate
+  of ~3.9 MB was unsupported. Its `VmRSS + VmSwap` is a process footprint / swap
+  slot measure, not an equal amount of physical RAM.
 - The damage is to the **swap budget**, which is what decides whether the OOM
   killer fires. On 2026-10-13 it did: `Free swap = 0kB`, and the kernel killed
   **netmgrd** because it was the largest process (`30 MB RSS + ~69 MB swapped`).
@@ -145,7 +162,7 @@ This is the part that is easy to get wrong in either direction.
   `allocstall_normal=401`, `pgmajfault=21363`, `MemAvailable` 48–55 MB. The
   last `oom_kill` increment was 2026-10-13, before the current boot.
 
-So: **a swap-budget problem with an OOM-victim consequence, not a RAM-hog.**
+So: **monotonic process-footprint and swap-slot growth with an OOM-victim consequence**; physical RAM cost by process is unknown, not proven to be equal to its RSS+swap footprint.
 
 ## How to re-measure (port this, do not quote ours)
 
@@ -153,8 +170,8 @@ So: **a swap-budget problem with an OOM-victim consequence, not a RAM-hog.**
 # Footprint — RSS+swap, never RSS alone for this daemon
 awk '/^Rss:|^Swap:/{s+=$2} END{print s" kB"}' /proc/<netmgrd-pid>/smaps_rollup
 
-# Chunk census — the 81 blocks, by size class
-# (busybox awk on this device has no strtonum: do the hex maths in the shell)
+# Heap census requires parsing /proc/<pid>/maps + smaps and glibc heap_info
+# headers; do hex arithmetic off-device (ash is 32-bit).
 # zram economics and the swap budget
 cat /sys/block/zram0/mm_stat          # orig compr mem_used …
 cat /proc/sys/vm/swappiness           # 100 here — why its pages are always cold
@@ -171,6 +188,22 @@ is kernel slab. (`busybox df` also mislabels the `/usrdata` ubifs mount as
 `/etc/machine-id` and prints a bogus 110 MB "tmpfs" row; trust `statfs`, not
 `df`.)
 
+## Can this be fixed?
+
+**Yes in principle; not by changing QManager or tuning glibc after the fact.**
+The repeated 45 kB chunks are marked allocated, so `malloc_trim()` and
+`MALLOC_TRIM_THRESHOLD_` cannot release them; `MALLOC_ARENA_MAX` is also
+irrelevant because the sampled segments point to one arena. Changing the mmap
+threshold would change future allocation placement, not free a live object.
+
+A permanent fix needs a corrected vendor build/source. The missing evidence is
+which call path requests the repeated object and whether it is a leak or an
+intended pool. A malloc backtrace (or vendor debug build) around a controlled
+netmgrd restart could identify that call path, but restarting the daemon drops
+the data path, so it needs an owner-approved maintenance window. A periodic
+restart is only mitigation: it resets the process but repeats the interruption;
+it should not be automated without an explicit service-level decision.
+
 ## Mitigations, with their real costs
 
 Nothing here is implemented. Each is a decision for the owner, and the curve
@@ -178,9 +211,9 @@ above is the input the sibling's 2026-10-13 plan said was missing.
 
 | Option | Reclaims | Cost |
 | --- | --- | --- |
-| **Scheduled restart, gated on measurement** — restart netmgrd when footprint > ~20 MB *and* `swap_free` below a floor *and* wanmon reports idle traffic | the full 31 MB of chunks | It **is** the 2026-10-13 outage: data-path rebuild, `ql-netd` bounce, `dnsmasq` restarts, tunnel drop. Never on a bare timer. |
-| **cgroup `MemoryMax` on `netmgrd`** | bounds it | The leak is monotonic, so this only converts "OOM at an arbitrary moment" into "kill at a chosen moment". Pair with the restart, do not ship alone. |
-| Lower `vm.swappiness` | nothing — makes it worse | Would pull 30 MB back into **resident** RAM to save ~4 MB of compression. Do not. |
+| **Scheduled restart, gated on measurement** — restart netmgrd when footprint > ~20 MB *and* `swap_free` below a floor *and* wanmon reports idle traffic | Resets the daemon allocator and drops its process footprint (38 MB at the latest sample; 31 MB RSS+swap-backed in arena VMAs at census) | It **is** the 2026-10-13 outage: data-path rebuild, `ql-netd` bounce, `dnsmasq` restarts, tunnel drop. Never on a bare timer. |
+| **cgroup `MemoryMax` on `netmgrd`** | bounds it | The observed growth is monotonic, so this only converts "OOM at an arbitrary moment" into "kill at a chosen moment". Pair with the restart, do not ship alone. |
+| Lower `vm.swappiness` | nothing about already-live allocations | Does not free them or reclaim occupied swap slots; it changes future reclaim decisions and may increase resident pressure. Do not use as a leak fix. |
 | Shrink `smartdns` `cache-size` | ~2.5 MB | Already rejected on the sibling (`plans/2026-10-13-memory-pressure-watch.md`): trades a cold-path DNS fault for noise. |
 | Vendor ask | the bug | Needs the numbers above; there is no source to patch. A ready-to-send report is the appendix of [`../plans/2026-10-23-netmgrd-memory-growth.md`](../plans/2026-10-23-netmgrd-memory-growth.md#appendix--vendor-defect-report-ready-to-send). |
 
@@ -209,15 +242,19 @@ Today `free` sits at or above `high` (it touched 1,669 pages once, then recovere
 to 2,048–2,827), which is kswapd doing its job, not pressure. The absolute margin
 is thin — ~2.5 MB above `min` — but the zone is being held in its healthy band.
 
-**What filling the swap would actually cost.** zram's own accounting
-(`/sys/block/zram0/mm_stat`) shows 68.7 MB of swapped pages occupying
-**7.77 MB `mem_used` / 7.05 MB compressed** — a ratio that drifts between
-~9.7:1 and ~10.4:1 across samples. Extrapolated, a **completely full 91 MB swap
-would cost ≈9.4 MB of RAM**, i.e. about **+1.6 MB over today**. So swap
-*exhaustion* is not itself a memory event: what it removes is the **escape
-valve**, after which every new anonymous page has to stay resident and `Normal
-free` starts walking toward `min`. That is the actual failure path, and it is why
-netmgrd's 2.1 MB/h matters — it is what keeps pushing the valve closed.
+**Do not infer per-process RAM cost from global zram compression.** At the
+follow-up sample, `mm_stat` was `69,005,312 7,258,624 8,019,968 0 8,019,968
+7,886 393 153`: about 65.8 MiB original swap pages, 6.9 MiB compressed data,
+7.65 MiB allocator memory, and 7,886 same-pages (about 30.8 MiB of identical
+pages). The ratio depends heavily on page contents. The earlier projection that
+filling all 91 MB of swap would cost ~9.4 MB of RAM, and the per-process ~3.9 MB
+estimate, were not justified and are retracted.
+
+Swap exhaustion removes the escape valve. The 2026-10-13 OOM happened when
+`Normal free` fell below the zone minimum; swap-full alone is not the watermark
+and does not itself identify imminence. Netmgrd's swap-slot usage can contribute
+to exhausting that valve, but current urgency must be judged by the Normal-zone
+watermarks and pressure-counter rates below.
 
 Runway, measured rather than extrapolated: a clean 5-minute window (no
 `/proc/<pid>/mem` reads) took `SwapFree` from 23,476 to 22,604 kB — **-872 kB,
@@ -243,7 +280,8 @@ There is no cheap way to defragment or reclaim zram on a live box of this size.
 ## Gotchas
 
 - **`memwatch`'s `top=` is RSS+swap, its alert body is not a footprint table.**
-  Read the column, not the SMS text.
+  Read the column, not the SMS text. It is a useful per-process footprint and
+  swap-slot indicator, not a measure of physical RAM cost.
 - **Never edit `/etc/data/netmgr_config.xml`** to turn on its command log
   (`cmd_logging_config`, `disabled_log_options=255`, target
   `/data/netmgr_cmd_log.txt`). It is a vendor-owned rootfs file and outside this
@@ -256,10 +294,10 @@ There is no cheap way to defragment or reclaim zram on a live box of this size.
   offsets outside the shell.
 - **`/proc/248/io` does not exist** on this kernel (no `CONFIG_TASK_IO_ACCOUNTING`);
   use `/proc/<pid>/stat` fields 14/15 and `voluntary_ctxt_switches` instead.
-- **Do not read `/proc/<pid>/mem` casually.** Each read pages the region back in;
-  ten blocks pulled ~1 MB in and the swap-free figure moved by several MB, which
-  then looks like a trend. Read one block, or accept that you perturbed the
-  metric you are about to quote.
+- **Do not read `/proc/<pid>/mem` casually.** Full segment reads page data back
+  in and perturb RSS/SwapFree. Four full `0xfd000` segment captures were made
+  during this investigation (~4 MB read); later rate samples were taken without
+  further process-memory reads. Do not mix the capture window into the trend.
 - **`free`'s "used" and `MemAvailable` both under-report danger here.** 126 MB
   "used" of 178 MB is normal on this unit, and `MemAvailable` read 44 MB at the
   2026-10-13 kill. Use `Normal free` vs `min`/`high`, plus the

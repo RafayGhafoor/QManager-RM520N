@@ -1578,7 +1578,7 @@ for another unit is a **fix**, a **no-op**, or a **regression** here.
 | `date -r FILE +%s` | **works** | as above |
 | `awk` `x = x (cond) a` | **BROKEN — "Call to undefined function"** | A real hazard on this busybox awk, already documented and avoided twice in this tree (`phy_metrics.sh:391`, `qmi_read.sh:275`). Build the separator into its own variable |
 
-### RG520N-EB (GreenPacket O5A Pro) — vendor `netmgrd` grows without bound and owns half the swap
+### RG520N-EB (GreenPacket O5A Pro) — vendor `netmgrd` heap growth (cause unknown)
 
 Measured 2026-10-23. Full record, block-level forensics and the mitigation costs:
 [`netmgrd-growth.md`](./netmgrd-growth.md). A port must re-measure everything here;
@@ -1587,14 +1587,16 @@ these are facts about *this* vendor build.
 | Fact | RG520N-EB (O5A Pro) | Why it matters |
 | --- | --- | --- |
 | `/usr/bin/netmgrd` | **750,344 B, 2023-10-20, md5 `301b845bed135314d722bbd8ad9499c9`**, stripped, ships in the **`data`** opkg | Identifies the build. Upstream QManager's RM520N image carries its own netmgrd; a fix written against one is not a fix for the other |
-| There is **no netmgr source** | `data_git.bb` / `nr-fusion_git.bb` / `rmnet-ext_git.bb`, `License: …-Proprietary` / `CLOSED`; the 24 GB O5A SDK on `petros1` (`/root/o5a-src`) has **headers only** | Do not spend a day hunting it again. The leak cannot be patched, only mitigated or reported |
+| There is **no netmgr source in the available SDK** | `data_git.bb` / `nr-fusion_git.bb` / `rmnet-ext_git.bb`, `License: …-Proprietary` / `CLOSED`; the 24 GB O5A SDK on `petros1` (`/root/o5a-src`) has **headers only** | Do not spend a day hunting it again. A permanent local source fix is unavailable; ask the vendor for source or a corrected build |
 | SDK binary ≠ deployed binary | SDK `ql-ol-rootfs/usr/bin/netmgrd` = **705,532 B, 2021-12-10, md5 `21decb26…`** | The SDK cannot symbolicate live memory. The only DWARF available is on the SDK **library** (`.debug/libnetmgr.so.0.0.0`, 3,008 symbols) and is a different build too |
 | Growth | **5 → 37.2 MB** in 15.3 h = **2.1 MB/h**, monotonic, resets **only** on restart (reboot or the 2026-10-13 OOM kill) | Distinct from the sibling's 5.7 MB (2026-08-25) and 13.5 MB (`memory.md:4952`) baselines |
-| Shape of the leak | **81 ~1 MB anonymous VMAs** (`0xfd000`, 1 MB-aligned, consecutive) holding **31,228 kB**; `VmSize` 387,812 kB is 34 × 8 MB thread stacks, not use | Never quote `VmSize`; census `smaps` per VMA instead |
-| Block contents (dumped via `/proc/248/mem`) | Header with **`0x000fd000` recorded twice**, a constant word `0xa2700010`, and a body of self-referential `{next, prev}` pairs = **empty list heads**; `strings` over 64 kB returns nothing | Rules out XML trees, message payloads and log buffers — it is an administrative table, not data |
-| `vm.swappiness` | **100** | Its cold pages are always evicted, so an **RSS sample of this daemon is meaningless** — it reads 1.4 MB resident while holding 36 MB. Use `VmRSS + VmSwap` |
-| `memwatch`'s `top=` column | **RSS+swap**, not RSS (`gp-memwatch.sh:359`) | The only usable footprint series on the unit; `RSS` alone would have understated it 10× |
-| Cost of the swapped set | zram compresses **68.8 MB → 6.6 MB (10.4 : 1)**; netmgrd's 36 MB of swap ≈ **3.9 MB of real RAM** | It is a **swap-budget** problem, not a RAM-hog. Lowering swappiness to "fix" it would push 30 MB back into resident RAM |
+| Shape of the growth | **81 glibc arena heap VMAs** (`0xfd000` bytes, 1 MB-spaced); sampled `heap_info.ar_ptr` fields point to the same arena. They account for **31,228 kB RSS+swap-backed** at census time — not 81 application objects | Count heap segments separately from allocations; `VmSize` 387,812 kB is 34 × 8 MB thread stacks plus reservations, not use |
+| Chunks in sampled heaps | **69 matching allocated chunks** across three full segment captures: 23 × `0xafa0` bytes each per segment (44,960 B including malloc header; 44,952-byte payload), then ~2.1 kB top chunk | Not freed chunks waiting for `malloc_trim`; allocator metadata marks these chunks allocated |
+| Sampled payload fingerprint | two Thumb code addresses (`0x49c7e1`, `0x49c6f1`), a self pointer at `+8`, and one `1` at `+0xaf90`; rest of sampled 45 kB payload zero | An opaque repeated object. Does **not** prove an empty list, a leak, or which caller allocates it; executable is stripped |
+| `vm.swappiness` | **100** | RSS alone reads 1.4 MB while the process has 35.8 MB in swap slots. Use `VmRSS + VmSwap` for footprint; it does not measure physical zram cost |
+| `memwatch`'s `top=` column | **RSS+swap**, not RSS (`gp-memwatch.sh:359`) | Useful process footprint / swap-slot series; not a process-level physical RAM attribution |
+| zram compression | Global `mm_stat` at follow-up: 69.0 MB original, 7.26 MB compressed, 8.02 MB allocator use, 7,886 same-pages | Global zram compression is page-content dependent; do not extrapolate a full-swap RAM cost or attribute it to netmgrd |
+| Evidence gap | Chunks are allocated; object purpose and whether growth is a defect or intended pool are **unknown** | No source for deployed daemon; the SDK binary differs. A source fix or safe allocator tuning cannot be justified from current evidence |
 | OOM victim policy | It is the largest process, so the kernel picks it when swap hits 0 — 2026-10-13: `Free swap = 0kB`, killed at `30 MB RSS + ~69 MB swapped`, data path re-programmed, `ql-netd` exit 255, `dnsmasq` restarted twice | The harm is the *cascade*, not the megabytes. That is also why a blind restart-on-threshold is dangerous |
 
 ### RG520N-EB (GreenPacket O5A Pro) — EFS2 is reachable over QRTR-DIAG (measured 2026-10-22)
