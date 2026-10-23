@@ -1597,6 +1597,7 @@ these are facts about *this* vendor build.
 | `memwatch`'s `top=` column | **RSS+swap**, not RSS (`gp-memwatch.sh:359`) | Useful process footprint / swap-slot series; not a process-level physical RAM attribution |
 | zram compression | Global `mm_stat` at follow-up: 69.0 MB original, 7.26 MB compressed, 8.02 MB allocator use, 7,886 same-pages | Global zram compression is page-content dependent; do not extrapolate a full-swap RAM cost or attribute it to netmgrd |
 | Evidence gap | Chunks are allocated; object purpose and whether growth is a defect or intended pool are **unknown** | No source for deployed daemon; the SDK binary differs. A source fix or safe allocator tuning cannot be justified from current evidence |
+| Kernel printk ring | `CONFIG_LOG_BUF_SHIFT=17` → fixed **128 KiB** ring; `dmesg -c` drained 125,395 B of timer/service lines but did not reclaim RAM | Visible systemd timer messages were not netmgrd logs; clearing dmesg frees message slots, not ring allocation. Not evidence about file/internal logs |
 | OOM victim policy | It is the largest process, so the kernel picks it when swap hits 0 — 2026-10-13: `Free swap = 0kB`, killed at `30 MB RSS + ~69 MB swapped`, data path re-programmed, `ql-netd` exit 255, `dnsmasq` restarted twice | The harm is the *cascade*, not the megabytes. That is also why a blind restart-on-threshold is dangerous |
 
 ### RG520N-EB (GreenPacket O5A Pro) — EFS2 is reachable over QRTR-DIAG (measured 2026-10-22)

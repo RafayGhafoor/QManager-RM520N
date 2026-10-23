@@ -248,6 +248,24 @@ Unrelated observation, not investigated here: `tailscaled` (9 MB) has entered
 `memwatch`'s top-3 since ~13:50. It is a new resident on this box and adds to the
 same swap budget; whoever deployed it should record its footprint.
 
+## Owner-requested dmesg clear and memory check
+
+`dmesg -c | wc -c` drained **125,395 bytes** of the current kernel log ring.
+`/proc/config.gz` says `CONFIG_LOG_BUF_SHIFT=17`, a fixed **128 KiB** ring
+capacity. The drained entries were systemd start/success records for the periodic
+health jobs; before clearing, dmesg searches found no netmgrd log messages or OOM
+messages in the current ring.
+
+Memory was noisy across the measurement: just before clear, MemAvailable was
+45,804 kB, MemFree 9,712 kB, Slab 46,684 kB. Immediately after, MemAvailable was
+46,000 kB (+196), MemFree 9,528 kB (-184), and Slab 47,436 kB (+752; all change
+in SReclaimable). A later sample was MemAvailable 44,504 kB. This does **not**
+show 125 kB reclaimed; clearing empties log entries but does not release the
+fixed ring allocation. The ring was empty immediately after `-c`; netmgrd
+remained pid 248. No persistent files, configuration or services were changed.
+This rules out only the visible dmesg messages as netmgrd's heap contents, not
+file logs or internal structured logging.
+
 ## Appendix — vendor defect report (ready to send)
 
 Written for the module/firmware vendor. Contains no subscriber identifiers.

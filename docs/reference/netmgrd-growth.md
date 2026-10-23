@@ -277,6 +277,25 @@ above the OOM watermark. The reset would very likely OOM-kill the largest
 process — `netmgrd` — which is precisely the 2026-10-13 outage, self-inflicted.
 There is no cheap way to defragment or reclaim zram on a live box of this size.
 
+## dmesg is not the netmgrd heap
+
+On 2026-10-23, the owner requested clearing the current kernel ring buffer and
+measuring memory. `dmesg -c | wc -c` drained **125,395 bytes** (~122.5 KiB).
+`/proc/config.gz` reports `CONFIG_LOG_BUF_SHIFT=17`, so the kernel ring has a
+fixed **128 KiB** capacity. That is the buffer allocation; the current bytes of
+text inside it are not an additional allocation and clearing does not return
+the ring to the allocator.
+
+The drained messages were systemd start/success records for periodic health
+jobs. Before clear, searches found **no netmgrd messages, OOM-kill messages, or
+log flood** in dmesg. Immediately before/after, `MemAvailable` was 45,804/46,000
+kB (+196 kB), while `Slab` moved 46,684/47,436 kB (+752 kB) and `MemFree`
+actually fell 9,712/9,528 kB. A later sample was 44,504 kB available. These
+normal fluctuations do not show RAM reclaimed by clearing; the log ring remains
+allocated at its configured size. The ring was empty immediately after `-c` and
+`netmgrd` remained pid 248. This finding says nothing about file logs or internal
+binary/structured logger allocations, which are not visible in dmesg.
+
 ## Gotchas
 
 - **`memwatch`'s `top=` is RSS+swap, its alert body is not a footprint table.**
