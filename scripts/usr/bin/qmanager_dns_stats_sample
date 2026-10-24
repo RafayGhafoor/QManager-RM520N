@@ -1,0 +1,124 @@
+#!/bin/sh
+# =============================================================================
+# qmanager_dns_stats_sample — append one dnsmasq counter sample to a ring file
+# =============================================================================
+# Runs as root from qmanager-dns-stats.timer (every 5 min).
+#
+# WHY A SAMPLER EXISTS AT ALL
+#   dnsmasq's SIGUSR1 dump is CUMULATIVE since dnsmasq started, and it reports no
+#   local-query total — so a hit RATE cannot be computed from one reading, and no
+#   amount of arithmetic on a single snapshot fixes that (see
+#   docs/specs/dns-edge-selection.md). What a snapshot pair CAN produce is every
+#   rate: upstream queries/min, retries, cache insertions/min and the eviction
+#   ratio. Those need two readings separated in time, which means somebody has to
+#   take the first one BEFORE the user opens the page. That is this script.
+#
+# WHY NOT BROWSER-ONLY HISTORY
+#   The owner suggested letting the tab accumulate samples, which works but ties
+#   the history to one tab staying open. A 5-minute sampler on the device costs a
+#   handful of forks per 5 minutes and gives every client the same series,
+#   including one opened a second ago. The UI may still cache what it has seen in
+#   localStorage to draw an instant chart — it just is not the source of truth.
+#
+# WHY tmpfs
+#   /tmp is cleared each boot, which is correct for a diagnostic series: a sample
+#   count of "N since boot" is honest, and writing to flash every 5 minutes to keep
+#   a dashboard's history would be a wear problem for no benefit. The payload is
+#   288 samples (24 h at 5 min) of ~120 bytes.
+#
+# Output: /tmp/qmanager_dns_stats_history.json — a JSON array, newest last.
+# =============================================================================
+set -u
+
+HIST="/tmp/qmanager_dns_stats_history.json"
+SYSLOG="/var/log/syslog"
+MAX_SAMPLES=288                     # 24 h at 5 min
+LOCK="/tmp/qmanager_dns_stats.lock"
+
+# One sampler at a time. A slow syslog flush must not queue up overlapping runs.
+if ! mkdir "$LOCK" 2>/dev/null; then
+    # Stale lock (a previous run killed before its trap) is normal after a reboot
+    # only in the sense that /tmp is fresh; inside one boot, respect it.
+    exit 0
+fi
+trap 'rmdir "$LOCK" 2>/dev/null' EXIT INT TERM
+
+[ -r "$SYSLOG" ] || exit 0
+
+# Trigger the dump, then wait (bounded) for it to land rather than sleeping blind.
+_before=$(wc -l < "$SYSLOG" 2>/dev/null)
+killall -USR1 dnsmasq >/dev/null 2>&1 || exit 0
+_i=0
+while [ "$_i" -lt 5 ]; do
+    _after=$(wc -l < "$SYSLOG" 2>/dev/null)
+    [ "${_after:-0}" -gt "${_before:-0}" ] && break
+    sleep 1; _i=$((_i + 1))
+done
+
+# Newest block only: the log keeps every previous dump.
+_dump=$(tail -80 "$SYSLOG" 2>/dev/null | grep -E 'cache size|queries forwarded|queries sent')
+
+cache_size=null; reused=null; ins_total=null; fwd=null; local=null; served=0
+_line=$(printf '%s\n' "$_dump" | grep 'cache size' | tail -1)
+if [ -n "$_line" ]; then
+    cache_size=$(printf '%s' "$_line" | sed -n 's/.*cache size \([0-9][0-9]*\).*/\1/p')
+    _rt=$(printf '%s' "$_line" | sed -n 's/.*[ ,]\([0-9][0-9]*\)\/\([0-9][0-9]*\) cache insertions.*/\1 \2/p')
+    [ -n "$_rt" ] && { reused=${_rt%% *}; ins_total=${_rt##* }; }
+fi
+# dnsmasq emits: "queries forwarded N, queries answered locally M".
+# M is the CACHE-HIT COUNT, so a hit rate IS computable from one snapshot:
+#   M / (N + M). This contradicts an earlier note in this repo which claimed no
+#   local-query total existed — corrected 2026-10-24 after reading the real line.
+_line=$(printf '%s\n' "$_dump" | grep 'queries forwarded' | tail -1)
+if [ -n "$_line" ]; then
+    fwd=$(printf '%s' "$_line" | sed -n 's/.*queries forwarded \([0-9][0-9]*\).*/\1/p')
+    local=$(printf '%s' "$_line" | sed -n 's/.*queries answered locally \([0-9][0-9]*\).*/\1/p')
+fi
+# Upstream servers in the NEWEST dump only. Counting `queries sent` lines across the
+# whole tail double-counts, because the syslog keeps every previous dump: measured
+# 3 -> 6 across two dumps for the same three upstreams, which reads as "the pool
+# doubled". Reset the buffer at each `cache size` header (the dump starts there).
+_newest=$(printf '%s\n' "$_dump" | awk '/cache size/ { buf = "" } { buf = buf $0 "\n" } END { printf "%s", buf }')
+served=$(printf '%s\n' "$_newest" | grep -c 'queries sent')
+
+case "$cache_size" in ''|*[!0-9]*) cache_size=null ;; esac
+case "$reused" in ''|*[!0-9]*) reused=null ;; esac
+case "$ins_total" in ''|*[!0-9]*) ins_total=null ;; esac
+case "$fwd" in ''|*[!0-9]*) fwd=null ;; esac
+case "$local" in ''|*[!0-9]*) local=null ;; esac
+case "$served" in ''|*[!0-9]*) served=0 ;; esac
+
+# Nothing parsed at all: write NOTHING rather than a row of nulls, so the chart's
+# gaps mean "not sampled", not "sampled and empty".
+if [ "$cache_size" = "null" ] && [ "$fwd" = "null" ] && [ "$local" = "null" ]; then
+    exit 0
+fi
+
+_ts=$(date +%s)
+_new=$(jq -n \
+    --argjson ts "$_ts" \
+    --argjson cs "$cache_size" \
+    --argjson ru "$reused" \
+    --argjson it "$ins_total" \
+    --argjson fw "$fwd" \
+    --argjson lo "$local" \
+    --argjson sv "$served" \
+    '{ts: $ts, cache_size: $cs, reused: $ru, ins_total: $it, forwarded: $fw, answered_locally: $lo, servers: $sv}') || exit 0
+
+# Atomic append + cap. A partially written array would make every later read fail,
+# so write to a sibling temp on the same tmpfs and rename.
+_tmp="${HIST}.$$"
+if [ -f "$HIST" ]; then
+    jq -c --argjson n "$_new" --argjson max "$MAX_SAMPLES" \
+        '. + [$n] | .[-$max:]' "$HIST" > "$_tmp" 2>/dev/null || rm -f "$_tmp"
+else
+    printf '[%s]\n' "$_new" > "$_tmp"
+fi
+if [ -s "$_tmp" ]; then
+    chmod 644 "$_tmp" 2>/dev/null
+    mv -f "$_tmp" "$HIST" 2>/dev/null || rm -f "$_tmp"
+else
+    rm -f "$_tmp"
+fi
+
+exit 0

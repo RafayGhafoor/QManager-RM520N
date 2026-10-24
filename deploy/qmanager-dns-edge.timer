@@ -1,0 +1,32 @@
+# /etc/systemd/system/qmanager-dns-edge.timer
+#
+# Cadence for the measured edge-selection refresh (docs/specs/dns-edge-selection.md).
+#
+# 30 min default: the property being tracked is which upstream hands out a
+# near-class edge, and that changed only when a provider's behaviour changed —
+# not on a minute scale. Faster refresh buys nothing and costs forks: each run
+# queries N upstreams x M probe domains and pings the answers, which on this
+# 1-core SDX6X is the expensive part. Measure before shortening this.
+#
+# OnBootSec=5min, deliberately not earlier: the resolver and the WAN need to be
+# up, and a cold pool at boot would measure a half-connected network and then
+# "learn" the wrong members. The first refresh after boot therefore happens well
+# after qm_wait_modem and the poller have settled.
+#
+# RandomizedDelaySec spreads the run so it cannot coincide with the vendor's
+# gp-keepalive calibration sweep, which saturates the uplink and makes every
+# provider look slow (measured: a sweep 23:40-23:57 inflated DNS work and would
+# have demoted good providers had we trusted it).
+
+[Unit]
+Description=Timer for QManager DNS edge selection refresh
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=30min
+RandomizedDelaySec=120
+AccuracySec=1min
+Unit=qmanager-dns-edge.service
+
+[Install]
+WantedBy=timers.target

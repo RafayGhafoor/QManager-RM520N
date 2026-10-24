@@ -59,3 +59,36 @@ statically against it.
 
 Sources are available from the URLs above; for a copy contact the project owner.
 A copy of the LGPL-2.1 is at the URL above.
+
+================================================================================
+smartdns (smartdns-rs) — dependencies/smartdns/
+================================================================================
+File:         dependencies/smartdns/smartdns
+Size/sha256:  7,029,804 bytes / 2caca59f6c9a68a09de10c32414693b3eae3cc4ab6a42166343f8589070cb291
+              ELF 32-bit LSB executable, ARM, EABI5, statically linked, stripped
+Provenance:   Published RELEASE ASSET, not built by this project (v0.13.1).
+              Version confirmed first-hand from the daemon's own startup line:
+              /tmp/smartdns.log -> "INFO: SmartDNS 0.13.1 starting"
+
+Derived from: smartdns-rs <https://github.com/mokeyish/smartdns-rs>
+License:      GNU General Public License, version 3
+              <https://www.gnu.org/licenses/gpl-3.0.html>
+              Full text shipped at dependencies/smartdns/LICENSE.GPL-3.0.
+              Portions derived from hickory-dns are Apache-2.0 OR MIT.
+
+GPL-3.0 COMPLIANCE: distributing this binary obliges us to make the corresponding
+source available. Upstream source for this exact version is the release tag
+v0.13.1 of the URL above; this project applies NO patches to the resolver. If a
+patched build is ever shipped, its patch must be published in
+dependencies/smartdns/patches/ and applied to that tag. A written offer of the
+source archive accompanies distribution: contact the project owner.
+
+Run as a separate process and never linked into QManager code, so QManager's own
+licensing is unaffected.
+
+Why committed rather than fetched (hard rule 9, owner decision 2026-10-23): this
+is the resolver every LAN client depends on, and a fresh install must not have to
+reach a download host to obtain it. See dependencies/smartdns/NOTICE.md.
+
+NOTE: the sibling product (greenpacket-o5a) ships this same binary with NO
+attribution and no licence text. This entry corrects that omission.

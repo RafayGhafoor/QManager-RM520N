@@ -481,7 +481,188 @@
     "toast_saved": "Custom DNS applied. LAN clients may see a brief pause as caches refresh.",
     "toast_error": "Couldn't apply the DNS change."
   },
-    "ipPassthrough": {
+  "smartdns": {
+    "page": {
+      "title": "SmartDNS",
+      "description": "Caches LAN lookups and picks the fastest upstream. Off means dnsmasq falls back to the carrier."
+    },
+    "header": {
+      "refresh": "Refresh"
+    },
+    "read_failed_title": "Couldn't read the SmartDNS status",
+    "read_failed_body": "The modem did not answer. Nothing on the device has changed — use Refresh to try again.",
+    "duration": {
+      "day": "d",
+      "hour": "h",
+      "minute": "m",
+      "second": "s"
+    },
+    "status": {
+      "title": "Resolver",
+      "description": "What the daemon is doing right now, and where its config lives.",
+      "state": {
+        "running": "Running",
+        "stopped": "Stopped",
+        "enabled_stopped": "Enabled, not running"
+      },
+      "toggle": {
+        "label": "Use SmartDNS",
+        "hint": "Off stops the resolver. dnsmasq falls back to the carrier resolvers, so DNS keeps working — just slower.",
+        "toast_enabled": "SmartDNS started.",
+        "toast_disabled": "SmartDNS stopped. DNS is on the carrier resolvers now.",
+        "toast_error": "Couldn't switch SmartDNS."
+      },
+      "readout": {
+        "pid": "Process ID",
+        "memory": "Memory",
+        "uptime": "Uptime",
+        "config_path": "Config file",
+        "config_modified": "Config modified",
+        "cache": "Cache records",
+        "upstreams": "Upstreams",
+        "blocked_rules": "Blocked rules",
+        "log_errors": "Log errors"
+      },
+      "log": {
+        "title": "Recent log",
+        "empty": "No log lines yet."
+      }
+    },
+    "providers": {
+      "title": "Edge selection",
+      "description": "Which upstreams carry the live group, and what the last domain test measured.",
+      "refresh": "Refresh now",
+      "refreshing": "Measuring…",
+      "columns": {
+        "provider": "Provider",
+        "quality": "Quality",
+        "verdict": "Verdict",
+        "group": "Edge group"
+      },
+      "verdict": {
+        "good": "Good",
+        "slow": "Slow",
+        "failed": "Failed",
+        "unmeasured": "Not measured"
+      },
+      "group": {
+        "in": "In group",
+        "out": "Not in group"
+      },
+      "mode": "Mode",
+      "last_refresh": "Last refresh",
+      "never": "Never",
+      "empty_title": "Nothing has been measured yet",
+      "empty_body": "Refresh now probes every upstream and keeps the ones that answer fastest.",
+      "threshold": "Good means an answer under {{ms}} ms, from the last domain test.",
+      "recommendation": {
+        "title": "Recommendation",
+        "action_rewrite": "New group written",
+        "action_keep": "Group kept",
+        "action_insufficient": "Nothing written",
+        "applied": "Applied",
+        "not_applied": "Not applied",
+        "dropped": "Dropped",
+        "none_dropped": "Nothing was dropped."
+      }
+    },
+    "test": {
+      "title": "Domain tester",
+      "description": "See which address each provider hands out for a domain, and how far away it is.",
+      "domain_label": "Domain to test",
+      "placeholder": "youtube.com",
+      "run": "Test",
+      "running": "Testing…",
+      "summary": "fastest {{fastest}} ms · slowest {{slowest}} ms · spread {{spread}} ms",
+      "fastest_answer": "Fastest answer",
+      "empty_title": "Test a domain",
+      "empty_body": "Every provider is asked directly, with no cache in the way.",
+      "all_failed": "No provider answered {{domain}}.",
+      "columns": {
+        "provider": "Provider",
+        "answers": "Answers",
+        "rtt": "Round trip",
+        "class": "Class"
+      },
+      "class": {
+        "near": "Near",
+        "far": "Far",
+        "unknown": "Unknown"
+      },
+      "near_note": "Near means an answer under {{ms}} ms to the resolved address.",
+      "no_answer": "No answer",
+      "error": {
+        "invalid_domain": "That is not a valid domain name.",
+        "timeout": "The provider sweep did not finish in time.",
+        "probe_failed": "The probe produced no measurement.",
+        "helper_missing": "The measurement helper is not installed on this device.",
+        "malformed_result": "The probe returned something the page cannot read.",
+        "transport": "The modem did not answer the request.",
+        "generic": "The domain test failed."
+      }
+    },
+    "perf": {
+      "title": "Performance",
+      "description": "What the resolver buys. None of these are its own counters — each figure names its source.",
+      "refresh": "Refresh",
+    "hit_rate_note": "dnsmasq reports no local-query total on this firmware, so a hit rate cannot be computed without query logging. The figure stays empty rather than estimated.",
+      "hit_rate": {
+        "label": "Cache hit rate",
+        "source": "dnsmasq cache stats"
+      },
+      "speedup": {
+        "label": "Lookup speed-up",
+        "source": "carrier vs LAN probe"
+      },
+      "pool": {
+        "label": "Upstream pool",
+        "source": "smartdns config"
+      },
+      "blocked": {
+        "label": "Blocked rules",
+        "source": "smartdns config"
+      },
+      "cache_section": {
+        "title": "Cache",
+        "source": "dnsmasq cache stats"
+      },
+      "lookup_section": {
+        "title": "Lookups",
+        "source": "carrier vs LAN probe"
+      },
+      "health_section": {
+        "title": "Resolver health",
+        "source": "smartdns log"
+      },
+      "rows": {
+        "cache_size": "Cache size",
+        "insertions": "Insertions",
+        "evictions": "Evictions",
+        "reused": "Reused entries",
+        "lan_ms": "LAN lookup",
+        "carrier_ms": "Carrier lookup",
+        "pool_errors": "Log errors"
+      },
+      "sampled": "Sampled {{time}}.",
+      "empty_title": "Couldn't read the performance figures",
+      "empty_body": "The modem did not answer the statistics endpoint. Use Refresh to try again."
+    },
+    "config": {
+      "title": "Configuration",
+      "description": "The smartdns.conf the daemon runs. Saving validates it on a scratch port before it is applied.",
+      "editor_label": "smartdns.conf",
+      "save": "Save and restart",
+      "discard": "Discard",
+      "unsaved": "Unsaved",
+      "blocked_unreadable": "The config could not be read, so there is nothing safe to overwrite.",
+      "blocked_empty": "An empty config would leave the resolver with no upstreams.",
+      "blocked_unchanged": "Nothing has changed yet.",
+      "unreadable_title": "Couldn't read the config",
+      "unreadable_body": "The status read carried no file text. Refresh, then edit once it is back.",
+      "toast_saved": "Config saved and the resolver restarted.",
+      "toast_error": "Couldn't save the config."
+    }
+  },    "ipPassthrough": {
       "page": {
         "title": "IP Passthrough",
         "description": "Give the router behind this modem the carrier's IP address directly, instead of sharing it through NAT."

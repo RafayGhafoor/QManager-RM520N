@@ -481,7 +481,188 @@
     "toast_saved": "自定义 DNS 已应用。缓存刷新期间，局域网客户端可能会有短暂停顿。",
     "toast_error": "无法应用 DNS 变更。"
   },
-    "ipPassthrough": {
+  "smartdns": {
+    "page": {
+      "title": "智能 DNS",
+      "description": "缓存局域网查询，并选择最快的上游。关闭时 dnsmasq 会回退到运营商解析器。"
+    },
+    "header": {
+      "refresh": "刷新"
+    },
+    "read_failed_title": "无法读取 SmartDNS 状态",
+    "read_failed_body": "设备没有响应。设备上没有任何改动——请使用「刷新」重试。",
+    "duration": {
+      "day": "天",
+      "hour": "小时",
+      "minute": "分",
+      "second": "秒"
+    },
+    "status": {
+      "title": "解析器",
+      "description": "守护进程当前的状态，以及它的配置文件位置。",
+      "state": {
+        "running": "运行中",
+        "stopped": "已停止",
+        "enabled_stopped": "已启用，但未运行"
+      },
+      "toggle": {
+        "label": "使用 SmartDNS",
+        "hint": "关闭将停止解析器。dnsmasq 会回退到运营商解析器，DNS 仍可用，只是更慢。",
+        "toast_enabled": "SmartDNS 已启动。",
+        "toast_disabled": "SmartDNS 已停止，DNS 现在使用运营商解析器。",
+        "toast_error": "无法切换 SmartDNS。"
+      },
+      "readout": {
+        "pid": "进程 ID",
+        "memory": "内存",
+        "uptime": "运行时长",
+        "config_path": "配置文件",
+        "config_modified": "配置修改时间",
+        "cache": "缓存记录",
+        "upstreams": "上游数量",
+        "blocked_rules": "拦截规则",
+        "log_errors": "日志错误"
+      },
+      "log": {
+        "title": "最近的日志",
+        "empty": "暂无日志。"
+      }
+    },
+    "providers": {
+      "title": "节点选择",
+      "description": "哪些上游属于当前生效的组，以及最近一次域名测试测到了什么。",
+      "refresh": "立即刷新",
+      "refreshing": "测量中……",
+      "columns": {
+        "provider": "服务商",
+        "quality": "质量",
+        "verdict": "判定",
+        "group": "节点组"
+      },
+      "verdict": {
+        "good": "良好",
+        "slow": "偏慢",
+        "failed": "失败",
+        "unmeasured": "未测量"
+      },
+      "group": {
+        "in": "在组内",
+        "out": "不在组内"
+      },
+      "mode": "模式",
+      "last_refresh": "上次刷新",
+      "never": "从未",
+      "empty_title": "还没有测量结果",
+      "empty_body": "「立即刷新」会逐个探测上游，保留响应最快的那些。",
+      "threshold": "「良好」指响应低于 {{ms}} ms，来自最近一次域名测试。",
+      "recommendation": {
+        "title": "建议",
+        "action_rewrite": "已写入新组",
+        "action_keep": "保持现有组",
+        "action_insufficient": "未写入",
+        "applied": "已应用",
+        "not_applied": "未应用",
+        "dropped": "已排除",
+        "none_dropped": "没有排除任何上游。"
+      }
+    },
+    "test": {
+      "title": "域名测试",
+      "description": "查看每个服务商为某个域名返回的地址，以及这个地址有多远。",
+      "domain_label": "要测试的域名",
+      "placeholder": "youtube.com",
+      "run": "测试",
+      "running": "测试中……",
+      "summary": "最快 {{fastest}} ms · 最慢 {{slowest}} ms · 差值 {{spread}} ms",
+      "fastest_answer": "最快响应",
+      "empty_title": "测试一个域名",
+      "empty_body": "每个服务商都会被直接查询，不经过缓存。",
+      "all_failed": "没有服务商响应 {{domain}}。",
+      "columns": {
+        "provider": "服务商",
+        "answers": "响应",
+        "rtt": "往返",
+        "class": "类别"
+      },
+      "class": {
+        "near": "近",
+        "far": "远",
+        "unknown": "未知"
+      },
+      "near_note": "「近」指到解析出的地址低于 {{ms}} ms。",
+      "no_answer": "无响应",
+      "error": {
+        "invalid_domain": "这不是有效的域名。",
+        "timeout": "服务商探测未在限定时间内完成。",
+        "probe_failed": "探测没有产生测量结果。",
+        "helper_missing": "此设备未安装测量工具。",
+        "malformed_result": "探测返回了页面无法读取的数据。",
+        "transport": "设备没有响应请求。",
+        "generic": "域名测试失败。"
+      }
+    },
+    "perf": {
+      "title": "性能",
+      "description": "解析器带来的收益。这些都不是它自己的计数器，每个数值都注明来源。",
+      "refresh": "刷新",
+    "hit_rate_note": "本固件的 dnsmasq 不报告本地查询总数，因此不开启日志就无法计算命中率。该数值保持为空，而不是估算。",
+      "hit_rate": {
+        "label": "缓存命中率",
+        "source": "dnsmasq 缓存统计"
+      },
+      "speedup": {
+        "label": "解析加速",
+        "source": "运营商与局域网探测"
+      },
+      "pool": {
+        "label": "上游数量",
+        "source": "smartdns 配置"
+      },
+      "blocked": {
+        "label": "拦截规则",
+        "source": "smartdns 配置"
+      },
+      "cache_section": {
+        "title": "缓存",
+        "source": "dnsmasq 缓存统计"
+      },
+      "lookup_section": {
+        "title": "解析耗时",
+        "source": "运营商与局域网探测"
+      },
+      "health_section": {
+        "title": "解析器健康",
+        "source": "smartdns 日志"
+      },
+      "rows": {
+        "cache_size": "缓存容量",
+        "insertions": "写入",
+        "evictions": "淘汰",
+        "reused": "复用条目",
+        "lan_ms": "局域网解析",
+        "carrier_ms": "运营商解析",
+        "pool_errors": "日志错误"
+      },
+      "sampled": "采样时间 {{time}}。",
+      "empty_title": "无法读取性能数据",
+      "empty_body": "设备未响应统计接口。请使用「刷新」重试。"
+    },
+    "config": {
+      "title": "配置",
+      "description": "守护进程使用的 smartdns.conf。保存时会先在临时端口验证，再应用。",
+      "editor_label": "smartdns.conf",
+      "save": "保存并重启",
+      "discard": "放弃",
+      "unsaved": "未保存",
+      "blocked_unreadable": "无法读取配置，因此没有可以安全覆盖的内容。",
+      "blocked_empty": "空配置会让解析器没有上游。",
+      "blocked_unchanged": "还没有任何改动。",
+      "unreadable_title": "无法读取配置",
+      "unreadable_body": "读取结果中没有文件内容。请先刷新，读回后再编辑。",
+      "toast_saved": "配置已保存，解析器已重启。",
+      "toast_error": "无法保存配置。"
+    }
+  },    "ipPassthrough": {
       "page": {
         "title": "IP 直通",
         "description": "将运营商分配的 IP 地址直接交给此调制解调器后面的路由器，而不是通过 NAT 共享。"

@@ -481,7 +481,188 @@
     "toast_saved": "自訂 DNS 已套用。快取更新期間，區域網路用戶端可能會有短暫停頓。",
     "toast_error": "無法套用 DNS 變更。"
   },
-    "ipPassthrough": {
+  "smartdns": {
+    "page": {
+      "title": "智慧 DNS",
+      "description": "快取區域網路查詢，並選擇最快的上游。關閉時 dnsmasq 會回復到電信業者解析器。"
+    },
+    "header": {
+      "refresh": "重新整理"
+    },
+    "read_failed_title": "無法讀取 SmartDNS 狀態",
+    "read_failed_body": "裝置沒有回應。裝置上沒有任何變更——請使用「重新整理」再試一次。",
+    "duration": {
+      "day": "天",
+      "hour": "小時",
+      "minute": "分",
+      "second": "秒"
+    },
+    "status": {
+      "title": "解析器",
+      "description": "常駐程式目前的狀態，以及它的設定檔位置。",
+      "state": {
+        "running": "執行中",
+        "stopped": "已停止",
+        "enabled_stopped": "已啟用，但未執行"
+      },
+      "toggle": {
+        "label": "使用 SmartDNS",
+        "hint": "關閉會停止解析器。dnsmasq 會回復到電信業者解析器，DNS 仍可使用，只是更慢。",
+        "toast_enabled": "SmartDNS 已啟動。",
+        "toast_disabled": "SmartDNS 已停止，DNS 現在使用電信業者解析器。",
+        "toast_error": "無法切換 SmartDNS。"
+      },
+      "readout": {
+        "pid": "行程 ID",
+        "memory": "記憶體",
+        "uptime": "執行時間",
+        "config_path": "設定檔",
+        "config_modified": "設定修改時間",
+        "cache": "快取記錄",
+        "upstreams": "上游數量",
+        "blocked_rules": "封鎖規則",
+        "log_errors": "日誌錯誤"
+      },
+      "log": {
+        "title": "最近的日誌",
+        "empty": "尚無日誌。"
+      }
+    },
+    "providers": {
+      "title": "節點選擇",
+      "description": "哪些上游屬於目前生效的群組，以及最近一次網域測試測到了什麼。",
+      "refresh": "立即重新整理",
+      "refreshing": "測量中……",
+      "columns": {
+        "provider": "服務商",
+        "quality": "品質",
+        "verdict": "判定",
+        "group": "節點群組"
+      },
+      "verdict": {
+        "good": "良好",
+        "slow": "偏慢",
+        "failed": "失敗",
+        "unmeasured": "未測量"
+      },
+      "group": {
+        "in": "在群組內",
+        "out": "不在群組內"
+      },
+      "mode": "模式",
+      "last_refresh": "上次重新整理",
+      "never": "從未",
+      "empty_title": "尚無測量結果",
+      "empty_body": "「立即重新整理」會逐一探測上游，保留回應最快的那些。",
+      "threshold": "「良好」指回應低於 {{ms}} ms，來自最近一次網域測試。",
+      "recommendation": {
+        "title": "建議",
+        "action_rewrite": "已寫入新群組",
+        "action_keep": "維持現有群組",
+        "action_insufficient": "未寫入",
+        "applied": "已套用",
+        "not_applied": "未套用",
+        "dropped": "已排除",
+        "none_dropped": "沒有排除任何上游。"
+      }
+    },
+    "test": {
+      "title": "網域測試",
+      "description": "查看每個服務商為某個網域回報的位址，以及這個位址有多遠。",
+      "domain_label": "要測試的網域",
+      "placeholder": "youtube.com",
+      "run": "測試",
+      "running": "測試中……",
+      "summary": "最快 {{fastest}} ms · 最慢 {{slowest}} ms · 差值 {{spread}} ms",
+      "fastest_answer": "最快回應",
+      "empty_title": "測試一個網域",
+      "empty_body": "每個服務商都會被直接查詢，不經過快取。",
+      "all_failed": "沒有服務商回應 {{domain}}。",
+      "columns": {
+        "provider": "服務商",
+        "answers": "回應",
+        "rtt": "往返",
+        "class": "類別"
+      },
+      "class": {
+        "near": "近",
+        "far": "遠",
+        "unknown": "未知"
+      },
+      "near_note": "「近」指到解析出的位址低於 {{ms}} ms。",
+      "no_answer": "無回應",
+      "error": {
+        "invalid_domain": "這不是有效的網域名稱。",
+        "timeout": "服務商探測未在時限內完成。",
+        "probe_failed": "探測沒有產生測量結果。",
+        "helper_missing": "此裝置未安裝測量工具。",
+        "malformed_result": "探測回傳了頁面無法讀取的資料。",
+        "transport": "裝置沒有回應請求。",
+        "generic": "網域測試失敗。"
+      }
+    },
+    "perf": {
+      "title": "效能",
+      "description": "解析器帶來的效益。這些都不是它自己的計數器，每個數值都註明來源。",
+      "refresh": "重新整理",
+    "hit_rate_note": "本韌件的 dnsmasq 不回報本地查詢總數，因此不開啟日誌就無法計算命中率。該數值保持為空，而不是估計。",
+      "hit_rate": {
+        "label": "快取命中率",
+        "source": "dnsmasq 快取統計"
+      },
+      "speedup": {
+        "label": "解析加速",
+        "source": "電信業者與區域網路探測"
+      },
+      "pool": {
+        "label": "上游數量",
+        "source": "smartdns 設定"
+      },
+      "blocked": {
+        "label": "封鎖規則",
+        "source": "smartdns 設定"
+      },
+      "cache_section": {
+        "title": "快取",
+        "source": "dnsmasq 快取統計"
+      },
+      "lookup_section": {
+        "title": "解析耗時",
+        "source": "電信業者與區域網路探測"
+      },
+      "health_section": {
+        "title": "解析器健康",
+        "source": "smartdns 日誌"
+      },
+      "rows": {
+        "cache_size": "快取容量",
+        "insertions": "寫入",
+        "evictions": "淘汰",
+        "reused": "重複使用項目",
+        "lan_ms": "區域網路解析",
+        "carrier_ms": "電信業者解析",
+        "pool_errors": "日誌錯誤"
+      },
+      "sampled": "取樣時間 {{time}}。",
+      "empty_title": "無法讀取效能數據",
+      "empty_body": "裝置未回應統計介面。請使用「重新整理」再試一次。"
+    },
+    "config": {
+      "title": "設定",
+      "description": "常駐程式使用的 smartdns.conf。儲存時會先在臨時連接埠驗證，再套用。",
+      "editor_label": "smartdns.conf",
+      "save": "儲存並重新啟動",
+      "discard": "捨棄",
+      "unsaved": "尚未儲存",
+      "blocked_unreadable": "無法讀取設定，因此沒有可以安全覆寫的內容。",
+      "blocked_empty": "空設定會讓解析器沒有上游。",
+      "blocked_unchanged": "尚未有任何變更。",
+      "unreadable_title": "無法讀取設定",
+      "unreadable_body": "讀取結果中沒有檔案內容。請先重新整理，讀回後再編輯。",
+      "toast_saved": "設定已儲存，解析器已重新啟動。",
+      "toast_error": "無法儲存設定。"
+    }
+  },    "ipPassthrough": {
       "page": {
         "title": "IP 直通",
         "description": "將電信業者配發的 IP 位址直接交給這台數據機後方的路由器，而不是透過 NAT 共用。"

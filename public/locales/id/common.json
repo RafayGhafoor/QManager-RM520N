@@ -481,7 +481,188 @@
     "toast_saved": "DNS kustom diterapkan. Klien LAN mungkin mengalami jeda singkat saat cache disegarkan.",
     "toast_error": "Tidak dapat menerapkan perubahan DNS."
   },
-    "ipPassthrough": {
+  "smartdns": {
+    "page": {
+      "title": "SmartDNS",
+      "description": "Menyimpan cache pencarian LAN dan memilih upstream tercepat. Saat mati, dnsmasq memakai resolver operator."
+    },
+    "header": {
+      "refresh": "Muat ulang"
+    },
+    "read_failed_title": "Tidak bisa membaca status SmartDNS",
+    "read_failed_body": "Modem tidak menjawab. Tidak ada yang berubah di perangkat — gunakan Muat ulang untuk mencoba lagi.",
+    "duration": {
+      "day": "h",
+      "hour": "j",
+      "minute": "mnt",
+      "second": "dtk"
+    },
+    "status": {
+      "title": "Resolver",
+      "description": "Apa yang sedang dilakukan daemon sekarang, dan di mana konfigurasinya.",
+      "state": {
+        "running": "Berjalan",
+        "stopped": "Berhenti",
+        "enabled_stopped": "Aktif, tidak berjalan"
+      },
+      "toggle": {
+        "label": "Gunakan SmartDNS",
+        "hint": "Mematikan ini menghentikan resolver. dnsmasq kembali ke resolver operator, jadi DNS tetap bekerja — hanya lebih lambat.",
+        "toast_enabled": "SmartDNS dijalankan.",
+        "toast_disabled": "SmartDNS dihentikan. DNS kini memakai resolver operator.",
+        "toast_error": "Tidak bisa mengubah status SmartDNS."
+      },
+      "readout": {
+        "pid": "ID proses",
+        "memory": "Memori",
+        "uptime": "Waktu aktif",
+        "config_path": "File konfigurasi",
+        "config_modified": "Konfigurasi diubah",
+        "cache": "Catatan cache",
+        "upstreams": "Upstream",
+        "blocked_rules": "Aturan diblokir",
+        "log_errors": "Galat log"
+      },
+      "log": {
+        "title": "Log terbaru",
+        "empty": "Belum ada baris log."
+      }
+    },
+    "providers": {
+      "title": "Pemilihan edge",
+      "description": "Upstream mana yang masuk grup aktif, dan apa hasil uji domain terakhir.",
+      "refresh": "Segarkan sekarang",
+      "refreshing": "Mengukur…",
+      "columns": {
+        "provider": "Penyedia",
+        "quality": "Kualitas",
+        "verdict": "Putusan",
+        "group": "Grup edge"
+      },
+      "verdict": {
+        "good": "Baik",
+        "slow": "Lambat",
+        "failed": "Gagal",
+        "unmeasured": "Belum diukur"
+      },
+      "group": {
+        "in": "Dalam grup",
+        "out": "Di luar grup"
+      },
+      "mode": "Mode",
+      "last_refresh": "Penyegaran terakhir",
+      "never": "Belum pernah",
+      "empty_title": "Belum ada pengukuran",
+      "empty_body": "Segarkan sekarang menguji setiap upstream dan mempertahankan yang menjawab tercepat.",
+      "threshold": "Baik berarti jawaban di bawah {{ms}} ms, dari uji domain terakhir.",
+      "recommendation": {
+        "title": "Rekomendasi",
+        "action_rewrite": "Grup baru ditulis",
+        "action_keep": "Grup dipertahankan",
+        "action_insufficient": "Tidak ada yang ditulis",
+        "applied": "Diterapkan",
+        "not_applied": "Tidak diterapkan",
+        "dropped": "Dikeluarkan",
+        "none_dropped": "Tidak ada yang dikeluarkan."
+      }
+    },
+    "test": {
+      "title": "Penguji domain",
+      "description": "Lihat alamat yang diberikan setiap penyedia untuk sebuah domain, dan seberapa jauh jaraknya.",
+      "domain_label": "Domain yang diuji",
+      "placeholder": "youtube.com",
+      "run": "Uji",
+      "running": "Menguji…",
+      "summary": "tercepat {{fastest}} ms · terlambat {{slowest}} ms · selisih {{spread}} ms",
+      "fastest_answer": "Jawaban tercepat",
+      "empty_title": "Uji sebuah domain",
+      "empty_body": "Setiap penyedia ditanyai langsung, tanpa cache di antaranya.",
+      "all_failed": "Tidak ada penyedia yang menjawab {{domain}}.",
+      "columns": {
+        "provider": "Penyedia",
+        "answers": "Jawaban",
+        "rtt": "Pulang-pergi",
+        "class": "Kelas"
+      },
+      "class": {
+        "near": "Dekat",
+        "far": "Jauh",
+        "unknown": "Tidak diketahui"
+      },
+      "near_note": "Dekat berarti jawaban di bawah {{ms}} ms ke alamat hasil resolusi.",
+      "no_answer": "Tidak ada jawaban",
+      "error": {
+        "invalid_domain": "Itu bukan nama domain yang valid.",
+        "timeout": "Pemindaian penyedia tidak selesai tepat waktu.",
+        "probe_failed": "Probe tidak menghasilkan pengukuran.",
+        "helper_missing": "Alat pengukur tidak terpasang di perangkat ini.",
+        "malformed_result": "Probe mengembalikan data yang tidak bisa dibaca halaman ini.",
+        "transport": "Modem tidak menjawab permintaan.",
+        "generic": "Uji domain gagal."
+      }
+    },
+    "perf": {
+      "title": "Performa",
+      "description": "Manfaat resolver ini. Tidak satu pun penghitung miliknya sendiri — setiap angka menyebut sumbernya.",
+      "refresh": "Segarkan",
+    "hit_rate_note": "dnsmasq tidak melaporkan total kueri lokal pada firmware ini, jadi rasio cache tidak bisa dihitung tanpa mencatat kueri. Angkanya dibiarkan kosong, bukan ditaksir.",
+      "hit_rate": {
+        "label": "Rasio cache",
+        "source": "statistik cache dnsmasq"
+      },
+      "speedup": {
+        "label": "Percepatan pencarian",
+        "source": "probe operator vs LAN"
+      },
+      "pool": {
+        "label": "Kumpulan upstream",
+        "source": "konfigurasi smartdns"
+      },
+      "blocked": {
+        "label": "Aturan diblokir",
+        "source": "konfigurasi smartdns"
+      },
+      "cache_section": {
+        "title": "Cache",
+        "source": "statistik cache dnsmasq"
+      },
+      "lookup_section": {
+        "title": "Pencarian",
+        "source": "probe operator vs LAN"
+      },
+      "health_section": {
+        "title": "Kesehatan resolver",
+        "source": "log smartdns"
+      },
+      "rows": {
+        "cache_size": "Ukuran cache",
+        "insertions": "Penyisipan",
+        "evictions": "Penggusuran",
+        "reused": "Entri dipakai ulang",
+        "lan_ms": "Pencarian LAN",
+        "carrier_ms": "Pencarian operator",
+        "pool_errors": "Galat log"
+      },
+      "sampled": "Diambil {{time}}.",
+      "empty_title": "Tidak bisa membaca angka performa",
+      "empty_body": "Modem tidak menjawab endpoint statistik. Gunakan Segarkan untuk mencoba lagi."
+    },
+    "config": {
+      "title": "Konfigurasi",
+      "description": "smartdns.conf yang dijalankan daemon. Menyimpan akan memvalidasinya di port percobaan sebelum diterapkan.",
+      "editor_label": "smartdns.conf",
+      "save": "Simpan dan mulai ulang",
+      "discard": "Batal",
+      "unsaved": "Belum disimpan",
+      "blocked_unreadable": "Konfigurasi tidak bisa dibaca, jadi tidak ada yang aman untuk ditimpa.",
+      "blocked_empty": "Konfigurasi kosong akan membuat resolver tanpa upstream.",
+      "blocked_unchanged": "Belum ada yang berubah.",
+      "unreadable_title": "Tidak bisa membaca konfigurasi",
+      "unreadable_body": "Pembacaan status tidak membawa isi file. Segarkan, lalu sunting setelah terbaca.",
+      "toast_saved": "Konfigurasi disimpan dan resolver dimulai ulang.",
+      "toast_error": "Tidak bisa menyimpan konfigurasi."
+    }
+  },    "ipPassthrough": {
       "page": {
         "title": "Passthrough IP",
         "description": "Berikan alamat IP operator langsung ke router di belakang modem ini, bukan membagikannya lewat NAT."

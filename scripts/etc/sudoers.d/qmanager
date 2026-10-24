@@ -152,3 +152,21 @@ www-data ALL=(root) NOPASSWD: /usr/bin/qmanager_sim_registry_apply
 www-data ALL=(root) NOPASSWD: /bin/mv /etc/data/qmanager/dnsmasq.conf.new /etc/data/dnsmasq.conf
 www-data ALL=(root) NOPASSWD: /bin/chown radio\:radio /etc/data/dnsmasq.conf
 www-data ALL=(root) NOPASSWD: /usr/bin/killall -HUP dnsmasq
+
+# SmartDNS management (config edit + toggle + measured edge refresh)
+#
+# ONE grant, to ONE helper: scripts/usr/bin/qmanager_dns_apply. The CGI passes
+# config TEXT on stdin; the helper owns every filesystem decision. That is
+# deliberate — the config is read by a ROOT daemon, so a web-writable file is
+# privilege escalation (same reasoning as /etc/qmanager.env in
+# qmanager-ping.service). Do not widen this to mv/chown/systemctl grants: the
+# helper validates on a throwaway port and rolls back, and splitting that across
+# sudo rules would let the CGI skip both.
+www-data ALL=(root) NOPASSWD: /usr/bin/qmanager_dns_apply
+
+# dnsmasq SIGUSR1 = "dump cache/forwarding statistics to syslog". Read-only with
+# respect to configuration: it sends no reload and changes no state, which is why
+# it is a narrower grant than the HUP already allowed above. The stats CGI needs
+# it because the numbers it shows are dnsmasq's, not smartdns's — smartdns-rs
+# 0.13.1 exports no counters at all (see docs/specs/dns-edge-selection.md).
+www-data ALL=(root) NOPASSWD: /usr/bin/killall -USR1 dnsmasq

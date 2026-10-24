@@ -8,7 +8,7 @@ Scope: this branch is **deployment-only**. The application code (`app/`,
 `components/`, `lib/`, `types/`, `hooks/`) tracks upstream QManager and should
 not be modified here — the product-specific work lives in `deploy/`.
 
-**Five recorded exceptions.** The criterion is the same in every case: the feature
+**Seven recorded exceptions.** The criterion is the same in every case: the feature
 needs a control the backend cannot provide, so it could not live in `deploy/` alone.
 Anything that *can* be met by extending the backend must still be.
 
@@ -57,6 +57,23 @@ Anything that *can* be met by extending the backend must still be.
    reads — deliberately stayed on the carrier sample. `components/dashboard/connection-quality.tsx` (one
    expression plus the presence test), `types/modem-status.ts` (two optional fields). No new i18n strings; the row
    reuses `connection_quality.dns`. Recorded in [`docs/specs/dns-probe-two-paths.md`](./docs/specs/dns-probe-two-paths.md).
+7. **The SmartDNS page** (2026-10-24, owner asked for it: *"On UI we should have toggle for smartdns as well and also the config
+   file should be showed, it could be modified from frontend"* + *"we should have a way to test domain and its ping through multiple
+   providers"*) — the resolver moved out of the deprecated sibling repo into this one, and a control surface cannot be deployed
+   without components. Backend is `scripts/`+`deploy/` only: `qmanager_dns_apply` (the sole root writer, validates on a
+   throwaway port and rolls back), `qmanager_dns_edge_probe`, `qmanager_dns_test`, `qmanager_dns_stats_sample`,
+   `network/{smartdns,smartdns_stats,dns_test}.sh`, `qmanager-dns*.{service,timer}`. App layer:
+   `app/local-network/smartdns/**`, `components/local-network/smartdns/**`, `hooks/use-smartdns.ts`, `types/smartdns.ts`,
+   `components/app-sidebar.tsx` (one nav entry), `public/locales/*/{common,sidebar}.json`. Recorded in
+   [`docs/specs/smartdns-o5a.md`](./docs/specs/smartdns-o5a.md) and
+   [`docs/specs/dns-edge-selection.md`](./docs/specs/dns-edge-selection.md), reference [`docs/reference/smartdns.md`](./docs/reference/smartdns.md).
+7. **Cell History page shows when 5G dropped and on which cell** (2026-10-23, owner asked for it — "5G cell gets
+   disappeared at night, sometimes band 1, so we should be able to know") — the archive already held the PHY series,
+   but nothing recorded *serving-cell identity, band, or 5G availability* per sample, and a history panel is a
+   component. `app/cellular/history/**`, `components/cellular/history/**`, `components/app-sidebar.tsx` (one nav
+   entry), `hooks/use-cell-history.ts`, `types/cell-history.ts`, `public/locales/*/{cellular,sidebar}.json`. Backend
+   half is `scripts/` only (`qm_phy_archive_row` schema v2, `qmanager_poller`'s `ctx`, `fetch_signal_history.sh`
+   `?view=cells`). Recorded in [`docs/specs/cell-history.md`](./docs/specs/cell-history.md).
 
 Keep any such change minimal, add it here when you make it, and prefer extending
 the backend if a future need can be met without touching app code. An app-layer
@@ -161,11 +178,17 @@ already caused a failed install:
    third-party binary to git without deciding this explicitly.
    - **Committed**, because a fresh install cannot work without them and they are
      small: `dependencies/atcli_smd11`, `dependencies/sms_tool`,
-     `dependencies/jq.ipk`, `dependencies/dropbear*.ipk`, and
+     `dependencies/jq.ipk`, `dependencies/dropbear*.ipk`,
      **`dependencies/qmi/`** (qmicli + libqmi-glib + libqrtr-glib, ~2.7 MB — the
-     neighbour live view has no other source on a fresh device). Attribution lives
-     in `dependencies/NOTICE`; the two QMI libraries are LGPL-2.1 and **must stay
-     separate, replaceable `.so` files**, never folded into one static binary.
+     neighbour live view has no other source on a fresh device), and
+     **`dependencies/smartdns/`** (smartdns-rs 0.13.1, 7.0 MB — **GPL-3.0**, the
+     LAN's resolver; a fresh install must not have to reach a download host to
+     obtain the thing every client resolves through). Attribution lives in
+     `dependencies/NOTICE`, with the licence and the source offer in
+     `dependencies/smartdns/{NOTICE.md,LICENSE.GPL-3.0}` — the sibling repo shipped
+     this same binary with **no attribution at all**, so do not drop it. The two QMI
+     libraries are LGPL-2.1 and **must stay separate, replaceable `.so` files**,
+     never folded into one static binary.
    - **Fetched at deploy time** (`deploy/README.md`), because they are large or
      licence-sensitive: the static `jq` binary (gitignored in `deploy/.gitignore`)
      and the Ookla `speedtest` binary.

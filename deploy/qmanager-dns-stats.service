@@ -1,0 +1,42 @@
+# /etc/systemd/system/qmanager-dns-stats.service
+#
+# Appends ONE dnsmasq counter sample to /tmp/qmanager_dns_stats_history.json.
+#
+# WHY THIS UNIT EXISTS
+#   dnsmasq's SIGUSR1 counters are cumulative and report no local-query total, so
+#   a hit RATE is not computable from a single reading. Every rate the SmartDNS
+#   page shows (upstream queries/min, cache insertions/min, retry rate) needs two
+#   readings separated in time — and the first one has to be taken before the user
+#   opens the page. This timer is that "first reading".
+#
+#   The owner's suggestion of accumulating samples in the browser was the trigger
+#   for this: it works, but it ties the history to one tab staying open. Sampling
+#   on the device costs a handful of forks per 5 minutes and gives every client the
+#   same series. The UI may still cache what it saw in localStorage for an instant
+#   chart; it just is not the source of truth.
+#
+# COST (measured, see docs/reference/smartdns.md)
+#   One run = killall + syslog read + jq ≈ a few forks, every 5 min. Nothing on a
+#   1-core box, and it must stay that way: raising the cadence raises fork rate.
+#
+# tmpfs BY DESIGN: /tmp clears each boot, so "N samples since boot" is honest and
+# no flash is written every 5 minutes for a dashboard's history.
+
+[Unit]
+Description=QManager DNS stats sampler (one dnsmasq counter sample)
+# dnsmasq is the vendor's; do not fight its boot ordering, just run after it
+# exists. A missing dnsmasq is not an error — the script exits quietly.
+After=dnsmasq.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+# jq lives in /usrdata/qmanager/bin (the shim), NOT in the default PATH a
+# timer inherits. Measured 2026-10-23: without this line every JSON build in the
+# helper fails and the unit still exits 0, which reads as "nothing to do".
+Environment=PATH=/usrdata/qmanager/bin:/usr/bin:/bin:/sbin:/usr/sbin
+ExecStart=/usrdata/qmanager/bin/qmanager_dns_stats_sample
+StandardOutput=null
+StandardError=null
+TimeoutStartSec=60
+Nice=15

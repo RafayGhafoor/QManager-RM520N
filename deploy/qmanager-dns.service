@@ -1,0 +1,56 @@
+# /etc/systemd/system/qmanager-dns.service
+#
+# smartdns-rs — the resolver QManager owns, absorbed from the sibling product
+# (`greenpacket-o5a`, being deprecated) on 2026-10-23.
+#
+# WHERE THIS FITS
+#   This is NOT the LAN-facing resolver. dnsmasq owns 192.168.0.1:53 and
+#   forwards here via `strict-order` (`/etc/data/dnsmasq.conf` →
+#   `server=127.0.0.1#5353`), keeping the carrier resolvers as its fallback tier.
+#   Stopping this unit therefore DEGRADES DNS rather than breaking it — that is
+#   what makes the UI toggle safe (see docs/specs/smartdns-o5a.md, D3).
+#
+# WHY THE BINARY AND CONFIG LIVE UNDER /usrdata
+#   `/` is a read-only squashfs; /usrdata is the writable ubifs volume. The
+#   sibling product kept these in /data/gp, which belongs to the product being
+#   retired — QManager must not depend on a path it does not own.
+#
+# BOOT GUARANTEE — read this before "fixing" the unit
+#   `WantedBy=multi-user.target` is NOT sufficient on this firmware: PID 1 drops
+#   units from the boot transaction non-deterministically while breaking an
+#   ordering cycle (observed 2026-07-26 on the sibling: this resolver and its
+#   metrics logger got NO boot job at all and had to be started by hand after
+#   every reboot). The sibling's answer was an `ExecStartPost` backstop inside
+#   the VENDOR's gp-radio.service — which is exactly what must not be left
+#   behind when that product is deprecated: the unit would outlive the repo with
+#   nobody reading why it exists.
+#   The answer here is deploy/qm_boot_hook.sh, which inserts a
+#   `start_service_async qmanager-dns.service` line into turin_web.sh
+#   (AGENTS.md hard rule 7). A boot change is only proven by a real reboot with
+#   boot_id polled before/after — `systemctl enable` proves nothing (hard rule 6).
+#
+# StandardOutput/StandardError = null (inherited rationale, still correct):
+#   journald's stdout socket is not up when these units start at boot — dmesg
+#   carries `Failed to connect stdout to the journal socket` for units that keep
+#   the default. smartdns does its own file logging (log-file in the config,
+#   size-capped on tmpfs), so discarding stdout/stderr costs nothing.
+#
+# No After=network.target: this binds loopback only and tolerates unreachable
+# upstreams at boot, so it needs no network ordering. Dropping the edge also
+# reduces exposure to the ordering-cycle drop described above.
+
+[Unit]
+Description=QManager DNS Resolver (smartdns-rs, upstream for dnsmasq)
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+ExecStart=/usrdata/qmanager/bin/smartdns run -c /usrdata/qmanager/etc/smartdns.conf
+StandardOutput=null
+StandardError=null
+Restart=always
+RestartSec=2
+TimeoutStopSec=5
+
+[Install]
+WantedBy=multi-user.target

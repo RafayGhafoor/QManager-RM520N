@@ -55,7 +55,7 @@ be fed by the daemon**. Every number must be derived:
 
 | Wanted figure | Real source |
 | --- | --- |
-| Queries answered from cache / hit rate | `dnsmasq`'s `SIGUSR1` line in `/var/log/syslog`: `cache size 2000, 0/311 cache insertions re-used unexpired cache entries` |
+| Queries answered from cache / hit rate | `dnsmasq`'s `SIGUSR1` dump: **`queries forwarded 749, queries answered locally 477`** → hit rate `477/(749+477) = 38.9 %` from one reading. ⚠️ **Corrected 2026-10-24:** this spec first claimed the local-query total did not exist and that only a sampling window could produce a rate. That was wrong, and it was written from memory rather than from the syslog line. The 5-minute sampler is still shipped, but for **trends**, not for the hit rate |
 | Lookup speed win | Already measured — `dns_lookup_ms` (carrier) vs `dns_lan_ms` (LAN), shipped in `f99a2384` |
 | Upstream pool health | Bounded `/tmp/smartdns.log` `ERROR` count (the file is size-capped at 128 kB ×2) |
 | Blocked domains | Count of `address /…/#` rules in the config |

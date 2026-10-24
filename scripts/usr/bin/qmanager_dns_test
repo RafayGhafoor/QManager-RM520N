@@ -1,0 +1,74 @@
+#!/bin/sh
+# =============================================================================
+# qmanager_dns_test — one domain, every provider, sorted fastest-first
+# =============================================================================
+# This is the engine behind the SmartDNS page's domain tester and the
+# ?domain= CGI. It deliberately does NOT reimplement the measurement: it runs
+# qmanager_dns_edge_probe with a single --domain and reshapes the result. One
+# implementation means the number the page shows and the number the edge-selection
+# algorithm acts on can never disagree — which is the whole point of exposing it.
+#
+# Contract: docs/specs/dns-edge-selection.md → Contract 2.
+# Usage:    qmanager_dns_test <domain> [--json]
+# Exit:     0 with a report (even when nothing answered) · 2 invalid domain
+# =============================================================================
+set -u
+
+PROBE=${PROBE_BIN:-/usrdata/qmanager/bin/qmanager_dns_edge_probe}
+
+_domain=""
+for _a in "$@"; do
+    case "$_a" in
+        --json) ;;
+        -h|--help) echo "usage: qmanager_dns_test <domain> [--json]" >&2; exit 0 ;;
+        *) [ -z "$_domain" ] && _domain=$_a ;;
+    esac
+done
+
+if [ -z "$_domain" ]; then
+    printf '{"error":"missing_domain"}\n'
+    exit 2
+fi
+
+# Syntactic validation only. A hostname is letters/digits/hyphen labels joined by
+# dots; anything else is rejected here rather than becoming an argument to a
+# resolver on a device we do not fully control.
+case "$_domain" in
+    *[!A-Za-z0-9.-]*|.*|*.|-*|*..*) printf '{"error":"invalid_domain"}\n'; exit 2 ;;
+esac
+printf '%s' "$_domain" | grep -qE '^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+$' || {
+    printf '{"error":"invalid_domain"}\n'; exit 2; }
+[ "${#_domain}" -le 253 ] || { printf '{"error":"invalid_domain"}\n'; exit 2; }
+
+[ -x "$PROBE" ] || { printf '{"error":"probe_missing"}\n'; exit 1; }
+
+_raw=$("$PROBE" --json --domain "$_domain" 2>/dev/null)
+[ -n "$_raw" ] || { printf '{"error":"probe_failed"}\n'; exit 1; }
+
+# Reshape. Sorting puts answered-and-fast first, unanswered last, so the UI can
+# render the array as-is without knowing how to order nulls.
+printf '%s' "$_raw" | jq -c --arg d "$_domain" '
+    def row:
+        { upstream: .upstream,
+          short: .short,
+          ok: (.domains[0].ok // false),
+          ips: (.domains[0].ips // []),
+          rtt_ms: (.domains[0].rtt_ms // null),
+          class: (.domains[0].class // "unknown") };
+    [ .providers[] | row ] as $rows
+  | [ $rows[] | select(.rtt_ms != null) ] as $answered
+  | ($answered | sort_by(.rtt_ms)) as $fast
+  | (($rows | map(select(.rtt_ms == null))) ) as $unanswered
+  | ($fast + $unanswered) as $sorted
+  | { domain: $d,
+      threshold_ms: (.threshold_ms // 150),
+      tested_at: (.generated_at // null),
+      fastest:    (if ($fast | length) > 0 then $fast[0].ips[0] else null end),
+      fastest_ms: (if ($fast | length) > 0 then $fast[0].rtt_ms else null end),
+      slowest_ms: (if ($fast | length) > 0 then $fast[-1].rtt_ms else null end),
+      spread_ms:  (if ($fast | length) > 1 then ($fast[-1].rtt_ms - $fast[0].rtt_ms) else 0 end),
+      answered:   ($fast | length),
+      tested:     ($sorted | length),
+      results:    $sorted }
+'
+exit 0

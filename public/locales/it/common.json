@@ -481,7 +481,188 @@
     "toast_saved": "DNS personalizzati applicati. I client della LAN potrebbero avere una breve pausa mentre le cache si aggiornano.",
     "toast_error": "Impossibile applicare la modifica al DNS."
   },
-    "ipPassthrough": {
+  "smartdns": {
+    "page": {
+      "title": "SmartDNS",
+      "description": "Memorizza le risoluzioni della LAN e sceglie l'upstream più veloce. Se è spento, dnsmasq torna ai resolver dell'operatore."
+    },
+    "header": {
+      "refresh": "Aggiorna"
+    },
+    "read_failed_title": "Impossibile leggere lo stato di SmartDNS",
+    "read_failed_body": "Il modem non ha risposto. Nulla è cambiato sul dispositivo — usa Aggiorna per riprovare.",
+    "duration": {
+      "day": "g",
+      "hour": "h",
+      "minute": "min",
+      "second": "s"
+    },
+    "status": {
+      "title": "Resolver",
+      "description": "Cosa sta facendo il demone in questo momento e dove vive la sua configurazione.",
+      "state": {
+        "running": "In esecuzione",
+        "stopped": "Fermo",
+        "enabled_stopped": "Attivo, non in esecuzione"
+      },
+      "toggle": {
+        "label": "Usa SmartDNS",
+        "hint": "Spento, il resolver si ferma: dnsmasq torna ai resolver dell'operatore, quindi il DNS continua a funzionare, solo più lento.",
+        "toast_enabled": "SmartDNS avviato.",
+        "toast_disabled": "SmartDNS fermato. Il DNS usa ora i resolver dell'operatore.",
+        "toast_error": "Impossibile cambiare lo stato di SmartDNS."
+      },
+      "readout": {
+        "pid": "ID processo",
+        "memory": "Memoria",
+        "uptime": "Attività",
+        "config_path": "File di configurazione",
+        "config_modified": "Configurazione modificata",
+        "cache": "Record in cache",
+        "upstreams": "Upstream",
+        "blocked_rules": "Regole bloccate",
+        "log_errors": "Errori nel log"
+      },
+      "log": {
+        "title": "Log recente",
+        "empty": "Nessuna riga di log."
+      }
+    },
+    "providers": {
+      "title": "Selezione degli edge",
+      "description": "Quali upstream fanno parte del gruppo attivo e cosa ha misurato l'ultimo test del dominio.",
+      "refresh": "Aggiorna ora",
+      "refreshing": "Misurazione…",
+      "columns": {
+        "provider": "Provider",
+        "quality": "Qualità",
+        "verdict": "Esito",
+        "group": "Gruppo edge"
+      },
+      "verdict": {
+        "good": "Buono",
+        "slow": "Lento",
+        "failed": "Non riuscito",
+        "unmeasured": "Non misurato"
+      },
+      "group": {
+        "in": "Nel gruppo",
+        "out": "Fuori dal gruppo"
+      },
+      "mode": "Modalità",
+      "last_refresh": "Ultimo aggiornamento",
+      "never": "Mai",
+      "empty_title": "Nessuna misurazione per ora",
+      "empty_body": "Aggiorna ora interroga ogni upstream e tiene quelli che rispondono più velocemente.",
+      "threshold": "Buono significa risposta sotto {{ms}} ms, dall'ultimo test del dominio.",
+      "recommendation": {
+        "title": "Raccomandazione",
+        "action_rewrite": "Nuovo gruppo scritto",
+        "action_keep": "Gruppo invariato",
+        "action_insufficient": "Nulla scritto",
+        "applied": "Applicato",
+        "not_applied": "Non applicato",
+        "dropped": "Esclusi",
+        "none_dropped": "Nessun upstream escluso."
+      }
+    },
+    "test": {
+      "title": "Test del dominio",
+      "description": "Vedi quale indirizzo assegna ogni provider per un dominio e quanto è lontano.",
+      "domain_label": "Dominio da testare",
+      "placeholder": "youtube.com",
+      "run": "Verifica",
+      "running": "Verifica in corso…",
+      "summary": "più veloce {{fastest}} ms · più lento {{slowest}} ms · differenza {{spread}} ms",
+      "fastest_answer": "Risposta più veloce",
+      "empty_title": "Verifica un dominio",
+      "empty_body": "Ogni provider viene interrogato direttamente, senza cache di mezzo.",
+      "all_failed": "Nessun provider ha risposto per {{domain}}.",
+      "columns": {
+        "provider": "Provider",
+        "answers": "Risposte",
+        "rtt": "Andata e ritorno",
+        "class": "Classe"
+      },
+      "class": {
+        "near": "Vicino",
+        "far": "Lontano",
+        "unknown": "Sconosciuto"
+      },
+      "near_note": "Vicino significa risposta sotto {{ms}} ms all'indirizzo risolto.",
+      "no_answer": "Nessuna risposta",
+      "error": {
+        "invalid_domain": "Non è un nome di dominio valido.",
+        "timeout": "La scansione dei provider non è terminata in tempo.",
+        "probe_failed": "La sonda non ha prodotto misurazioni.",
+        "helper_missing": "Lo strumento di misura non è installato su questo dispositivo.",
+        "malformed_result": "La sonda ha restituito dati che la pagina non sa leggere.",
+        "transport": "Il modem non ha risposto alla richiesta.",
+        "generic": "Il test del dominio non è riuscito."
+      }
+    },
+    "perf": {
+      "title": "Prestazioni",
+      "description": "Cosa offre il resolver. Nessuno di questi è un suo contatore: ogni cifra indica la propria fonte.",
+      "refresh": "Aggiorna",
+    "hit_rate_note": "dnsmasq non riporta il totale delle query locali su questo firmware, quindi una percentuale di cache hit non è calcolabile senza registrare le query. Il valore resta vuoto invece di essere stimato.",
+      "hit_rate": {
+        "label": "Percentuale di cache hit",
+        "source": "statistiche cache di dnsmasq"
+      },
+      "speedup": {
+        "label": "Guadagno di risoluzione",
+        "source": "sonda operatore vs LAN"
+      },
+      "pool": {
+        "label": "Pool upstream",
+        "source": "configurazione smartdns"
+      },
+      "blocked": {
+        "label": "Regole bloccate",
+        "source": "configurazione smartdns"
+      },
+      "cache_section": {
+        "title": "Cache",
+        "source": "statistiche cache di dnsmasq"
+      },
+      "lookup_section": {
+        "title": "Risoluzioni",
+        "source": "sonda operatore vs LAN"
+      },
+      "health_section": {
+        "title": "Salute del resolver",
+        "source": "log di smartdns"
+      },
+      "rows": {
+        "cache_size": "Dimensione cache",
+        "insertions": "Inserimenti",
+        "evictions": "Espulsioni",
+        "reused": "Voci riutilizzate",
+        "lan_ms": "Risoluzione LAN",
+        "carrier_ms": "Risoluzione operatore",
+        "pool_errors": "Errori nel log"
+      },
+      "sampled": "Campionato {{time}}.",
+      "empty_title": "Impossibile leggere le prestazioni",
+      "empty_body": "Il modem non ha risposto all'endpoint delle statistiche. Usa Aggiorna per riprovare."
+    },
+    "config": {
+      "title": "Configurazione",
+      "description": "Il file smartdns.conf usato dal demone. Al salvataggio viene verificato su una porta di prova prima di essere applicato.",
+      "editor_label": "smartdns.conf",
+      "save": "Salva e riavvia",
+      "discard": "Annulla",
+      "unsaved": "Non salvato",
+      "blocked_unreadable": "Impossibile leggere la configurazione: non c'è nulla da sovrascrivere in sicurezza.",
+      "blocked_empty": "Una configurazione vuota lascerebbe il resolver senza upstream.",
+      "blocked_unchanged": "Non è cambiato nulla.",
+      "unreadable_title": "Impossibile leggere la configurazione",
+      "unreadable_body": "La lettura dello stato non ha restituito il file. Aggiorna, poi modifica quando torna.",
+      "toast_saved": "Configurazione salvata e resolver riavviato.",
+      "toast_error": "Impossibile salvare la configurazione."
+    }
+  },    "ipPassthrough": {
       "page": {
         "title": "Passthrough IP",
         "description": "Assegna direttamente l'indirizzo IP dell'operatore al router collegato a questo modem, invece di condividerlo tramite NAT."

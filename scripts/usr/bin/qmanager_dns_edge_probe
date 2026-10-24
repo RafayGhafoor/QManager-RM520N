@@ -1,0 +1,255 @@
+#!/bin/sh
+# =============================================================================
+# qmanager_dns_edge_probe — measure every DNS provider's ANSWER QUALITY
+# =============================================================================
+# READ-ONLY. It never writes a config, restarts nothing, and touches no file
+# outside /tmp. That is what lets the router, the timer, the domain tester and a
+# human over ssh all run it without coordination.
+#
+# THE PROBLEM IT MEASURES (first-hand, O5A Pro, 2026-10-23)
+#   Google hands out two latency classes and which one a client gets depends on
+#   WHICH upstream answered:
+#     near ~55-80 ms    dns.google, quad9, opendns, nextdns
+#     far  ~330-350 ms  cloudflare-dns.com, 1.1.1.1, adguard, rethinkdns
+#   smartdns 0.13.1 takes the FIRST NOERROR answer (FastestResponse), so the
+#   outcome is a race. IP range tests cannot separate the classes (142.250.122.101
+#   = 345 ms sits inside the "near" /15, while 142.250.203.14 = 62 ms is in the
+#   same /15), so the only honest axis is measuring the answers themselves.
+#
+# WHAT IT DOES, PER UPSTREAM AND DOMAIN
+#   $BIN resolve --https @<host><path> <domain>   # bypasses the live cache entirely
+#   then ICMP-pings the returned IPs (up to MAX_IPS the first one that answers).
+#   quality_ms is the MEDIAN of the per-domain RTTs that upstream answered, which
+#   makes one bad domain not disqualify a provider.
+#
+# COST (measured 2026-10-23): one 4-domain sweep across 10 providers took
+#   930-2630 ms wall and ~1 fork per (provider x domain) plus one per ping —
+#   order 40-90 forks per FULL run. That is why this runs on a 30-minute timer and
+#   never on a request path; the CGI's "refresh now" runs it once, explicitly.
+#
+# Output: contract-1 JSON on stdout (docs/specs/dns-edge-selection.md). Logs to
+# stderr. Exit 0 whenever a report could be produced, even if every provider failed
+# — a failed provider is a RESULT here, not an error.
+# =============================================================================
+set -u
+
+BIN=${SMARTDNS_BIN:-/usrdata/qmanager/bin/smartdns}
+CONF=${SMARTDNS_CONF:-/usrdata/qmanager/etc/smartdns.conf}
+THRESHOLD_MS=${THRESHOLD_MS:-150}
+MIN_MEMBERS=${MIN_MEMBERS:-2}
+MAX_IPS=${MAX_IPS:-2}
+PING_TIMEOUT=${PING_TIMEOUT:-2}
+DEADLINE_SEC=${DEADLINE_SEC:-110}
+PROBE_DOMAINS=${PROBE_DOMAINS:-"youtube.com redirector.googlevideo.com google.com"}
+
+# --- args ------------------------------------------------------------------
+_want_domains=""
+_want_upstreams=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --json) shift ;;                      # accepted for callers that pass it
+        --domain)   [ $# -ge 2 ] || break; _want_domains="$_want_domains $2"; shift 2 ;;
+        --upstream) [ $# -ge 2 ] || break; _want_upstreams="$_want_upstreams $2"; shift 2 ;;
+        --timeout)  [ $# -ge 2 ] || break; PING_TIMEOUT=$2; shift 2 ;;
+        -h|--help)  echo "usage: qmanager_dns_edge_probe [--json] [--domain d]... [--upstream u]... [--timeout s]" >&2; exit 0 ;;
+        *) shift ;;
+    esac
+done
+
+[ -x "$BIN" ] || { echo '{"error":"binary_missing"}'; exit 1; }
+[ -f "$CONF" ] || { echo '{"error":"config_missing"}'; exit 1; }
+
+# --- clock without a fork ---------------------------------------------------
+# /proc/uptime in whole seconds, used only to enforce a hard deadline; without one
+# a blackholed upstream could hold the timer's start job for minutes.
+_start=$(cut -d. -f1 /proc/uptime 2>/dev/null)
+case "$_start" in ''|*[!0-9]*) _start=0 ;; esac
+
+over_deadline() {
+    _n=$(cut -d. -f1 /proc/uptime 2>/dev/null)
+    case "$_n" in ''|*[!0-9]*) return 1 ;; esac
+    [ $(( _n - _start )) -ge "$DEADLINE_SEC" ]
+}
+
+# --- the pool ---------------------------------------------------------------
+# One line per upstream: "<url>\t<short>". Bootstrap entries are skipped: they only
+# exist to resolve the DoH hostnames themselves and must not be measured as peers.
+pool() {
+    awk '
+        /^server / {
+            url = $2
+            if (url !~ /^(https|h3|tls|quic):\/\//) next
+            skip = 0
+            for (i = 3; i <= NF; i++) if ($i == "-bootstrap-dns") skip = 1
+            if (skip) next
+            short = url
+            sub(/^[a-z0-9+]+:\/\//, "", short)
+            sub(/[\/:].*$/, "", short)
+            print url "\t" short
+        }
+    ' "$CONF" 2>/dev/null
+}
+
+# Upstreams already in the generated edge block, so the report can say whether the
+# live decision matches today's measurement.
+live_group() {
+    awk '
+        /^# BEGIN QMANAGER-EDGE v1/ { inb = 1; next }
+        /^# END QMANAGER-EDGE v1/   { inb = 0; next }
+        inb && /^server / { print $2 }
+    ' "$CONF" 2>/dev/null
+}
+
+# --- measurement ------------------------------------------------------------
+# Ask ONE upstream for ONE domain, bypassing the cache, and print the IPv4s.
+resolve_via() {
+    # $1 = url, $2 = domain
+    _u=${1#*://}                 # strip scheme
+    _u=${_u%%\?*}                # no query strings
+    timeout_out=$(qm_timeout_local "$BIN" resolve --https "@$_u" "$2" 2>/dev/null </dev/null)
+    [ -n "$timeout_out" ] || return 0
+    # Only answer lines ("A <name> <ttl> IN <ip>") — the SERVER: header of an
+    # IP-literal upstream also contains dots and would otherwise be pinged.
+    printf '%s\n' "$timeout_out" | awk '$1 == "A" { print $NF }' | grep -E '^([0-9]{1,3}\.){3}[0-9]{1,3}$' | head -"$MAX_IPS"
+}
+
+# Bounded exec without depending on coreutils timeout living in PATH for the timer.
+qm_timeout_local() {
+    _t=${RESOLVE_TIMEOUT:-5}
+    if command -v timeout >/dev/null 2>&1; then timeout "$_t" "$@"; else "$@"; fi
+}
+
+# Min RTT in whole ms across a list of IPs; empty when none answered.
+# ONE packet on purpose: the classes being separated are ~60 ms and ~340 ms, so a
+# single sample is decisive, and 8 providers x 3 domains would otherwise spend
+# most of its wall time waiting on the -W timeout rather than measuring.
+rtt_of() {
+    _best=""
+    for _ip in $1; do
+        _r=$(ping -c 1 -W "$PING_TIMEOUT" -q "$_ip" 2>/dev/null \
+             | sed -n 's/.*min\/avg\/max[^=]*=[[:space:]]*[0-9.]*\/\([0-9.]*\)\/.*/\1/p' | head -1)
+        case "$_r" in ''|*[!0-9.]*) continue ;; esac
+        _i=$(awk -v r="$_r" 'BEGIN{printf "%d", r+0}')
+        [ -z "$_best" ] && _best=$_i
+        [ "$_i" -lt "$_best" ] && _best=$_i
+    done
+    printf '%s' "$_best"
+}
+
+median() {
+    [ -n "$1" ] || { printf ''; return; }
+    printf '%s\n' $1 | sort -n | awk '{a[NR]=$1} END{ if (NR % 2) print a[(NR+1)/2]; else print int((a[NR/2] + a[NR/2+1]) / 2) }'
+}
+
+classify() {
+    case "$1" in ''|*[!0-9]*) printf 'unknown' ;; *)
+        if [ "$1" -le "$THRESHOLD_MS" ]; then printf 'near'; else printf 'far'; fi ;;
+    esac
+}
+
+# --- main -------------------------------------------------------------------
+_domains=${_want_domains:-$PROBE_DOMAINS}
+[ -n "$_want_upstreams" ] && _only="$_want_upstreams" || _only=""
+
+_lg=$(live_group)
+_tmpd=$(mktemp -d /tmp/qm_dnsprobe.XXXXXX 2>/dev/null) || exit 1
+trap 'rm -rf "$_tmpd"' EXIT INT TERM
+_rows="$_tmpd/rows"      # one JSON object per provider
+: > "$_rows"
+
+while IFS="$(printf '\t')" read -r _url _short; do
+    [ -n "${_url:-}" ] || continue
+    if [ -n "$_only" ]; then
+        case " $_only " in *" $_url "*) ;; *) continue ;; esac
+    fi
+
+    # Deadline: record what we have for this provider rather than pretending it
+    # was measured. A truncated sweep is honest; a fabricated row is not.
+    if over_deadline; then
+        jq -n --arg u "$_url" --arg s "$_short" \
+            '{upstream:$u, short:$s, ok:false, quality_ms:null, verdict:"failed",
+              in_live_group:false, domains:[], reason:"probe deadline reached before this provider was measured"}' >> "$_rows"
+        continue
+    fi
+
+    _doms=""
+    _qual=""
+    _any=0
+    for _d in $_domains; do
+        _ips=$(resolve_via "$_url" "$_d" | tr '\n' ' ')
+        if [ -z "$_ips" ]; then
+            _doms="$_doms $(jq -c -n --arg d "$_d" '{domain:$d, ok:false, ips:[], rtt_ms:null, class:"unknown"}')"
+            continue
+        fi
+        _rtt=$(rtt_of "$_ips")
+        _cls=$(classify "$_rtt")
+        case "$_rtt" in ''|*[!0-9]*) _rtt=null ;; *) _qual="$_qual $_rtt" ;; esac
+        _any=1
+        _ipjson=$(printf '%s\n' $_ips | jq -R . | jq -s -c .)
+        _doms="$_doms $(jq -c -n --arg d "$_d" --argjson r "$_rtt" --arg c "$_cls" --argjson ips "$_ipjson" \
+            '{domain:$d, ok:true, ips:$ips, rtt_ms:$r, class:$c}')"
+    done
+
+    _qm=$(median "$_qual")
+    case "$_qm" in ''|*[!0-9]*) _qm=null; _ok=false; _verdict="failed" ;; *)
+        _ok=true
+        if [ "$_qm" -le "$THRESHOLD_MS" ]; then _verdict="good"; else _verdict="slow"; fi ;;
+    esac
+    _doms_json=$(printf '%s' "$_doms" | jq -s -c .)
+    case " $_lg " in *" $_url "*) _inlg=true ;; *) _inlg=false ;; esac
+
+    jq -n --arg u "$_url" --arg s "$_short" --argjson ok "$_ok" --argjson q "$_qm" \
+        --arg v "$_verdict" --argjson inlg "$_inlg" --argjson doms "$_doms_json" \
+        '{upstream:$u, short:$s, ok:$ok, quality_ms:$q, verdict:$v,
+          in_live_group:$inlg, domains:$doms}' >> "$_rows"
+done <<EOF
+$(pool)
+EOF
+
+# --- recommendation ---------------------------------------------------------
+_good=$(jq -r 'select(.verdict == "good") | .upstream' "$_rows" 2>/dev/null)
+_n_good=$(printf '%s\n' "$_good" | grep -c . 2>/dev/null); _n_good=${_n_good:-0}
+
+# Live group as a sorted newline list for comparison.
+_lg_sorted=$(printf '%s\n' "$_lg" | grep . | sort)
+_good_sorted=$(printf '%s\n' "$_good" | grep . | sort)
+
+_action="keep"; _reason=""
+if [ "$_n_good" -lt "$MIN_MEMBERS" ]; then
+    _action="insufficient"
+    _reason="only $_n_good provider(s) within ${THRESHOLD_MS} ms; need $MIN_MEMBERS — keeping the live block"
+elif [ "$_lg_sorted" = "$_good_sorted" ]; then
+    _action="keep"
+    _reason="live block already matches the $_n_good measured-good provider(s)"
+else
+    _action="rewrite"
+    _reason="$_n_good of $(jq -s 'length' "$_rows") providers within ${THRESHOLD_MS} ms"
+fi
+
+_good_json=$(printf '%s\n' "$_good" | grep . | jq -R . | jq -s -c .)
+_dropped=$(jq -s -c '[.[] | select(.verdict != "good") | {
+        upstream: .upstream,
+        reason: (if .ok then ("median " + (.quality_ms|tostring) + " ms > " + ($THRESH | tostring) + " ms")
+                 else "no answer" end)
+    }]' --argjson THRESH "$THRESHOLD_MS" "$_rows" 2>/dev/null)
+[ -n "$_dropped" ] || _dropped="[]"
+_doms_json=$(printf '%s\n' $_domains | jq -R . | jq -s -c .)
+_lg_json=$(printf '%s\n' "$_lg" | grep . | jq -R . | jq -s -c .)
+[ -n "$_lg_json" ] || _lg_json="[]"
+
+jq -s --argjson now "$(date +%s)" --arg bin "$BIN" --arg conf "$CONF" \
+    --argjson thr "$THRESHOLD_MS" --argjson lg "$_lg_json" --argjson doms "$_doms_json" \
+    --argjson good "$_good_json" --argjson dropped "$_dropped" \
+    --arg action "$_action" --arg reason "$_reason" \
+    '{
+        generated_at: $now,
+        binary: $bin,
+        config: $conf,
+        threshold_ms: $thr,
+        live_group: $lg,
+        probe_domains: $doms,
+        providers: .,
+        recommendation: {good: $good, dropped: $dropped, action: $action, reason: $reason}
+     }' "$_rows"
+
+exit 0

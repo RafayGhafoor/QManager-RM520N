@@ -1,0 +1,42 @@
+# /etc/systemd/system/qmanager-dns-edge.service
+#
+# Regenerates the Google-family edge-selection block from MEASURED provider
+# quality (see docs/specs/dns-edge-selection.md). Runs qmanager_dns_apply
+# apply-edge, which:
+#   - probes every upstream in the pool for the probe domains,
+#   - keeps only those whose answers ping <= THRESHOLD_MS (default 150),
+#   - rewrites the `# BEGIN QMANAGER-EDGE v1` block,
+#   - validates the result on a THROWAWAY PORT (never `smartdns test -c`, which
+#     validates nothing on 0.13.1),
+#   - swaps + restarts, and rolls back on failure.
+#
+# Why a timer and not a static member list: the defect this fixes is that
+# Cloudflare/1.1.1.1 were handing out Google's ~340 ms edge while dns.google /
+# Quad9 / OpenDNS handed out the ~65 ms one, and FastestResponse made the outcome
+# a race. A hand-written list rots the moment a provider changes behaviour; a
+# measured one self-heals. Measured 2026-10-23: far class 330-350 ms, near class
+# 55-80 ms (TCP/443 and ICMP agree), so the 150 ms cut is not delicate.
+#
+# Type=oneshot and silent on stdout: the same boot-transaction reasoning as
+# qmanager-dns.service (journald's stdout socket is not up early). The script
+# logs to stderr, which systemd captures as the unit's journal-less syslog line.
+
+[Unit]
+Description=QManager DNS edge selection refresh (measure providers, regenerate group)
+After=qmanager-dns.service
+# A stopped resolver has nothing to refresh; do not fail the timer when the
+# operator has switched SmartDNS off.
+ConditionPathExists=/usrdata/qmanager/bin/smartdns
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+# jq lives in /usrdata/qmanager/bin (the shim), NOT in the default PATH a
+# timer inherits. Measured 2026-10-23: without this line every JSON build in the
+# helper fails and the unit still exits 0, which reads as "nothing to do".
+Environment=PATH=/usrdata/qmanager/bin:/usr/bin:/bin:/sbin:/usr/sbin
+ExecStart=/usrdata/qmanager/bin/qmanager_dns_apply apply-edge
+StandardOutput=null
+StandardError=null
+TimeoutStartSec=180
+Nice=10

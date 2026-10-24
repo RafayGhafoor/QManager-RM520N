@@ -50,6 +50,16 @@ const navCellular: NavItem[] = [
     url: "/cellular/detailed-metrics",
     icon: "stacked_line_chart",
   },
+  // Cell History sits directly under Detailed Metrics because the two are
+  // siblings in the same reading: that page shows the PHY numbers over a range,
+  // this one shows which cell and band they came from and when 5G was absent.
+  // It is not under Settings — it reads the archive, it configures nothing.
+  // `timeline` is already in the icon subset; do not run `icons:subset`.
+  {
+    t_key: "history",
+    url: "/cellular/history",
+    icon: "timeline",
+  },
   {
     t_key: "sms_center",
     url: "/cellular/sms",
@@ -122,6 +132,10 @@ const navLocalNetwork: NavItem[] = [
     items: [
       { t_key: "ttl_mtu_settings", url: "/local-network/ttl-settings" },
       { t_key: "custom_dns", url: "/local-network/custom-dns" },
+      // SmartDNS is the resolver dnsmasq forwards to, so it belongs beside
+      // Custom DNS rather than on its own row: both answer "where do LAN
+      // queries go", one tier apart.
+      { t_key: "smartdns", url: "/local-network/smartdns" },
     ],
   },
 ];
