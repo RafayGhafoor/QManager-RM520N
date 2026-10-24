@@ -564,3 +564,119 @@ result set. Deletes now hit `sms_config` (`delete_all` takes a `.backup` into
 `/usrdata/qmanager/data/sms-store-backups/`, newest 3 kept) — a message deleted in
 QManager also disappears from the vendor UI, by design.
 Spec `docs/specs/sms-vendor-store.md`, plan `docs/plans/2026-10-22-sms-vendor-store.md`.
+
+## 2026-10-22 (later) — modem EFS is readable, and `lte_band` was widened to 1:3:41
+
+Two things changed and both matter to future work.
+
+**1. The modem's EFS2 filesystem is now readable and restorable over ssh** — the
+first time on this unit. There is no `/dev/diag`, and `AT+QNVFL` is unsupported,
+which is why the earlier conclusion was "the EFS tree cannot be enumerated".
+It can: the modem publishes **DIAG on QRTR node 3 port 19** (`MODEM:CMD`; DCI on
+109), and EFS2 answers there. Node 2 / 16xxx is `diag-router`'s aggregate and does
+**not** answer EFS2. Tools: `deploy/efs/` (upstream `qcom-efsd` rebuilt for
+`armv7` musl with `zig`, plus `efscli`), installed at
+`/usrdata/qmanager/tools/efstest/`. A full backup is **1,100 files / 1.31 MB of
+content / 920 KiB gzipped in ~11 s**; a dry-run restore verified 0 differences.
+EFS-quirk that costs an hour: the directory cursor is modem-side and not
+rewindable — never interrupt a listing. The `image` opcode is rejected here
+(`efs_errno 131071`); use `pull_tree`. Backups hold the IMEI + RF cal and live
+**outside git** (`~/Downloads/projects/greenpacket-o5a-backups/`).
+
+**2. LTE band restriction widened `1:3` → `1:3:41`** (`AT+QNWPREFCFG="lte_band"`,
+NV `/nv/item_files/modem/mmode/lte_bandpref` = `05 00 00 00 00 01 00 00`), to
+allow Jazz's B41 alongside B1/B3. Measured after: same serving set (B1 PCC
+EARFCN 250 + B3 SCC 1850 + NR n41 509070), **0 % loss**, 195.8–200.3 / 47.2–51.3
+Mbps vs a 204.0/46.7 baseline (inside noise). **No B41 cell is measurable from
+this site** (`AT+QENG="neighbourcell"` shows only B1/B3), so B41 is allowed but
+unused. Careful with attribution: the LTE CA `B1+B3` that appeared right after the
+write **survived the rollback**, so it was not caused by it.
+Because Quectel's `bak/lte_bandpref` copy followed the write (and its ledger
+`bak/flag.txt` rewrote itself), a restore must cover `/nv/item_files/quectel/bak/`
+too, i.e. the whole tree — not just the `mmode` item.
+Other measured facts: `/policyman/ignore_mcc2bands_mdb` = `"1"` (the compiled
+`mcc2bands.mdb` is ignored); `asdiv_ca_band_combo` / `ca_dynamic_band_cfg` /
+`ant_switch_band_info` **do not exist** here; NR SA is gated by
+`/policyman/hardware_band_filtering.xml` (`disable_sa_mmwave`, `nr5g_sa_bands
+0-511`), not by NV; `AT+QNWPREFCFG="nr5g_sa_band"` returns **ERROR**, so the NR
+masks are readable only through EFS.
+Rollback: `qcmd 'AT+QNWPREFCFG="lte_band",1:3'`.
+Spec `docs/specs/jazz-band-ca-tuning.md`, plan
+`docs/plans/2026-10-22-jazz-band-ca-tuning.md`, EFS exploration
+`docs/plans/2026-10-22-efs-diag-exploration.md`.
+
+## 2026-10-23 — IP Passthrough now works: `ql_qmap LAN IPPT`, auto-bound, re-applied at boot
+
+**Superseded:** an earlier entry here said the page drives the product's `:8091/passthrough` XML flag. That
+never activated passthrough (QCMAP stayed `Device Type Not Set` / `NOT ACTIVATED`, also after a reboot).
+
+**Now live on the unit:** the CGI runs `/usr/bin/ql_qmap LAN IPPT set 0 1 <mac>` with the MAC auto-detected
+from the DHCP leases + ARP; QCMAP reports `ACTIVATED` in ~4 s and the router's lease becomes the carrier IP,
+no reboot. Off needs a reboot (a live disable does nothing). The binding is runtime-only, so
+`qmanager-ippt.service` (started from `turin_web.sh` by `qm_boot_hook.sh`) re-applies it ~90 s into each boot
+from `/etc/qmanager/ippt.json`. Proven by two real reboots. **Currently ON** (router `cc:2d:21:1d:21:79`
+holds the carrier IP). Deployed: `www/` rebuild, `network/ip_passthrough.sh`, `lib/ippt.sh`,
+`bin/qmanager_ippt_apply`, the unit, and the extended boot hook.
+
+**Consequences to know:** while active the modem is **not reachable at `192.168.0.1`** from behind the router
+(Tailscale only: `100.106.128.119`, `ssh greenpacket-ts`, or `ssh -J hayden -p 2222 root@100.106.128.119`);
+`QCMAP_CLI` floods its menu forever on EOF (never capture it; 93 MB/8 s into RAM); plain `timeout` cannot kill it
+at boot (`timeout -s KILL`); restarting QCMAP while active auto-reboots the box. The Mac's own Tailscale is
+broken by a stale standalone system extension (see `docs/reference/tailscale.md`). Backups/logs of every live
+write: `/usrdata/qmanager/backup/ippt-live-test-20261023/`. Reference: `docs/reference/ip-passthrough.md`.
+
+## 2026-10-23 — Tailscale now starts at boot (opt-in flag was 0)
+
+`/data/gp/tailscale-enabled` was `0` (product default: Tailscale off, started only from the
+dashboard), so the daemon never came up at boot despite the unit reading `enabled`. Set via
+the product toggle (`POST 127.0.0.1:8091/tailscale` body `on`, which writes the flag and starts
+the unit), not by editing `/data/gp`. Proven by a real reboot: `tailscaled` active 93 s after
+boot (the 90 s lazy guard), IP `100.106.128.119`, tailnet reachable. Binary is
+`/data/tailscale/tailscale`, not on PATH. Details: `docs/reference/tailscale.md`.
+
+## 2026-10-24 — the resolver moved from the sibling product into QManager
+
+smartdns-rs 0.13.1 is now **QManager's**, not `/data/gp`'s. Absorbed because the
+sibling repo is being deprecated while still owning the resolver every LAN client
+uses — and its boot guarantee was an `ExecStartPost` inside the vendor's
+`gp-radio.service`, which would have outlived the repo with nobody reading why.
+
+**Where things live now**
+
+| Piece | Path |
+| --- | --- |
+| Binary (7.0 MB, GPL-3.0, `sha256 2caca59f…`) | `dependencies/smartdns/` → `/usrdata/qmanager/bin/smartdns` |
+| Config (`root:root 0600`) | `/usrdata/qmanager/etc/smartdns.conf` |
+| Units | `qmanager-dns.service`, `qmanager-dns-edge.{service,timer}`, `qmanager-dns-stats.{service,timer}` |
+| Helpers | `qmanager_dns_apply` (only writer), `qmanager_dns_edge_probe`, `qmanager_dns_test`, `qmanager_dns_stats_sample` |
+| CGIs | `network/{smartdns,smartdns_stats,dns_test}.sh` |
+| Page | `/local-network/smartdns` |
+
+**Still layered under dnsmasq**: `192.168.0.1:53` → `strict-order` → `127.0.0.1:5353`
+→ carrier fallback. That is why stopping `qmanager-dns` degrades rather than breaks
+DNS, and why the toggle edits nothing in dnsmasq.
+
+**Cutover state**: `gp-smartdns.service` is **inactive and disabled**, blocked by the
+drop-in `/etc/systemd/system/gp-smartdns.service.d/qmanager-owns-resolver.conf`
+(`ConditionPathExists=!/usrdata/qmanager/bin/smartdns`). The vendor unit file is
+untouched. `systemctl is-active gp-smartdns` must stay `inactive` — `active` means two
+resolvers are fighting for `:5353`.
+
+**Edge selection is now measured, not bundled.** `qmanager-dns-edge.timer` (30 min)
+probes every upstream per probe domain, keeps those whose median answer RTT is
+≤ 150 ms, and regenerates the `# BEGIN QMANAGER-EDGE v1` block. First live run:
+`dns.google` 66 ms, `dns.quad9.net` 70 ms, `doh.opendns.com` 64 ms are **good**;
+`cloudflare-dns.com` 344, `1.1.1.1` 346, `adguard` 348, `rethinkdns` 342 are **far**;
+`nextdns` 163 is **mixed**. Effect on the LAN: `youtube.com` went 341 ms → **63 ms**.
+
+**Chosen because a hand-written list was measured wrong** — it omitted adguard and
+rethinkdns (both far) and could not express nextdns being mixed. See
+`docs/reference/smartdns.md` for the four rejected mechanisms.
+
+**Corrected on the way through**: the specs first claimed dnsmasq exposes no local
+query total, so only a sampling window could rate the cache. It does —
+`queries forwarded 749, queries answered locally 477` → **38.9 %** hit rate from a
+single reading. The 5-minute sampler stays, but for trends.
+
+`/tmp` state is deliberately volatile: `qmanager_dns_edge.json`,
+`qmanager_dns_stats_history.json`, `smartdns.log`, `smartdns.cache`.
