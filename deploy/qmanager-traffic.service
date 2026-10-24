@@ -1,0 +1,51 @@
+# /etc/systemd/system/qmanager-traffic.service
+#
+# Deployment unit for the GreenPacket O5A Pro (see deploy/README.md).
+#
+# WHAT IT IS
+#   One native sampler (native/qmanager_traffic, Rust) that reads the WAN byte
+#   counters once a second and atomically replaces /tmp/qmanager_traffic.json.
+#   /usrdata/qmanager/www/live-traffic.json is a SYMLINK to that file, so
+#   busybox httpd serves the rate as a static document and the browser pays for
+#   a 9 ms static read instead of a 69 ms CGI (both measured on this unit,
+#   2026-10-24; see docs/reference/live-traffic.md).
+#
+# WHY THE SYMLINK AND NOT A FILE IN THE DOCROOT
+#   /usrdata is ubifs — flash. Writing a document there every second is
+#   130 MB/day of write amplification to remember two integers. The symlink
+#   costs nothing and keeps the writes in tmpfs; verified served correctly by
+#   this httpd (`curl http://127.0.0.1:8080/live-traffic.json` → 200).
+#
+# WHY THIS UNIT DOES NOT WAIT FOR THE MODEM
+#   It reads /proc/net/dev and /proc/uptime, never AT and never the device node.
+#   Before the WAN exists it answers `warming` or `counter_unavailable`, which is
+#   exactly what the row must show then; gating it on the modem would only delay
+#   the first honest answer.
+[Unit]
+Description=QManager WAN traffic sampler (dashboard Live Traffic row)
+StartLimitIntervalSec=3600
+# Same reasoning as qmanager-poller: this device SIGTERMs services during
+# memory-pressure and boot-cleanup sweeps, and a parked unit stays "failed" for
+# the rest of the hour, which the UI shows as a dead widget.
+StartLimitBurst=20
+
+[Service]
+Type=simple
+# systemd-journald is masked on this firmware, so the journal socket does not
+# exist. The daemon prints only state transitions (start, warming, counter
+# reset, unavailable) and every one of them is also visible in the JSON it
+# writes, so nothing actionable is lost by detaching stdout here. Same choice
+# as qmanager-poller.service.
+StandardOutput=null
+StandardError=null
+Environment=PATH=/usrdata/qmanager/bin:/usr/bin:/bin:/sbin:/usr/sbin
+# Re-asserted on every start: a redeploy extracts out/ into www/ and a reviewer
+# may have deleted the link, but the docroot itself is never replaced.
+ExecStartPre=/bin/sh -c 'ln -sfn /tmp/qmanager_traffic.json /usrdata/qmanager/www/live-traffic.json'
+ExecStart=/usrdata/qmanager/bin/qmanager_traffic
+TimeoutStopSec=5
+Restart=always
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

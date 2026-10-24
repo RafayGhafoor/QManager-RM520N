@@ -1,0 +1,14 @@
+# Static musl targets only: musl ships self-contained CRT objects, so rust-lld
+# links a fully static binary without needing a cross gcc. Same stanza, and the
+# same reasoning, as native/qmanager_atd/.cargo/config.toml.
+#
+# `uname -m` on the GreenPacket O5A Pro is `armv7l` (ARMv7, EABI5), so the
+# 32-bit musl target is the one that runs there. The aarch64 stanza is kept
+# because the upstream device (Suncomm X75) is 64-bit.
+[target.aarch64-unknown-linux-musl]
+linker = "rust-lld"
+rustflags = ["-C", "target-feature=+crt-static"]
+
+[target.armv7-unknown-linux-musleabihf]
+linker = "rust-lld"
+rustflags = ["-C", "target-feature=+crt-static"]

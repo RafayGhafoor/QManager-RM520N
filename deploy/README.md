@@ -78,6 +78,14 @@ cargo test                       # host tests; qmanager_traffic's run on macOS
 `uname -m` on this device is `armv7l`; the aarch64 staging in each
 `.cargo/config.toml` is for the upstream Suncomm X75 and does not run here.
 
+⚠️ **Never put a `live-traffic.json` in `public/`.** The Live Traffic row is
+served from `/usrdata/qmanager/www/live-traffic.json`, a **symlink** the
+`qmanager-traffic.service` unit creates (destination `/tmp/qmanager_traffic.json`).
+`bun run build` copies `public/` into `out/`, so a file of that name in `public/`
+would be deployed over the symlink and freeze the row at whatever the build
+contained. If it happens, restart the unit (`ln -sfn` in its `ExecStartPre`
+re-creates the link). See `docs/reference/live-traffic.md`.
+
 ## Third-party payloads (fetched, never committed)
 
 `deploy/.gitignore` keeps binaries out of git. Place these in `stage/bin/`:

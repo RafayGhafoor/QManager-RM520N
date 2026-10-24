@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import {
   Card,
+  CardAction,
   CardDescription,
   CardHeader,
   CardTitle,
@@ -30,11 +31,13 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { TickingValue } from "@/components/ui/ticking-value";
 import { TickGroup } from "@/components/ui/tick-group";
 
 import type { DeviceStatus, LteStatus, NrStatus } from "@/types/modem-status";
 import {
+  formatBitsPerSec,
   formatBytes,
   calculateLteDistance,
   calculateNrDistance,
@@ -43,7 +46,12 @@ import {
 } from "@/types/modem-status";
 import { useUnitPreferences } from "@/hooks/use-system-settings";
 import { useDataUsed } from "@/hooks/use-data-used";
+import { useLiveTraffic } from "@/hooks/use-live-traffic";
 import { useModemSubsys } from "@/hooks/use-modem-subsys";
+// The 44px coarse-pointer target for a Switch, from the shapes module the
+// DESIGN.md entry names as its home. Imported rather than retyped: an overlay
+// string that only one surface remembers is a string two surfaces disagree on.
+import { SWITCH_TARGET } from "@/components/cellular/tower-locking/shapes";
 import { DUR, staggerRows, staggerRowItem } from "@/lib/motion";
 import {
   ABSENT,
@@ -81,6 +89,55 @@ const TEMP_DANGER = 75; // °C
 const CPU_WARN = 70; // percentage
 const CPU_DANGER = 90; // percentage
 
+/**
+ * Where the Live Traffic switch remembers itself. Per browser, not per device:
+ * this is a reading preference, so it belongs in the same place as the avatar
+ * and the SMS read marks rather than on the modem's flash.
+ */
+const LIVE_TRAFFIC_STORAGE_KEY = "qm_live_traffic";
+
+/**
+ * The switch is read through `useSyncExternalStore` rather than hydrated in an
+ * effect, and the reason is the static export: this page is prerendered at
+ * build time, where `localStorage` does not exist and the row must default to
+ * ON. An effect that then sets state is the react-compiler rule's textbook
+ * "cascading render", and a lazy `useState` initializer would make the first
+ * client render disagree with the prerendered HTML. `useSyncExternalStore`
+ * states the difference explicitly — the server snapshot is `true`, the client
+ * snapshot is the stored value — so React swaps them without a mismatch.
+ *
+ * The custom event is what makes a same-tab change visible: only cross-tab
+ * changes arrive as a `storage` event on their own.
+ */
+const LIVE_TRAFFIC_CHANGE_EVENT = "qm:live-traffic-change";
+
+function subscribeLiveTraffic(onChange: () => void) {
+  window.addEventListener("storage", onChange);
+  window.addEventListener(LIVE_TRAFFIC_CHANGE_EVENT, onChange);
+  return () => {
+    window.removeEventListener("storage", onChange);
+    window.removeEventListener(LIVE_TRAFFIC_CHANGE_EVENT, onChange);
+  };
+}
+
+function readLiveTrafficPreference(): boolean {
+  try {
+    return window.localStorage.getItem(LIVE_TRAFFIC_STORAGE_KEY) !== "0";
+  } catch {
+    // Private mode / storage disabled: the shipped default wins.
+    return true;
+  }
+}
+
+function writeLiveTrafficPreference(next: boolean) {
+  try {
+    window.localStorage.setItem(LIVE_TRAFFIC_STORAGE_KEY, next ? "1" : "0");
+  } catch {
+    // Remembering the preference is not worth failing the toggle over.
+  }
+  window.dispatchEvent(new Event(LIVE_TRAFFIC_CHANGE_EVENT));
+}
+
 /** One meter group: a label/value row over an 8px track. */
 function MeterRow({
   label,
@@ -116,11 +173,43 @@ function MeterRow({
 }
 
 /**
- * Skeleton (Skeleton-Mirror Rule): four meter groups and three pills, i.e. the
- * exact seven-row geometry of the loaded body at the exact same heights.
+ * One direction of the live rate pair: the direction glyph in its own ink, the
+ * figure beside it in the row's value ink.
+ *
+ * Deliberately NOT wrapped in `TickingValue`, which every other figure on this
+ * card uses. That component dips the figure on each value CHANGE (recipe 06),
+ * and a rate that changes every second would dip once a second — the motion
+ * would be reporting the refresh, which is not news. `tabular-nums` still keeps
+ * the width steady, which is what the dip was partly buying.
+ */
+function RateCell({ direction, value }: { direction: "down" | "up"; value: string }) {
+  return (
+    <span className={cn(VALUE_CLASS, "flex items-center gap-1 tabular-nums")}>
+      <MaterialSymbol
+        name={direction === "down" ? "arrow_circle_down" : "arrow_circle_up"}
+        size={20}
+        filled
+        className={cn(
+          "shrink-0",
+          direction === "down"
+            ? "text-downlink-on-surface"
+            : "text-uplink-on-surface",
+        )}
+      />
+      {value}
+    </span>
+  );
+}
+
+/**
+ * Skeleton (Skeleton-Mirror Rule): four meter groups and four pills, i.e. the
+ * exact eight-row geometry of the loaded body at the exact same heights.
  *
  * It used to draw TEN generic rows for a body of seven, so the card lost height
- * the instant data landed and dragged its grid siblings with it.
+ * the instant data landed and dragged its grid siblings with it. The fourth
+ * pill is Live Traffic, which is present by default; a reader who has switched
+ * it off gets one pill of slack, which is the cheaper error of the two — the
+ * reverse would make this card grow when data arrives.
  */
 function MetricsSkeleton() {
   return (
@@ -134,7 +223,7 @@ function MetricsSkeleton() {
           <Skeleton className={cn(METER_H, "w-full rounded-pill")} />
         </div>
       ))}
-      {Array.from({ length: 3 }).map((_, i) => (
+      {Array.from({ length: 4 }).map((_, i) => (
         <Skeleton key={i} className="h-10 w-full rounded-pill" />
       ))}
     </div>
@@ -170,6 +259,27 @@ const DeviceMetricsComponent = ({
 
   // Persistent data-usage counter — polled independently at 2 s cadence
   const { data: dataUsed, isResetting, resetCounter } = useDataUsed();
+
+  // ── Live Traffic ────────────────────────────────────────────────────────
+  // On by default, off remembered (see the store helpers above for why this is
+  // `useSyncExternalStore` and not an effect).
+  //
+  // WHY THIS IS SWITCHABLE AT ALL: the row costs the device one HTTP read per
+  // second while it is on (measured 9.0 ms of CPU, `docs/reference/live-traffic.md`).
+  // Switched off, the browser issues no request at all — the numbers a user
+  // cannot see should not be paid for.
+  const liveTrafficOn = React.useSyncExternalStore(
+    subscribeLiveTraffic,
+    readLiveTrafficPreference,
+    () => true,
+  );
+  const liveTraffic = useLiveTraffic(liveTrafficOn);
+  const liveSample = liveTraffic.sample;
+  // Three shapes, and they are not interchangeable: a rate, no rate YET, and no
+  // reading at all. `warming` is the middle one and must never render as 0 bps.
+  const liveHasRates = liveSample !== null && !liveSample.warming;
+  const liveIsBlind =
+    !liveHasRates && (liveTraffic.isStale || liveTraffic.error !== null);
 
   // /usrdata partition usage — sourced from the poller cache via modem-subsys
   const { data: subsysData } = useModemSubsys();
@@ -252,9 +362,9 @@ const DeviceMetricsComponent = ({
     <MetricsSkeleton />
   ) : (
     // One tick cascade for the whole body, and the card's reading order is
-    // already the cascade order: the four meters top-to-bottom, then the Data
-    // Used pill whose rx/tx pair sits side by side and so reads left-to-right,
-    // then the two distance rows. `TickGroup` sorts the live DOM nodes rather
+    // already the cascade order: the four meters top-to-bottom, then the Live
+    // Traffic pill whose down/up pair sits side by side and so reads
+    // left-to-right, then the Data Used pill, then the two distance rows. `TickGroup` sorts the live DOM nodes rather
     // than a declared index, so it needs no axis flag to switch between the
     // two — and rows that hold their value this poll never enter the ranking,
     // which is why one group over eight figures cannot run long.
@@ -369,6 +479,60 @@ const DeviceMetricsComponent = ({
             <TickingValue value={storageUsedKb}>{storageValue}</TickingValue>
           </span>
         </MeterRow>
+
+        {/* ── Live Traffic (WAN rate, one sample a second) ────────────────
+            Above the cumulative counter on purpose: this answers "how fast am
+            I going", the row below answers "how much have I used", and the
+            question a user opens a dashboard with is the first one. Same row
+            anatomy, same two direction inks and glyphs as Data Used, so the
+            pair reads as the instantaneous and the total of one measurement. */}
+        {liveTrafficOn && (
+          <PillRow
+            label={
+              <>
+                <span className="truncate">{t("metrics.live_traffic_label")}</span>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      className={cn("inline-flex shrink-0", FOCUS_RING)}
+                      aria-label={t("metrics.more_info_aria")}
+                    >
+                      <MaterialSymbol name="info" size={16} filled />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>{t("metrics.live_traffic_tooltip")}</p>
+                  </TooltipContent>
+                </Tooltip>
+              </>
+            }
+          >
+            {liveHasRates ? (
+              <>
+                <RateCell
+                  direction="down"
+                  value={formatBitsPerSec(liveSample.rx_bps)}
+                />
+                <RateCell
+                  direction="up"
+                  value={formatBitsPerSec(liveSample.tx_bps)}
+                />
+              </>
+            ) : liveIsBlind ? (
+              // One absent pair, not a zero: the sampler answered, but not
+              // with a reading we can stand behind.
+              <>
+                <RateCell direction="down" value={ABSENT} />
+                <RateCell direction="up" value={ABSENT} />
+              </>
+            ) : (
+              <span className="text-sm font-semibold text-on-surface-variant tabular-nums">
+                {t("metrics.live_traffic_warming")}
+              </span>
+            )}
+          </PillRow>
+        )}
 
         {/* ── Data Used (cumulative counter from AT+QGDCNT/QGDNRCNT) ────── */}
         <PillRow
@@ -526,6 +690,23 @@ const DeviceMetricsComponent = ({
         <CardDescription className={CARD_DESC}>
           {t("metrics.description")}
         </CardDescription>
+        {/* The card's first CardAction, in the slot the header has always
+            reserved. The switch lives HERE and not in the row it hides: a
+            control that only exists inside a hidden row cannot bring it back. */}
+        <CardAction>
+          <label className="flex cursor-pointer items-center gap-2">
+            <span className="text-xs font-semibold text-on-surface-variant">
+              {t("metrics.live_traffic_toggle")}
+            </span>
+            <Switch
+              id="qm-live-traffic"
+              className={cn(SWITCH_TARGET, FOCUS_RING)}
+              checked={liveTrafficOn}
+              onCheckedChange={writeLiveTrafficPreference}
+              aria-label={t("metrics.live_traffic_toggle")}
+            />
+          </label>
+        </CardAction>
       </CardHeader>
 
       {/* Recipe 11's overlay construction: the skeleton fades out ON TOP of the

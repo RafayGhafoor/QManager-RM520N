@@ -44,6 +44,12 @@ Services (both `enabled` + `active` under `multi-user.target`):
 
 - `qmanager-httpd.service` — busybox httpd on **:8080**, docroot `/usrdata/qmanager/www`, run as root.
 - `qmanager-poller.service` — `qmanager_poller`, waits for `/dev/at_mdm0`, fills the cache file.
+- `qmanager-traffic.service` — `native/qmanager_traffic` (Rust, armv7-musl static), the
+  dashboard's **Live Traffic** producer. Samples `/proc/net/dev` once a second into
+  `/tmp/qmanager_traffic.json` (tmpfs, atomic rename); `www/live-traffic.json` is a
+  **symlink** to it so httpd serves the rate statically with no CGI. Measured: 0 jiffies
+  per 60 s, 184 kB RSS; the row costs ~5.2 ms CPU per 1 Hz read (~0.5 % of one core) and
+  nothing when switched off. `docs/reference/live-traffic.md`.
 
 ## Why the stock installer was not used
 
@@ -61,6 +67,15 @@ So the frontend is built on the workstation and the app is deployed by hand unde
 
 ## Decisions and their evidence
 
+- **Live throughput is precomputed, never computed per request.** Measured on this
+  unit 2026-10-24 (100 reads, client cost amortised): a static read through httpd is
+  **9.0 ms / 1.4 forks**, a jq-free CGI floor is 16–26 ms, and `overview.sh` is
+  **69.3 ms / 7.4 forks**. At the 1 Hz a live row needs, a CGI would cost more than the
+  whole poller (6.3–7.8 % of one core), so one native sampler writes the document and
+  the docroot entry is a symlink into tmpfs. Rust over a shell loop for the same reason
+  one level down (~2 forks/tick ≈ 0.5 % of one core vs 0 jiffies). The first
+  implementation — a CGI that computed the delta per request — was measured at
+  107 ms / 8.1 forks and deleted.
 - **AT transport → `/dev/at_mdm0`.** `atcli_smd11` is absent on this firmware and
   `qcmd` is the single entry point for all modem I/O, so a shim was written.
   Measured on-device:

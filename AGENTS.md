@@ -74,6 +74,16 @@ Anything that *can* be met by extending the backend must still be.
    entry), `hooks/use-cell-history.ts`, `types/cell-history.ts`, `public/locales/*/{cellular,sidebar}.json`. Backend
    half is `scripts/` only (`qm_phy_archive_row` schema v2, `qmanager_poller`'s `ctx`, `fetch_signal_history.sh`
    `?view=cells`). Recorded in [`docs/specs/cell-history.md`](./docs/specs/cell-history.md).
+9. **Live Traffic row on the dashboard's Device Metrics card** (2026-10-24, owner asked for it: *"on dashboard, in live
+   metrics lets add Live Traffic above Data Used (togglable) … it needs to be lightweight and real-time"*, and chose Rust
+   for the producer: *"if you can do in rust and if its better than do that we have code already in rust"*) — the rate had
+   nowhere to come from: the poller cycles every ~4 s, and the sibling's SSE stream lives on the vendor's `:8092`. The
+   backend half is entirely `scripts/`-free `deploy/` territory (`native/qmanager_traffic`, `deploy/qmanager-traffic.service`,
+   `qm_boot_hook.sh`); what could not be done there is the *row* — a metric row is a component and the document it reads is
+   typed. `components/dashboard/device-metrics.tsx` (row, `CardAction` switch, skeleton geometry), `hooks/use-live-traffic.ts`,
+   `types/modem-status.ts` (`LiveTrafficSnapshot`), `public/locales/*/dashboard.json`. Recorded in
+   [`docs/specs/live-traffic-row.md`](./docs/specs/live-traffic-row.md) and
+   [`docs/reference/live-traffic.md`](./docs/reference/live-traffic.md).
 
 Keep any such change minimal, add it here when you make it, and prefer extending
 the backend if a future need can be met without touching app code. An app-layer
@@ -420,6 +430,8 @@ curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8080/         # 200
 curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8080/setup/   # 200
 curl -s http://127.0.0.1:8080/cgi-bin/quecmanager/public/overview.sh    # JSON
 systemctl is-active qmanager-httpd qmanager-poller qmanager-ping qmanager-dpi   # all active
+systemctl is-active qmanager-traffic                                          # active (Live Traffic sampler)
+curl -s http://127.0.0.1:8080/live-traffic.json   # {"ok":true,"iface":"rmnet_ipa0","rx_bps":…,"window_ms":1000,…}
 systemctl is-active qmanager-dpi-ensure.timer                                  # active
 jq '.device.model, .device.temperature, .network.type, .network.carrier, .network.apn, .network.wan_ipv4' /tmp/qmanager_status.json
 # RG520N-EB, temperature C, 5G-NSA, Jazz, internet, assigned WAN IPv4

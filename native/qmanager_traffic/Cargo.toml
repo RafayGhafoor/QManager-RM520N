@@ -1,0 +1,18 @@
+[package]
+name = "qmanager_traffic"
+version = "0.1.0"
+edition = "2021"
+description = "QManager WAN throughput sampler: the dashboard Live Traffic row's one producer"
+publish = false
+
+# No dependencies at all, on purpose. The binary is cross-compiled for a 32-bit
+# musl ARM target that has no package manager on the device side, and the crate
+# only needs std: read two /proc files, format an integer, rename a file.
+[dependencies]
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

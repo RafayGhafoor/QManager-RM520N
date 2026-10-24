@@ -338,6 +338,66 @@ export interface DataUsedBlock {
   stale: boolean;
 }
 
+/**
+ * The live WAN rate document written once a second by `qmanager_traffic`
+ * (`native/qmanager_traffic`) and served as the **static** `/live-traffic.json`.
+ *
+ * It is not a CGI: a 1 Hz CGI read costs 69 ms of CPU on this device against
+ * 9 ms for a static file (both measured 2026-10-24, `docs/reference/live-traffic.md`),
+ * so one native sampler precomputes it and httpd hands it out for free.
+ *
+ * A success carries the two rates; a failure carries `ok: false` and a reason,
+ * because "we cannot measure" must not render as "nothing is happening".
+ */
+export type LiveTrafficSnapshot = LiveTrafficSample | LiveTrafficFailure;
+
+export interface LiveTrafficSample {
+  ok: true;
+  /** The /proc/net/dev counter actually read (e.g. "rmnet_ipa0"). */
+  iface: string;
+  /** Download rate in BITS per second. */
+  rx_bps: number;
+  /** Upload rate in BITS per second. */
+  tx_bps: number;
+  /**
+   * The real interval the two rates were averaged over, in ms.
+   *
+   * Read it rather than assuming 1000: the sampler reports what it measured,
+   * and a resumed sampler reports the window it actually covered.
+   */
+  window_ms: number;
+  /**
+   * No rate exists yet — the first tick after start, or a gap longer than the
+   * sampler will average over. Render this as "measuring…", never as 0 bps:
+   * a fresh baseline is not an idle link.
+   */
+  warming: boolean;
+  /**
+   * The counter went backwards (modem reboot, netdev re-created), so these two
+   * rates are 0 by definition rather than by idleness.
+   */
+  counter_reset: boolean;
+  /** Unix epoch (seconds) at the sample. A reader tells stale from quiet by it. */
+  ts: number;
+}
+
+export interface LiveTrafficFailure {
+  ok: false;
+  error: string;
+  detail?: string;
+  ts?: number;
+}
+
+/**
+ * Type guard for the failure arm. Spelled like `isDetailedMetricsFailure` in
+ * `types/detailed-metrics.ts` so a reader who has met one has met the other.
+ */
+export function isLiveTrafficFailure(
+  snapshot: LiveTrafficSnapshot | null,
+): snapshot is LiveTrafficFailure {
+  return snapshot !== null && snapshot.ok === false;
+}
+
 // --- Utility Types -----------------------------------------------------------
 
 /**
