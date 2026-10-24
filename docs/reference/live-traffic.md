@@ -22,10 +22,12 @@ per reader — both were measured and rejected, see *Why it is not a CGI*.
 | Engine document | `/tmp/qmanager_traffic.json` (tmpfs, atomic rename, replaced every tick) |
 | Served as | `/usrdata/qmanager/www/live-traffic.json` → **symlink** to the above |
 | Endpoint | `GET /live-traffic.json` — static, **no auth**, no CGI |
-| Counter | `/proc/net/dev`, netdev + orientation from `/usrdata/qmanager/data_used.json` |
+| Counter | **RTL8125 hardware octets** via `ethtool`'s `ETHTOOL_GSTATS` ioctl: `tx_octets` = **download**, `rx_octets` = **upload** |
+| Fallback counter | `/proc/net/dev` on the default-route interface (`/proc/net/route`), else `data_used.json`'s `selected_counter`, else busiest `rmnet*` |
 | Clock | `/proc/uptime` (monotonic, fractional) |
 | Cadence | 1000 ms (`QMT_INTERVAL_MS`, clamped 200–10 000) |
 | Reader | `hooks/use-live-traffic.ts` (1 Hz, visibility-gated) + `components/dashboard/device-metrics.tsx` |
+| Published `iface` | `eth0_hw` when the hardware pair won, otherwise the netdev name — a reader can always tell which source produced the figure |
 | Cost, sampler | **0 jiffies / 60 s**, RSS **184 kB**, 1 thread |
 | Cost, row ON at 1 Hz | **~5.2 ms CPU + ~1.4 forks per read** ≈ 0.5 % of one core |
 | Cost, row OFF | 0 requests |
@@ -72,28 +74,77 @@ port and a second auth story for a two-number payload.
 
 ## Where the numbers come from
 
-The **same kernel counter** the persistent Data Used row counts — netdev name and
-the rx/tx field orientation are read at runtime from `data_used.json` (schema v5;
-see [data-usage-counter.md](./data-usage-counter.md)). The sampler deliberately
-does not re-derive either: `rmnet_dataN` migrates across attach cycles
-([ttl-mtu.md](./ttl-mtu.md), `mtu.sh`) and the orientation map is keyed off the
-SoC. If the two rows ever described different interfaces, a user watching both
-would see the total climb while the rate reads zero.
+**Not `/proc/net/dev`.** Qualcomm IPA hardware forwarding bypasses the Linux
+network-interface counters on this build, so a *forwarded* flow — which is every
+byte a LAN client downloads through this router — does not appear there. The
+sibling product discovered this first (`greenpacket-o5a`,
+`deploy/radio-handler.sh:2095`):
 
-On this unit the resolved counter is `rmnet_ipa0`, orientation `normal` (rx =
-field 2, tx = field 10 of the line). Direction was confirmed independently rather
-than assumed — over a 10 s window `rmnet_ipa0` rx grew 19 224 950 B while
-`bridge0` tx grew 19 380 543 B, i.e. bytes arriving on the WAN are the bytes the
-LAN received:
+> A measured 20 MB / 82.88 Mbps Cloudflare transfer advanced `eth0`'s
+> driver-level `tx_octets` by 21.04 MB while `/proc eth0` advanced only 28.6 KB
+> and both `rmnet_data0`/`rmnet_ipa0` were effectively flat.
 
-```
-rmnet_ipa0  rx 1834928253 → 1854153203   tx 909615650 → 911849756
-bridge0     rx  902658179 →  904744155   tx 1855228170 → 1874603713
-```
+Re-measured here 2026-10-24: `ethtool -S eth0` stood at **tx 9.11 GB / rx
+5.15 GB** against `/proc/net/dev` **tx 2.34 GB / rx 4.23 GB** — 6.8 GB of
+forwarded download the netdev counters never saw. A transfer *to the device
+itself* is counted correctly by netdev, which is exactly what makes this bug so
+easy to miss: a controlled 20 MB `curl` **on** the router moved `rmnet_ipa0` by
+22.06 MB and looked perfect.
 
-If the selected netdev is absent from `/proc/net/dev`, the busiest `rmnet*` device
-is used and `iface` in the document says which — the sibling's "largest delta
-wins" heuristic, applied to the total.
+So the source is the Ethernet driver's own octet counters, read through
+`ioctl(fd, SIOCETHTOOL, ETHTOOL_GSTATS)`:
+
+| Stat | Means | Why |
+| --- | --- | --- |
+| `tx_octets` | **download** | bytes the MAC *sends* to the LAN clients, i.e. received from the WAN. Verified here: an 8.6 MB pull from the device advanced it by 9.0 MB |
+| `rx_octets` | **upload** | bytes arriving from the clients. Verified: an 8.1 MB push advanced it by 8.1 MB |
+
+The polarity is the opposite of netdev's, on purpose — the sibling states the
+same.
+
+**Both sources are read, one pair is published, never a sum.** Offloaded packets
+can appear in both paths, so summing would double count. The rule is the
+sibling's, kept exactly: take the hardware pair when its **combined** rate is
+larger; otherwise the netdev pair. Both directions always come from the same
+source, so a rate never mixes them. When the LAN is quiet and the router is
+talking to the internet itself, netdev can legitimately win — that is the
+behaviour the product UI shows too.
+
+The netdev candidate is the interface carrying the **default route**
+(`/proc/net/route`, destination `00000000`, `RTF_UP` set, `lo` skipped), falling
+back to `data_used.json`'s `selected_counter` and then to the busiest `rmnet*`.
+`data_used.json` is no longer the primary selection: the aggregate `rmnet_ipa0` is
+*not* the WAN rate (the sibling records that lesson: "rmnet_ipa0 is the IPA
+aggregate … its counters are always >= the real bearer").
+
+> ⚠️ The persistent **Data Used** counter still reads `/proc/net/dev`, so on this
+> build it under-reports forwarded downloads — the 6.8 GB above is missing from
+> it as well. That is a pre-existing defect in the counter, recorded here and in
+> [`data-usage-counter.md`](./data-usage-counter.md), not something this row can
+> fix from the frontend. Do not "make the row agree with the counter" by moving
+> the row back to netdev; the counter is the wrong one.
+
+### ioctl, not `ethtool -S`
+
+The sibling runs `/usr/sbin/ethtool -S eth0` per sample. Measured on this unit
+that is **4.20 ms of CPU and 1.26 forks per read** — at 1 Hz, ~0.42 % of the only
+core, forever, which is more than the static HTTP read the row itself costs. The
+same two integers come out of `ETHTOOL_GSTATS` for ~10 µs and no process; the
+sampler measures **0 jiffies over 30 s** with it.
+
+Three things about that ioctl are worth knowing before touching it (all three
+were bugs on the way in, 2026-10-24):
+
+1. **`struct ethtool_gstrings` has a 12-byte header**, not 16: `cmd`,
+   `string_set`, `len`, then `data[]`. A `pad` field there makes every statistic
+   name arrive shifted by 4 bytes, so `tx_octets` is never found even though
+   `ethtool -S` prints it.
+2. **Trim the name padding.** The kernel hands back `ETH_GSTRING_LEN` (32) bytes
+   per name and does not promise how the driver filled the tail; the r8125
+   driver NUL-fills, others space-fill.
+3. **`ETHTOOL_GSTATS` is positional** — the index of `tx_octets` comes from the
+   `GSTRINGS` order, so the handle is resolved once and reused; only `GSTATS`
+   runs per tick.
 
 ## The document
 
@@ -174,3 +225,11 @@ signal that anyone is watching, and inventing one costs more than the sampling.
    docroot with `-n`) would serve 403/404 instead.
 4. **The `rmnet*` fallback** — it exists because the aggregate netdev name is a
    firmware fact, not a contract.
+5. **Whether this SoC offloads at all.** If `/proc/net/dev` and
+   `ethtool -S <lan-iface>` agree over a busy minute, the hardware path is not
+   being bypassed and the simpler source is fine. If they disagree by gigabytes,
+   the netdev path is wrong no matter how many unit tests pass — and a transfer
+   *to the router* will not reveal it.
+6. **The polarity.** `tx_octets` is download only where the LAN hangs off that
+   port. Confirm with a one-way transfer before trusting it;
+   `QMT_HW_SWAP=1` flips it if a port finds the opposite.

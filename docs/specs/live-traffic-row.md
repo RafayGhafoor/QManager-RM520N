@@ -67,15 +67,24 @@ core forever. The Rust loop is one wakeup per second and no processes.
 
 ## In Scope
 
-1. **`native/qmanager_traffic`** — a dependency-free Rust crate: reads
-   `/proc/net/dev` and `/proc/uptime`, computes the delta against its previous
-   sample, atomically replaces a one-line JSON document. Seven host tests
+1. **`native/qmanager_traffic`** — a Rust crate whose only dependency is `libc`
+   (correct `ioctl` typing on 32-bit ARM): reads
+   the hardware octet counters and `/proc/uptime`, computes the delta against its
+   previous sample, atomically replaces a one-line JSON document. Ten host tests
    (`cargo test`) cover the parse and the warming/rate/reset/gap state machine.
-2. **The counter is the one the Data Used row already counts** — netdev name and
-   rx/tx orientation are read at runtime from `data_used.json` (schema v5, see
-   [`data-usage-counter.md`](./data-usage-counter.md)), so the rate and the total
-   can never describe two different interfaces. Absent that file, the busiest
-   `rmnet*` device is used.
+2. **The counter is the Ethernet driver's hardware octet pair** —
+   `ethtool -S <lan-iface>`'s `tx_octets`/`rx_octets`, read through
+   `ETHTOOL_GSTATS`. `tx_octets` is **download** (bytes leaving the LAN port
+   toward the clients), `rx_octets` is **upload**. This is not a preference: on
+   this build Qualcomm IPA forwarding bypasses `/proc/net/dev`, so a netdev-based
+   rate misses every byte a LAN client downloads — re-measured 2026-10-24 as
+   6.8 GB missing over one boot. `/proc/net/dev` stays as a *fallback* candidate
+   (default-route interface, then `data_used.json`'s selection, then busiest
+   `rmnet*`), and the two are never summed. Source: the sibling product's
+   `deploy/radio-handler.sh:2095` and its
+   [`plans/2026-09-06-hardware-throughput-counters.md`]. See
+   [`../reference/live-traffic.md`](../reference/live-traffic.md) > "Where the
+   numbers come from".
 3. **`deploy/qmanager-traffic.service`** — `Type=simple`, `Restart=always`, and
    an `ExecStartPre` that re-asserts the docroot symlink on every start. Added to
    `qm_boot_hook.sh`'s `UNITS`, so it starts at boot by the same mechanism as
@@ -140,7 +149,8 @@ core forever. The Rust loop is one wakeup per second and no processes.
 ```
 
 - [x] `rx_bps` / `tx_bps` are JSON **numbers** in bits per second.
-- [x] `iface` names the `/proc/net/dev` counter actually read.
+- [x] `iface` names the source actually used: `eth0_hw` when the hardware pair
+      won, otherwise the netdev name.
 - [x] `window_ms` is the real interval averaged over, not the requested one.
 - [x] `warming` distinguishes "no rate yet" from "no traffic".
 - [x] `counter_reset` distinguishes "the counter went backwards" from idleness.
@@ -150,8 +160,12 @@ core forever. The Rust loop is one wakeup per second and no processes.
 
 ### R2 — Rate math and its guards
 
-- [x] rate = `(counter_now − counter_prev) / dt`, both fields oriented by the
-      poller's own `orientation`.
+- [x] rate = `(counter_now − counter_prev) / dt` per source, and **one source
+      per sample**: the hardware pair when its combined rate is larger, else the
+      netdev pair — never a sum, because offloaded packets appear in both paths.
+      Both directions come from the same source.
+- [x] hardware `tx_octets` → download, `rx_octets` → upload (`QMT_HW_SWAP` flips
+      it for a topology where that is reversed).
 - [x] `dt < 150 ms` hands back the previous window's figure and does **not** move
       the anchor (so nothing is measured twice and no sub-window spike is drawn).
 - [x] `dt > 10 s` is `warming` + a fresh anchor, never an average sold as live.
@@ -222,9 +236,12 @@ core forever. The Rust loop is one wakeup per second and no processes.
 | Window gap > 10 s | host test, 17 s step | `warming:true`, anchor rebased, next tick measures normally |
 | Counter reset (modem reboot) | host test, counter stepped backwards | `counter_reset:true`, rates 0, baseline rebased |
 | `data_used.json` missing | host test | falls back to the busiest `rmnet*`, `iface` names it |
-| No counter at all in `/proc/net/dev` | host test, rmnet lines removed | `ok:false` + detail, no crash |
+| No counter at all (no ethtool pair and no netdev) | host test + `QMT_HW_IFACE=` with rmnet lines removed | `ok:false` + detail, no crash |
 | Reversed orientation | host test | the two columns swap |
 | Sampler stopped while the row is open | `systemctl stop qmanager-traffic` in the dev harness | two identical `ts` → row drops to `—`, resumes on restart |
+| No ethtool / no `tx_octets` on the LAN iface | run with `QMT_HW_IFACE=` (source disabled) and with a bogus interface name | logs one line, falls back to netdev, row keeps working |
+| Hardware counter ahead by gigabytes when it appears | start the sampler after the driver has been running | first tick anchors, second measures; no spike (host test `a_missing_source_does_not_poison_the_next_window`) |
+| Forwarded (LAN-client) traffic | **the case that started this**: compare the row with the product UI's live throughput during a client download | both read the same hardware counters; before the fix the row read a fraction of it |
 | Row switched off | clicked the switch in a browser | row unmounts, no requests, choice survives reload |
 | `/tmp` cleared by reboot | reboot (see plan) | symlink dangles until the unit starts, then `warming` for one tick |
 | A real file shipped in `public/` | a dev feed file was copied into `out/` and extracted over the symlink **twice**, once serving fabricated test values | `qm_pathfix.sh` now unconditionally `rm -f` + `ln -sfn`s the docroot entry, so every deploy ends in the right state; the unit's `ExecStartPre` heals it too |

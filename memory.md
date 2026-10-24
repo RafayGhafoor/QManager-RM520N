@@ -45,11 +45,15 @@ Services (both `enabled` + `active` under `multi-user.target`):
 - `qmanager-httpd.service` — busybox httpd on **:8080**, docroot `/usrdata/qmanager/www`, run as root.
 - `qmanager-poller.service` — `qmanager_poller`, waits for `/dev/at_mdm0`, fills the cache file.
 - `qmanager-traffic.service` — `native/qmanager_traffic` (Rust, armv7-musl static), the
-  dashboard's **Live Traffic** producer. Samples `/proc/net/dev` once a second into
-  `/tmp/qmanager_traffic.json` (tmpfs, atomic rename); `www/live-traffic.json` is a
-  **symlink** to it so httpd serves the rate statically with no CGI. Measured: 0 jiffies
-  per 60 s, 184 kB RSS; the row costs ~5.2 ms CPU per 1 Hz read (~0.5 % of one core) and
-  nothing when switched off. `docs/reference/live-traffic.md`.
+  dashboard's **Live Traffic** producer. Reads the **RTL8125 hardware octet counters** via
+  the `ETHTOOL_GSTATS` ioctl once a second (`tx_octets` = download, `rx_octets` = upload;
+  `/proc/net/dev` is only the fallback) because **IPA forwarding bypasses netdev on this
+  build** — hw 9.11/5.15 GB vs netdev 2.34/4.23 GB over one boot, i.e. 6.8 GB of forwarded
+  download invisible to `/proc`. Writes `/tmp/qmanager_traffic.json` (tmpfs, atomic
+  rename); `www/live-traffic.json` is a **symlink** to it so httpd serves the rate
+  statically with no CGI. Measured: 0 jiffies per 30 s, 188 kB RSS; the row costs ~5.2 ms
+  CPU per 1 Hz read (~0.5 % of one core) and nothing when switched off.
+  `docs/reference/live-traffic.md`.
 
 ## Why the stock installer was not used
 

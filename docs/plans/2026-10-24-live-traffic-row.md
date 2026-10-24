@@ -65,9 +65,10 @@ process is created, and nothing is written to flash.
 
 ## Built
 
-- `native/qmanager_traffic/` — Rust, **zero dependencies**, armv7-musl static
-  (353 716 B). Seven host tests (`cargo test`) over the `/proc/net/dev` parse and
-  the warming / rate / too-soon / reset / gap state machine.
+- `native/qmanager_traffic/` — Rust, **zero dependencies at the time** (now
+  `libc` for the ethtool ioctl — see the update below), armv7-musl static. Ten
+  host tests (`cargo test`) over the counter parse and the warming / rate /
+  too-soon / reset / gap / source-selection rules.
 - `deploy/qmanager-traffic.service` + `qm_boot_hook.sh` `UNITS` entry; the unit's
   `ExecStartPre` re-asserts the docroot symlink on every start.
 - `hooks/use-live-traffic.ts`, `types/modem-status.ts` (`LiveTrafficSnapshot`),
@@ -119,3 +120,49 @@ process is created, and nothing is written to flash.
 - A timeout/peak view of the same counter (the sibling has a five-minute chart)
   is out of scope per the spec; if it is ever wanted it belongs on Signal
   History's surface with a floored scale, not in a pill row.
+
+---
+
+## Update 2026-10-25 — the source was wrong, and only a forwarded flow shows it
+
+The owner reported, twice, that the row did not match the product UI. The second
+report was correct, and the cause was the counter, not the unit.
+
+**What I had verified (and why it was not enough).** A 20 MB download *to the
+device* moved `rmnet_ipa0` by 22.06 MB; a 10 MB upload moved its tx by 10.98 MB;
+and a 60 s window matched the modem's own `AT+QGDCNT` within 1–7 %. All true, and
+all measured on a flow that terminates **on the router**. The flows a router
+exists to carry are the ones it **forwards** — and on this build Qualcomm IPA
+forwards them in hardware, where `/proc/net/dev` never sees them.
+
+**The evidence**, both from the live unit:
+
+| Check | Result |
+| --- | --- |
+| `ethtool -S eth0` vs `/proc/net/dev` (cumulative, one boot) | hw **tx 9.11 GB / rx 5.15 GB** vs netdev **tx 2.34 GB / rx 4.23 GB** → 6.8 GB of forwarded download missing from netdev |
+| Original's live `/all` | `{"iface":"eth0_hw","dl":…,"ul":…}` — it was already reading the hardware counters, which is why the two never matched |
+| Direction, controlled | 8.6 MB pulled *from* the device → hw `tx_octets` +9.0 MB; 8.1 MB pushed *to* it → hw `rx_octets` +8.1 MB ⇒ **hw tx = download** |
+| Sibling's own record | `greenpacket-o5a`, `deploy/radio-handler.sh:2095` and `plans/2026-09-06-hardware-throughput-counters.md`: 21.04 MB on hw vs 28.6 KB on `/proc` for one 20 MB transfer |
+
+So the sampler now reads the hardware octet counters, using the sibling's exact
+selection rule (hardware pair when its combined rate is larger, else the netdev
+pair; never summed, both directions from one source).
+
+**Implemented as an ioctl, not a fork.** The sibling runs `/usr/sbin/ethtool -S`
+per sample; measured here that is **4.20 ms + 1.26 forks per read** (~0.42 % of
+the core at 1 Hz). The same integers come out of `ETHTOOL_GSTATS` in ~10 µs with
+no process: the deployed sampler still measures **0 jiffies over 30 s**, 188 kB
+RSS, one thread. `libc` is now the crate's only dependency, for correct `ioctl`
+typing on 32-bit ARM.
+
+**Three ioctl bugs found on the device, all recorded in the reference doc:** the
+`ethtool_gstrings` header is 12 bytes (a `pad` field shifted every name by 4 and
+hid `tx_octets`); statistic names must have their tail padding trimmed before
+matching; and `ETHTOOL_GSTATS` is positional, so the string indices are resolved
+once.
+
+**Consequence worth knowing:** the persistent **Data Used** counter reads
+`/proc/net/dev`, so it under-reports forwarded downloads on this build too (the
+6.8 GB above). The row is now *more* accurate than the total beneath it, on
+purpose — the counter is the wrong one, and making the row agree with it would
+mean reproducing the bug.

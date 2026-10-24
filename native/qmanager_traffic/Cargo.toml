@@ -1,14 +1,18 @@
 [package]
 name = "qmanager_traffic"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "QManager WAN throughput sampler: the dashboard Live Traffic row's one producer"
 publish = false
 
-# No dependencies at all, on purpose. The binary is cross-compiled for a 32-bit
-# musl ARM target that has no package manager on the device side, and the crate
-# only needs std: read two /proc files, format an integer, rename a file.
 [dependencies]
+# The only dependency, and for one reason: the ethtool ioctls that read the
+# Ethernet driver's hardware octet counters (see src/main.rs, "WHERE THE NUMBERS
+# COME FROM"). libc gives the correct `ioctl` signature per target — declaring it
+# by hand would be wrong on 32-bit ARM, where `unsigned long request` is 4 bytes
+# while a hand-written `u64` argument would take a register pair. Everything else
+# in this crate is std.
+libc = "0.2"
 
 [profile.release]
 opt-level = "s"

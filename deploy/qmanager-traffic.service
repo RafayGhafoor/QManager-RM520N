@@ -3,8 +3,13 @@
 # Deployment unit for the GreenPacket O5A Pro (see deploy/README.md).
 #
 # WHAT IT IS
-#   One native sampler (native/qmanager_traffic, Rust) that reads the WAN byte
-#   counters once a second and atomically replaces /tmp/qmanager_traffic.json.
+#   One native sampler (native/qmanager_traffic, Rust) that reads the Ethernet
+#   driver's hardware octet counters — ethtool's ETHTOOL_GSTATS ioctl, where
+#   tx_octets is DOWNLOAD — once a second and atomically replaces
+#   /tmp/qmanager_traffic.json. /proc/net/dev is only the fallback: on this build
+#   Qualcomm IPA forwarding bypasses it, so a netdev-based rate misses every byte
+#   a LAN client downloads (measured 2026-10-24: 6.8 GB missing over one boot,
+#   hw tx 9.11 GB vs netdev 2.34 GB). See docs/reference/live-traffic.md.
 #   /usrdata/qmanager/www/live-traffic.json is a SYMLINK to that file, so
 #   busybox httpd serves the rate as a static document and the browser pays for
 #   a 9 ms static read instead of a 69 ms CGI (both measured on this unit,
@@ -17,7 +22,8 @@
 #   this httpd (`curl http://127.0.0.1:8080/live-traffic.json` → 200).
 #
 # WHY THIS UNIT DOES NOT WAIT FOR THE MODEM
-#   It reads /proc/net/dev and /proc/uptime, never AT and never the device node.
+#   It reads an ioctl counter and /proc/uptime, never AT and never the device
+#   node.
 #   Before the WAN exists it answers `warming` or `counter_unavailable`, which is
 #   exactly what the row must show then; gating it on the modem would only delay
 #   the first honest answer.
