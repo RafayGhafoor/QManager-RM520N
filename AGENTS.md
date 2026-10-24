@@ -175,10 +175,13 @@ already caused a failed install:
    `ActiveEnterTimestamp` against `/proc/uptime` afterwards.
 7. **Never overwrite `/etc/init.d/turin_web.sh`** — the product repo owns it and
    edits it continuously. QManager joins the boot path by *inserting*
-   `start_service_async` lines via `deploy/qm_boot_hook.sh` (currently httpd,
-   poller, ping, dpi, the dpi-ensure timer and the IP Passthrough re-apply unit; idempotent and additive, anchored
-   on `systemctl daemon-reload`, one-time backup kept as `.pre-qmanager`). Add
-   new boot-started units there, not by shipping a copy of the script.
+   `start_service_async` lines via `deploy/qm_boot_hook.sh` — the list lives in
+   that script's `UNITS` variable and is the only place to add one (currently
+   httpd, poller, ping, dpi, the dpi-ensure timer, the IP Passthrough re-apply
+   unit, the three DNS units and the Live Traffic sampler; idempotent and
+   additive, anchored on `systemctl daemon-reload`, one-time backup kept as
+   `.pre-qmanager`). Add new boot-started units there, not by shipping a copy of
+   the script.
 8. **Gate the poller on a real modem answer, not the device node.** Device
    identity is cached once at poller start; a modem still booting answers with
    the `RDY` URC, which was observed baking `"model": "RDY"` into the cache for a
@@ -431,7 +434,10 @@ curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8080/setup/   # 200
 curl -s http://127.0.0.1:8080/cgi-bin/quecmanager/public/overview.sh    # JSON
 systemctl is-active qmanager-httpd qmanager-poller qmanager-ping qmanager-dpi   # all active
 systemctl is-active qmanager-traffic                                          # active (Live Traffic sampler)
-curl -s http://127.0.0.1:8080/live-traffic.json   # {"ok":true,"iface":"rmnet_ipa0","rx_bps":…,"window_ms":1000,…}
+# Live Traffic: `iface` is `eth0_hw` when the LAN port's hardware octet counters
+# won (the normal case — IPA offload bypasses /proc/net/dev) and the netdev name
+# otherwise. See docs/reference/live-traffic.md.
+curl -s http://127.0.0.1:8080/live-traffic.json   # {"ok":true,"iface":"eth0_hw","rx_bps":…,"window_ms":1000,…}
 systemctl is-active qmanager-dpi-ensure.timer                                  # active
 jq '.device.model, .device.temperature, .network.type, .network.carrier, .network.apn, .network.wan_ipv4' /tmp/qmanager_status.json
 # RG520N-EB, temperature C, 5G-NSA, Jazz, internet, assigned WAN IPv4
