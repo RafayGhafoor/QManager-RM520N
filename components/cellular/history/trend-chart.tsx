@@ -65,7 +65,11 @@ export function TrendChart({
     },
   } satisfies ChartConfig;
 
-  const tick = (ts: number) => formatAxisTick(ts, longSpan);
+  const tick = (ts: unknown) => formatAxisTick(ts, longSpan);
+  // One extra field per point, not a second array: recharts needs ms on the
+  // axis while everything else on the page — and the payload contract — is
+  // epoch seconds.
+  const data = points.map((point) => ({ ...point, ms: point.ts * 1000 }));
   const decimals =
     points.some((point) => point.v !== null && !Number.isInteger(point.v));
 
@@ -76,10 +80,14 @@ export function TrendChart({
       role="img"
       aria-label={unit ? `${label} · ${unit}` : label}
     >
-      <LineChart data={points} margin={{ top: 8, right: 12, bottom: 4, left: 0 }}>
+      <LineChart data={data} margin={{ top: 8, right: 12, bottom: 4, left: 0 }}>
         <CartesianGrid vertical={false} stroke="var(--border)" />
         <XAxis
-          dataKey="ts"
+          // MILLISECONDS, because `scale="time"` measures its domain in ms:
+          // fed epoch seconds it resolves 1970 and ticks the axis at the wrong
+          // century. `ms` is derived here rather than in the payload, which
+          // stays in the archive's own unit (seconds) everywhere else.
+          dataKey="ms"
           type="number"
           scale="time"
           domain={["dataMin", "dataMax"]}
@@ -97,9 +105,18 @@ export function TrendChart({
         />
         <ChartTooltip
           content={
-            // The series row's own label carries the metric and its unit, so
-            // the tooltip needs no formatter: only the timestamp is formatted.
-            <ChartTooltipContent labelFormatter={(value) => tick(Number(value))} />
+            // THE LABEL COMES FROM THE DATUM, NOT FROM `labelFormatter`'s first
+            // argument. For a numeric x-axis the shared ChartTooltipContent
+            // passes that argument as the SERIES label ("RSRP · dBm"), not the
+            // timestamp — formatting it as a date is what printed "Invalid
+            // Date" on hover. `payload[0].payload` is the plotted row, so its
+            // own `ts` (epoch seconds) is the time under the cursor.
+            <ChartTooltipContent
+              labelFormatter={(_value, payload) => {
+                const row = payload?.[0]?.payload as { ts?: unknown } | undefined;
+                return formatAxisTick(row?.ts, longSpan);
+              }}
+            />
           }
         />
         <Line

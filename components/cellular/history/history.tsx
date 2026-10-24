@@ -271,8 +271,12 @@ export function CellHistory() {
 
             {panels.bands ? (
               <BandsCard
-                runs={data.cells.bands}
-                combos={data.cells.combos}
+                // `?? []` is not defensive noise: this page and the CGI are
+                // deployed together, but a browser holding one payload from
+                // before the band columns existed would otherwise throw on a
+                // missing array rather than simply say it has no band data.
+                runs={data.cells.bands ?? []}
+                combos={data.cells.combos ?? []}
                 window={window}
                 longSpan={longSpan}
               />
