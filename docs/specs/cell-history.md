@@ -229,9 +229,9 @@ window; forks are the `/proc/stat` `processes` counter over the same window.
 
 | Metric | Before (measured) | After (measured) | Delta | Conditions |
 | --- | --- | --- | --- | --- |
-| Poller CPU, incl. children | 885 jiffies / 120 s = **7.4 % of one core** | 820 jiffies / 120 s = **5.7 %** | -1.7 pp, **not attributable** | before at load 3.71, after at 3.05 |
-| Whole-box forks | 6874 / 120 s = **57.3 /s** | 5318 / 120 s = **44.3 /s** | -13 /s, **not attributable** | same caveat; the change adds no fork |
-| Poller RSS | **2200 kB** | **2624 kB** | **+424 kB** | the added locals plus the second jq output line |
+| Poller CPU, incl. children | 885 jiffies / 120 s = **7.4 %** | **6.8-7.1 %** (820 and 853 jiffies, two runs) | inside variance | before at load 3.71; after at 3.05 and 3.26 |
+| Whole-box forks | 6874 / 120 s = **57.3 /s** | **44.3-51.2 /s** (5318 and 6143, two runs) | down, **not attributable** | same caveat; the change adds no fork |
+| Poller RSS | **2200 kB** | **2380-2624 kB** | **+180 to +424 kB** | the added locals plus the second jq output line |
 | Device memory headroom | 50 744 kB | 52 472 kB available | +1 728 kB | `MemAvailable`, differing load |
 | Archive bytes per row | 74.5 B (v1, 2093 rows) | **~139 B** (v3: 549 B file - 409 B header) | **+64 B** | schema v1 -> v3 |
 | Archive at 30-day retention | ~107 KB/day = ~3.2 MB | ~153 KB/day = **~4.6 MB** | +1.4 MB | ~1100 rows/day; `/usrdata` had 49.7 MB free |
