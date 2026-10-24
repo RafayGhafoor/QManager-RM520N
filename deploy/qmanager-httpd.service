@@ -10,6 +10,12 @@ Type=forking
 # write the same file or the two disagree and `status` cannot find the daemon.
 PIDFile=/run/qmanager-httpd.pid
 Environment=PATH=/usrdata/qmanager/bin:/usr/bin:/bin:/sbin:/usr/sbin
+# Repair a deploy that landed a CGI without an exec bit. busybox httpd answers
+# 404 for a non-executable CGI, so the page reports "could not read ..." and points
+# at the wrong layer (measured 2026-10-24: 3 of 146 files arrived mode 0644/uid 501
+# from a tar built on macOS, and one of them was fetch_signal_history.sh).
+# Same one-fork guard as the poller; silent when there is nothing to fix.
+ExecStartPre=/usrdata/qmanager/bin/qm_fixperms.sh
 ExecStart=/usrdata/qmanager/bin/qm_serve.sh start
 ExecStop=/usrdata/qmanager/bin/qm_serve.sh stop
 Restart=on-failure
