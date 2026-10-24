@@ -345,6 +345,18 @@ du_last_update_ts=0
 du_last_reset_ts=0
 du_modem_reset_count=0
 
+# Archive throughput window (docs/specs/cell-history.md). The download/upload byte
+# deltas update_data_used already computes are summed across the cycles between
+# two archive rows, and poll_tier3 turns the sum into bits/sec for the row it
+# writes. du_arch_window_up is /proc/uptime seconds, NOT epoch, because this state
+# is touched on the per-cycle path where a `date` fork would be a regression (see
+# docs/reference/poller-cpu-profile.md); 0 means "no window open". A rate needs a
+# window, so an empty one publishes null rather than a 0 that reads as "no traffic".
+du_arch_dl_bytes=0
+du_arch_ul_bytes=0
+du_arch_window_up=0
+du_prev_up=0
+
 # Counter orientation. Set once at startup by main() via
 # detect_orientation_from_soc; persisted into data_used.json for
 # diagnostics but always re-derived from the SoC each startup (the SoC
@@ -1222,7 +1234,7 @@ update_data_used() {
     fi
 
     # Step 4: delta vs the previous tick.
-    local delta_rx delta_tx
+    local delta_rx delta_tx _arch_up _arch_rest
     delta_rx=$((ipa_rx - du_prev_ipa_rx))
     delta_tx=$((ipa_tx - du_prev_ipa_tx))
 
@@ -1238,6 +1250,22 @@ update_data_used() {
     else
         du_accumulated_rx=$((du_accumulated_rx + delta_rx))
         du_accumulated_tx=$((du_accumulated_tx + delta_tx))
+        # The same positive deltas feed the archive row's throughput rate. A
+        # negative delta is a counter reset, handled above and never counted as
+        # traffic. The window opens on the first accumulated tick, and it opens
+        # at the PREVIOUS tick's uptime — the instant these bytes began accruing
+        # — which is state, not a new fork. The fallback is the first tick after
+        # boot, where no previous uptime exists yet.
+        du_arch_dl_bytes=$((du_arch_dl_bytes + delta_rx))
+        du_arch_ul_bytes=$((du_arch_ul_bytes + delta_tx))
+        if [ "$du_arch_window_up" = "0" ]; then
+            _arch_up=$du_prev_up
+            if [ "$_arch_up" = "0" ]; then
+                read -r _arch_up _arch_rest < /proc/uptime
+                _arch_up=${_arch_up%%.*}
+            fi
+            du_arch_window_up=$_arch_up
+        fi
     fi
 
     # Step 6: persist for the next tick.
@@ -1256,6 +1284,7 @@ update_data_used() {
     local _up _upr
     read -r _up _upr < /proc/uptime 2>/dev/null
     _up=${_up%%.*}
+    du_prev_up=$_up
     if [ "$_du_force" = "true" ] || [ "$_du_written_up" -lt 0 ] || \
        [ $(( _up - _du_written_up )) -ge "$DATA_USED_PERSIST_SEC" ] || \
        [ $(( _up - _du_written_up )) -lt 0 ]; then
@@ -1791,7 +1820,8 @@ append_ping_history() {
 # cycle's value, because a stale CQI presented as current is a lie the UI cannot
 # detect.
 poll_tier3() {
-    local md="{}" at="{}" ctx snap cells ok
+    local md="{}" at="{}" ctx snap cells ok _cc bands
+    local nr_avail mem_pct dl_bps ul_bps _arch_up _arch_rest _arch_secs
 
     # Never during a scan. The flag is this daemon's existing marker for "another
     # AT consumer owns the port" (cell scan, neighbour scan, tower lock work),
@@ -1799,17 +1829,6 @@ poll_tier3() {
     if [ -f "$LONG_FLAG" ]; then
         return 0
     fi
-
-    # The poller's own serving-cell figures, so the snapshot's RSRP/RSRQ/RSSI/SINR
-    # match the cards above it instead of being a second reading of the same
-    # thing. `:-null` covers the empty-string default of every one of these vars.
-    ctx=$(jq -cn \
-        --argjson lr "${lte_rsrp:-null}" --argjson lq "${lte_rsrq:-null}" \
-        --argjson li "${lte_rssi:-null}" --argjson ls "${lte_sinr:-null}" \
-        --argjson nr "${nr_rsrp:-null}" --argjson nq "${nr_rsrq:-null}" \
-        --argjson ns "${nr_sinr:-null}" --arg car "${t2_carrier:-}" \
-        '{lte_rsrp:$lr, lte_rsrq:$lq, lte_rssi:$li, lte_sinr:$ls,
-          nr_rsrp:$nr, nr_rsrq:$nq, nr_sinr:$ns, carrier:$car}' 2>/dev/null)
 
     # Gate on a real modemd answer, not on a binary's presence (hard rule 8).
     # With the vendor modem daemon not answering, the AT half cannot populate the
@@ -1825,6 +1844,128 @@ poll_tier3() {
     else
         qlog_debug "phy: ubus/modemd unavailable — Tier 3 publishes nulls"
     fi
+
+    # The poller's own serving-cell figures, so the snapshot's RSRP/RSRQ/RSSI/SINR
+    # match the cards above it instead of being a second reading of the same
+    # thing. `:-null` covers the empty-string default of every one of these vars.
+    #
+    # THIS BLOCK MUST STAY BELOW THE READS ABOVE. It previously sat at the top of
+    # the function, where `$at` was still its initial "{}" — so `nr_avail` could
+    # only ever be 1 or null and an LTE-only sample was recorded as "nobody
+    # looked". That is the one value this whole feature exists to get right, and
+    # it is only knowable after qm_phy_at has answered.
+    #
+    # The second half of the object is what the ARCHIVE row needs and the
+    # snapshot does not: serving-cell identity, cpu/mem and the throughput rate.
+    # It rides in this same jq call — one more field expansion, no second fork
+    # (spec R2) — and an empty variable arrives as null, never "" and never 0.
+    #
+    # nr_avail is THREE-VALUED: 1 when an NR serving cell was reported, 0 when
+    # the AT read answered and carried no NR leg, null when nothing was read at
+    # all (a modemd-only sample stays null — "we did not look" is not "it is not
+    # there", and only the second is the field complaint this page explains).
+    #
+    # nr_bw is null because parse_serving_cell parses the NSA line's NR_DL_bw and
+    # never emits it: the status cache has no NR bandwidth field, so there is no
+    # source here. Null rather than a number borrowed from the CA component list.
+    #
+    # Bands are passed through EXACTLY as parse_serving_cell reports them — "B3",
+    # "N78" — because that parser already builds the prefix and two firmwares
+    # disagree on the bare form. A band field that is empty, or that is nothing
+    # but the prefix (parse_serving_cell concatenates "B" with a field it may
+    # find empty), is ABSENT: null here, an empty archive field, never "B".
+    # The aggregated carrier set, from the component list Tier 2 already built.
+    # It is TWO facts from ONE jq — the component count and the band combo — which
+    # is why it runs here rather than beside the archive call: the combo belongs
+    # in ctx, and ctx is built below. `total_cells` (the count) stays the archive
+    # column it has always been; `bands` is what actually answers "which band went
+    # away", because losing an SCC changes the combo without changing the PCC.
+    #
+    # The combo is "+"-joined with no comma and no space — it is a CSV field. It
+    # falls back to the two serving bands when the component list is empty, since
+    # a single-carrier attach still has a band, and stays EMPTY when neither
+    # source named one (never "+", never "B").
+    cells=""
+    bands=""
+    _cc=$(printf '%s' "${t2_carrier_components:-[]}" | jq -r '
+        if type == "array" and length > 0 then length else "" end,
+        ([.[]? | .band // empty | tostring | select(length > 0)] | join("+"))' 2>/dev/null)
+    { IFS= read -r cells; IFS= read -r bands; } <<EOF
+$_cc
+EOF
+    [ -n "$bands" ] || bands="$lte_band"
+    if [ -n "${nr_band:-}" ]; then
+        case "$bands" in
+            "") bands="$nr_band" ;;
+            *)   bands="$bands+$nr_band" ;;
+        esac
+    fi
+    # `/` and `,` cannot appear in a band token, but a stray one would corrupt the
+    # row, so refuse rather than write it.
+    case "$bands" in *[,]*|*[\ ]*) bands="" ;; esac
+
+    nr_avail=null
+    if [ -n "${nr_pci:-}" ] || [ -n "${nr_rsrp:-}" ]; then
+        nr_avail=1
+    elif [ "$at" != "{}" ]; then
+        nr_avail=0
+    fi
+
+    # Memory percent, not the two counters: the reader plots a percentage, and a
+    # rate the poller failed to sample is null. cpu_pct needs a /proc/stat delta,
+    # so before the first one exists it is null rather than a 0 that would read as
+    # "idle".
+    mem_pct=null
+    if [ "${memory_total_mb:-0}" -gt 0 ] 2>/dev/null; then
+        mem_pct=$(( ${memory_used_mb:-0} * 100 / memory_total_mb ))
+    fi
+
+    # Throughput over the window update_data_used summed bytes into. Integer
+    # bits/sec over /proc/uptime seconds (a builtin read, no fork); the window is
+    # only open when there are bytes to divide by and something to divide.
+    dl_bps=null
+    ul_bps=null
+    case "$du_arch_window_up" in ''|*[!0-9]*) du_arch_window_up=0 ;; esac
+    case "$du_arch_dl_bytes"  in ''|*[!0-9]*) du_arch_dl_bytes=0 ;; esac
+    case "$du_arch_ul_bytes"  in ''|*[!0-9]*) du_arch_ul_bytes=0 ;; esac
+    if [ "$du_arch_window_up" -gt 0 ]; then
+        read -r _arch_up _arch_rest < /proc/uptime
+        _arch_secs=$(( ${_arch_up%%.*} - du_arch_window_up ))
+        if [ "$_arch_secs" -gt 0 ]; then
+            dl_bps=$(( du_arch_dl_bytes * 8 / _arch_secs ))
+            ul_bps=$(( du_arch_ul_bytes * 8 / _arch_secs ))
+        fi
+    fi
+
+    ctx=$(jq -cn \
+        --argjson lr "${lte_rsrp:-null}" --argjson lq "${lte_rsrq:-null}" \
+        --argjson li "${lte_rssi:-null}" --argjson ls "${lte_sinr:-null}" \
+        --argjson nr "${nr_rsrp:-null}" --argjson nq "${nr_rsrq:-null}" \
+        --argjson ns "${nr_sinr:-null}" --arg car "${t2_carrier:-}" \
+        --argjson lp "${lte_pci:-null}" --argjson le "${lte_earfcn:-null}" \
+        --argjson lw "${lte_bandwidth:-null}" --argjson lc "${lte_cell_id:-null}" \
+        --argjson lt "${lte_tac:-null}" \
+        --argjson np "${nr_pci:-null}" --argjson nf "${nr_arfcn:-null}" \
+        --argjson nc "${nr_cell_id:-null}" --argjson nt "${nr_tac:-null}" \
+        --arg lband "${lte_band:-}" --arg nband "${nr_band:-}" \
+        --arg ratv "${network_type:-}" \
+        --argjson na "$nr_avail" --argjson cp "${cpu_usage:-null}" \
+        --argjson mp "$mem_pct" --argjson dl "$dl_bps" --argjson ul "$ul_bps" \
+        --argjson cac "${t2_ca_count:-null}" --argjson nrc "${t2_nr_ca_count:-null}" \
+        --argjson bwv "${t2_total_bandwidth_mhz:-null}" --arg bnds "$bands" \
+        '{lte_rsrp:$lr, lte_rsrq:$lq, lte_rssi:$li, lte_sinr:$ls,
+          nr_rsrp:$nr, nr_rsrq:$nq, nr_sinr:$ns, carrier:$car,
+          rat: (if $ratv == "" then null else $ratv end),
+          lte_pci:$lp, lte_earfcn:$le,
+          lte_band: (if $lband == "" or $lband == "B" then null else $lband end),
+          lte_bw:$lw, lte_cellid:$lc, lte_tac:$lt,
+          nr_pci:$np, nr_arfcn:$nf,
+          nr_band: (if $nband == "" or $nband == "N" then null else $nband end),
+          nr_bw: null, nr_cellid:$nc, nr_tac:$nt,
+          nr_avail:$na, cpu_pct:$cp, mem_pct:$mp,
+          dl_bps:$dl, ul_bps:$ul,
+          ca_cc:$cac, nrca_cc:$nrc, bw_mhz:$bwv,
+          bands: (if $bnds == "" then null else $bnds end)}' 2>/dev/null)
 
     snap=$(qm_phy_snapshot "$md" "$at" "$ctx")
     # Never hand an unvalidated string to write_cache: it goes in as --argjson,
@@ -1843,15 +1984,22 @@ poll_tier3() {
         return 1
     fi
 
-    # Durable trend row (spec R3). total_cells is the number of carrier
-    # components the modem is aggregating — the rows the CA card shows — and is
-    # null when that read produced nothing, because "0 cells" is not a possible
-    # state for an attached modem.
-    cells=$(printf '%s' "${t2_carrier_components:-[]}" \
-        | jq -r 'if type == "array" and length > 0 then length else null end' 2>/dev/null)
-    qm_phy_archive_row "$snap" "${t2_temperature:-null}" "${cells:-null}"
+    # Durable trend row (spec R3). `cells` — the number of carrier components the
+    # modem is aggregating, computed above with the band combo — is null when that
+    # read produced nothing, because "0 cells" is not a possible state for an
+    # attached modem.
+    qm_phy_archive_row "$snap" "${t2_temperature:-null}" "${cells:-null}" "$ctx"
     ok=$?
-    [ "$ok" -eq 0 ] || qlog_debug "phy: archive row not written (status ${ok})"
+    if [ "$ok" -eq 0 ]; then
+        # The window is consumed by the row it just produced. On a FAILED write
+        # the accumulators are kept, so the next successful row still reports the
+        # traffic of the whole interval instead of dropping it.
+        du_arch_dl_bytes=0
+        du_arch_ul_bytes=0
+        du_arch_window_up=0
+    else
+        qlog_debug "phy: archive row not written (status ${ok})"
+    fi
     return 0
 }
 

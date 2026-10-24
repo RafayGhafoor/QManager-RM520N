@@ -83,7 +83,7 @@
 #   qm_phy_modemd                         # -> {"cqi":..,"nr_cqi":..,"registered":b,..}
 #   qm_phy_at [network_type]              # -> {"lte":{..},"nr":{..},"rrc":{..},"beams":[..]}
 #   qm_phy_snapshot <modemd> <at> <ctx>   # -> the API snapshot object
-#   qm_phy_archive_row <snapshot> <temp> <total_cells>
+#   qm_phy_archive_row <snapshot> <temp> <total_cells> [ctx]
 #
 # Install location: /usr/lib/qmanager/phy_metrics.sh
 # =============================================================================
@@ -549,23 +549,86 @@ qm_phy_snapshot() {
 # and a sample that measured zero are different claims, and the reader turns an
 # empty field into a JSON null (which the chart draws as a gap).
 #
-# Size, from the column count rather than a soak (device not touched by this
-# change): 23 columns averaging ~6 bytes of digits and separators is ~120 B/row,
-# ~170 KB/day, ~5 MB for the full 30-day retention. The measured figure belongs
-# in the PR body, per R3.
-QM_PHY_ARCHIVE_SCHEMA="qm_phy_archive,1"
-QM_PHY_ARCHIVE_COLUMNS="ts,lte_rsrp,lte_rsrq,lte_rssi,lte_sinr,lte_cqi,lte_ri,lte_pmi,lte_mimo_layers,lte_tm_mode,lte_ul_mcs,nr_rsrp,nr_rsrq,nr_sinr,nr_cqi,nr_ri,nr_pmi,nr_mimo_layers,nr_dl_mcs,nr_ul_mcs,nr_tx_power,temp,total_cells"
+# Size. MEASURED on this unit 2026-10-23, before v2: 2093 rows in 156 KB of day
+# files — 74.5 B/row, at ~1100 rows/day (Tier 3 is 15 cycles at POLL_PERIOD=5 and
+# skips during a scan, so a row is one per ~75 s rather than one per minute), i.e.
+# ~107 KB/day and ~3.2 MB for the 30-day retention on a volume with 49.7 MB free.
+# Most PHY columns are EMPTY whenever the NR leg is inactive, which is why a row
+# is far smaller than the column count suggests.
+#
+# v2 adds 19 columns and its row size is UNMEASURED: arithmetic from the v1
+# average gives ~136 B/row, ~150 KB/day, ~4.4 MB at 30 days (the identity block
+# is all-empty while the modem reports no cell, which is the common case). Treat
+# any larger figure — including the spec's earlier ~250 B/row, ~360 KB/day — as
+# the pre-measurement estimate it was. Re-measure after a v2 soak and replace
+# this paragraph with the number.
+#
+# v2 appended 19 columns (serving-cell identity for both RATs, the three-valued
+# `nr_avail`, `registered`, `rat`, cpu/mem and the throughput rate) to the 23 v1
+# columns — APPENDED, never inserted, which is the whole reason the marker
+# carries names. A pre-v2 day file already on the device stays readable: readers
+# resolve by name and treat a name their file does not declare as absent, so a
+# v1 file simply has no identity data (and `?view=cells` reports
+# `coverage.cell_from: null` for it rather than inventing any).
+#
+# v3 appended 4 more, from the CA component list the Tier-2 read already built:
+# `ca_cc` and `nrca_cc` (aggregated carriers per RAT), `bw_mhz` (total aggregated
+# bandwidth) and `bands` (the combo actually in use, e.g. "B3+B1+N78"). That
+# string is what answers "which band went away" — a serving-band column alone
+# cannot, because losing an SCC changes the combo without changing the PCC.
+#
+# `bands` is "+"-joined with no commas and no spaces: it is a CSV field, so a
+# separator that collides with the format is not a style choice. It is built
+# from the component list, falls back to the two serving bands when that list is
+# empty, and is EMPTY when neither source named a band — never "+".
+#
+# One transient is worth knowing: a day file whose header was written by an
+# older schema keeps that header for the rest of the UTC day, so newer rows
+# appended after an upgrade are dropped by the readers' field-count guard until
+# the next day file starts. The writer never rewrites a header it is appending
+# to, which is the rule that makes this safe rather than clever. On this device
+# that is handled at deploy time by moving the current day file aside.
+#
+# Bands are stored EXACTLY as reported — "B3", "N78" — because
+# parse_serving_cell already builds the prefix and two firmwares disagree on the
+# bare form. Nothing may add a prefix here or downstream.
+QM_PHY_ARCHIVE_SCHEMA="qm_phy_archive,3"
+QM_PHY_ARCHIVE_COLUMNS="ts,lte_rsrp,lte_rsrq,lte_rssi,lte_sinr,lte_cqi,lte_ri,lte_pmi,lte_mimo_layers,lte_tm_mode,lte_ul_mcs,nr_rsrp,nr_rsrq,nr_sinr,nr_cqi,nr_ri,nr_pmi,nr_mimo_layers,nr_dl_mcs,nr_ul_mcs,nr_tx_power,temp,total_cells,rat,registered,lte_pci,lte_earfcn,lte_band,lte_bw,lte_cellid,lte_tac,nr_pci,nr_arfcn,nr_band,nr_bw,nr_cellid,nr_tac,nr_avail,cpu_pct,mem_pct,dl_bps,ul_bps,ca_cc,nrca_cc,bw_mhz,bands"
 
 # Column ORDER must match QM_PHY_ARCHIVE_COLUMNS above, minus `ts`, `temp` and
 # `total_cells` (which are passed as separate arguments because they do not come
 # from the snapshot).
+#
+# TWO output lines, one jq exec (spec R2): the 20 PHY columns on line 1, the 23
+# context columns on line 2, so the caller can splice `temp,total_cells` between
+# them without a second jq. `$ctx` carries only what the caller knows (the
+# serving cell, the throughput rate); `registered` is read from the snapshot
+# itself because it lives there and must not be duplicated in the context.
+#
+# A number is written as its digits; a string only when it is non-empty; anything
+# else — absent, null, a wrong type — is an EMPTY field. Never 0: an absent
+# reading and a measured zero are different claims, and the reader turns an empty
+# field back into a JSON null.
 QM_PHY_ARCHIVE_JQ='
 def f: if type == "number" then tostring else "" end;
-[ .lte.rsrp, .lte.rsrq, .lte.rssi, .lte.sinr, .lte.cqi, .lte.ri, .lte.pmi,
-  .lte.mimo_layers, .lte.tm_mode, .lte.ul_mcs,
-  .nr.rsrp, .nr.rsrq, .nr.sinr, .nr.cqi, .nr.ri, .nr.pmi, .nr.mimo_layers,
-  .nr.dl_mcs, .nr.ul_mcs, .nr.tx_power ] | map(f) | join(",")'
-
+def g: if type == "number" then tostring
+       elif (type == "string") and (length > 0) then .
+       else "" end;
+def b: if type == "boolean" then tostring else "" end;
+($ctx // {}) as $c
+| ([ .lte.rsrp, .lte.rsrq, .lte.rssi, .lte.sinr, .lte.cqi, .lte.ri, .lte.pmi,
+     .lte.mimo_layers, .lte.tm_mode, .lte.ul_mcs,
+     .nr.rsrp, .nr.rsrq, .nr.sinr, .nr.cqi, .nr.ri, .nr.pmi, .nr.mimo_layers,
+     .nr.dl_mcs, .nr.ul_mcs, .nr.tx_power ] | map(f) | join(",")),
+  ([ ($c.rat | g), (.registered | b),
+     ($c.lte_pci | g), ($c.lte_earfcn | g), ($c.lte_band | g), ($c.lte_bw | g),
+     ($c.lte_cellid | g), ($c.lte_tac | g),
+     ($c.nr_pci | g), ($c.nr_arfcn | g), ($c.nr_band | g), ($c.nr_bw | g),
+     ($c.nr_cellid | g), ($c.nr_tac | g),
+     ($c.nr_avail | g), ($c.cpu_pct | g), ($c.mem_pct | g),
+     ($c.dl_bps | g), ($c.ul_bps | g),
+     ($c.ca_cc | g), ($c.nrca_cc | g), ($c.bw_mhz | g), ($c.bands | g) ] | join(","))
+'
 _QM_PHY_ARCHIVE_OK=true
 _QM_PHY_ARCHIVE_PRUNED_DAY=""
 
@@ -614,32 +677,66 @@ _qm_phy_daynum() {
 }
 
 # -----------------------------------------------------------------------------
-# qm_phy_archive_row <snapshot-json> <temp> <total_cells>
+# qm_phy_archive_row <snapshot-json> <temp> <total_cells> [ctx-json]
 #
 # Appends one row. <temp> and <total_cells> are the two panel sources that are
 # not part of the API snapshot, passed as separate arguments so the published
 # snapshot keeps exactly the shape the CGI contract names. Either may be "null".
+#
+# <ctx> is optional and carries the serving-cell identity, `nr_avail`, cpu/mem and
+# the throughput rate; it is validated to START WITH `{` and otherwise replaced
+# with `{}`, so a malformed context writes empty identity fields (reader -> null)
+# rather than failing the row. It rides in as ONE --argjson on the SAME jq
+# invocation that formats the PHY columns: exactly one jq exec per archive write
+# (spec R2), which is what it was before v2.
 #
 # The append is a single `printf >> file`, i.e. one O_APPEND write of one line:
 # no read-modify-write, no rename, so a reader never sees a truncated day file.
 # A crash mid-write can leave one torn final line, which the reader drops.
 # -----------------------------------------------------------------------------
 qm_phy_archive_row() {
-    local snap="$1" temp="$2" cells="$3" ts dir file day vals row
+    local snap="$1" temp="$2" cells="$3" ctx="$4" ts dir file day vals phy ident row
     [ "$_QM_PHY_ARCHIVE_OK" = "true" ] || return 3
 
     ts=$(date +%s)
     case "$ts" in ''|*[!0-9]*) return 3 ;; esac
 
-    vals=$(printf '%s' "$snap" | "$(_qm_phy_jq)" -r "$QM_PHY_ARCHIVE_JQ" 2>/dev/null)
+    case "$ctx" in "{"*) ;; *) ctx="{}" ;; esac
+
+    vals=$(printf '%s' "$snap" | "$(_qm_phy_jq)" -r --argjson ctx "$ctx" \
+                "$QM_PHY_ARCHIVE_JQ" 2>/dev/null)
+
+    # jq answers two lines: the 20 PHY columns, then the 23 context columns.
+    # Split on the newline with parameter expansion, which is fork-free AND never
+    # re-expands the data the way an interpolating here-document would.
     case "$vals" in
+        *"
+"*) ;;
+        *) return 4 ;;
+    esac
+    phy=${vals%%
+*}
+    ident=${vals#*
+}
+    case "$phy" in
         *","*) ;;                 # the 20 numeric columns are always present
         *) return 4 ;;
+    esac
+    case "$ident" in
+        *","*) ;;                 # the 23 context columns are always present
+        *) return 4 ;;
+    esac
+    # A third line would mean the jq program changed and the layout is no longer
+    # the one the header declares; refuse the row rather than write one nothing
+    # can read.
+    case "$ident" in
+        *"
+"*) return 4 ;;
     esac
 
     case "$temp"  in ''|null) temp=""  ;; esac
     case "$cells" in ''|null) cells="" ;; esac
-    row="$ts,$vals,$temp,$cells"
+    row="$ts,$phy,$temp,$cells,$ident"
 
     dir="$QM_PHY_ARCHIVE_DIR"
     if [ ! -d "$dir" ]; then

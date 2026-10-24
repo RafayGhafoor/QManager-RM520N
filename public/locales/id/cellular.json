@@ -2761,5 +2761,241 @@
       "temperature": "Sensor suhu modul itu sendiri. Pembacaan tinggi yang berlangsung lama menurunkan kinerja radio sebelum ada yang terlihat gagal.",
       "total_cells": "Berapa banyak sel yang dapat dilihat poller pada setiap bucket. Ini menjawab \"apakah radio mendengar sesuatu\", bukan \"apakah radio terhubung\"."
     }
+  },
+  "history": {
+    "page": {
+      "title": "Riwayat",
+      "description": "Apa yang sebenarnya dilakukan radio sepanjang rentang yang dipilih — kapan 5G tidak tersedia, sel mana yang melayani, dan bagaimana sinyalnya bergerak. Dicatat sekali semenit di perangkat, baik halaman ini dibuka atau tidak."
+    },
+    "range": {
+      "h1": "1j",
+      "h3": "3j",
+      "h6": "6j",
+      "h12": "12j",
+      "h24": "24j",
+      "d7": "7h",
+      "d30": "30h"
+    },
+    "range_aria": "Rentang data",
+    "refresh": "Muat ulang",
+    "refreshing": "Membaca…",
+    "stale": "Basi",
+    "panels": {
+      "button": "Panel",
+      "count": "{{shown}}/{{total}}",
+      "title": "Tampilkan panel",
+      "items": {
+        "pattern": {
+          "label": "Pola malam",
+          "hint": "Ketersediaan 5G per jam dalam sehari"
+        },
+        "timeline": {
+          "label": "Sel pelayan",
+          "hint": "Sel dan band mana yang melayani, dari waktu ke waktu"
+        },
+        "rf": {
+          "label": "Sinyal radio",
+          "hint": "RSRP, SINR, RSRQ, RSSI — 4G vs 5G"
+        },
+        "bands": {
+          "label": "Band & agregasi",
+          "hint": "Band dan kombinasi agregasi yang melayani"
+        },
+        "phy": {
+          "label": "Kedalaman lapisan fisik",
+          "hint": "CQI, rank, MCS, daya TX"
+        },
+        "events": {
+          "label": "Peristiwa sel",
+          "hint": "Setiap perubahan PCI, band, dan 5G"
+        },
+        "identity": {
+          "label": "Sel saat ini",
+          "hint": "PCI, band, dan lebar pita terbaru"
+        },
+        "system": {
+          "label": "Beban perangkat",
+          "hint": "Suhu, CPU, memori, kecepatan"
+        },
+        "outages": {
+          "label": "Gangguan 5G",
+          "hint": "Setiap rentang ketika 5G terputus"
+        }
+      }
+    },
+    "window": {
+      "samples": "{{count}} sampel arsip",
+      "span": "{{first}} – {{last}}",
+      "short": "Lebih pendek dari {{range}} yang diminta — arsip hanya mencapai sejauh ini.",
+      "empty": "Belum ada sampel arsip pada rentang ini. Poller mencatat satu baris semenit, jadi isinya bertambah selama ia berjalan.",
+      "identity_from": "Identitas sel dicatat mulai {{time}}. Sampel yang lebih awal pada rentang ini mendahuluinya, jadi perubahan sel sebelum itu tidak diketahui."
+    },
+    "availability": {
+      "title": "Ketersediaan 5G",
+      "headline": "5G tersedia selama {{pct}} dari rentang",
+      "headline_unknown": "Ketersediaan 5G pada rentang ini belum diketahui",
+      "coverage": "{{known}} dari {{samples}} sampel dapat memastikan",
+      "downtime": "Terputus selama {{duration}}",
+      "uptime": "Tersedia selama {{duration}}",
+      "outage_count": "{{count}} gangguan terpisah",
+      "no_outage": "5G tidak pernah terputus pada rentang ini",
+      "legend": {
+        "up": "5G tersedia",
+        "partial": "Sebagian tersedia",
+        "down": "5G terputus",
+        "unknown": "Tidak ada catatan"
+      },
+      "bucket": "{{time}} — 5G tersedia pada {{up}} dari {{known}} sampel",
+      "bucket_unknown": "{{time}} — tidak ada catatan",
+      "awaiting": "Sampel arsip pada rentang ini belum cukup untuk menyimpulkan.",
+      "strip_aria": "Ketersediaan 5G sepanjang rentang yang dipilih"
+    },
+    "pattern": {
+      "title": "Pola malam",
+      "description": "Ketersediaan 5G per jam dalam sehari, satu baris per hari. Kotak gelap adalah jam ketika 5G terputus.",
+      "needs_day": "Perlu rentang sehari atau lebih — pilih 24j atau lebih lama untuk melihat polanya.",
+      "hour_axis": "Jam dalam sehari",
+      "day_axis": "Hari",
+      "pct_axis": "5G tersedia",
+      "cell": "{{day}} {{hour}} — 5G tersedia pada {{pct}} dari {{known}} sampel",
+      "cell_unknown": "{{day}} {{hour}} — tidak ada catatan"
+    },
+    "timeline": {
+      "title": "Sel pelayan",
+      "description": "Setiap segmen adalah satu rentang tanpa jeda pada satu sel. Arahkan kursor ke segmen untuk melihat band, PCI, dan ketersediaan 5G-nya.",
+      "empty": "Belum ada sampel identitas sel pada rentang ini.",
+      "run": "{{cell}} · {{duration}}",
+      "run_detail": "PCI {{pci}} · band {{band}} · 5G tersedia {{pct}}",
+      "band_not_reported": "band tidak dilaporkan",
+      "no_pci": "PCI tidak dilaporkan",
+      "lte_row": "LTE",
+      "nr_row": "5G"
+    },
+    "outages": {
+      "title": "Gangguan 5G",
+      "description": "Rentang bersambung ketika modem tidak melaporkan kaki 5G, beserta sel yang melayani saat itu.",
+      "empty": "Tidak ada gangguan 5G pada rentang ini.",
+      "col_start": "Mulai",
+      "col_duration": "Durasi",
+      "col_serving": "Sel pelayan",
+      "col_samples": "Sampel",
+      "unknown_serving": "sel tidak dilaporkan"
+    },
+    "events": {
+      "title": "Peristiwa sel",
+      "description": "Setiap perubahan sel pelayan, band, atau ketersediaan 5G, diukur terhadap nilai terakhir yang diketahui — sehingga 5G yang turun lalu kembali pada sel lain tercatat sebagai keduanya.",
+      "rollup_title": "Waktu pada setiap sel",
+      "rollup_cell": "Sel pelayan",
+      "rollup_cellid": "Cell ID",
+      "rollup_time": "Waktu",
+      "rollup_availability": "5G tersedia",
+      "rollup_last": "Terakhir terlihat",
+      "show_all": "Tampilkan semua {{count}} perubahan",
+      "hide_all": "Sembunyikan daftar perubahan",
+      "empty": "Tidak ada perubahan sel pada rentang ini — PCI, band, dan EARFCN sama sepanjang rentang.",
+      "no_identity": "Belum ada sampel identitas sel pada rentang ini.",
+      "problem": "{{cell}} mengalami 5G terputus pada {{pct}} dari {{count}} sampel saat menempel di sana.",
+      "field": {
+        "nr_avail": "5G",
+        "bands": "Kombinasi band",
+        "lte_pci": "PCI 4G",
+        "lte_band": "Band 4G",
+        "lte_earfcn": "EARFCN 4G",
+        "lte_bw": "Lebar pita 4G",
+        "lte_cellid": "Cell ID",
+        "nr_pci": "PCI 5G",
+        "nr_band": "Band 5G",
+        "nr_arfcn": "ARFCN 5G",
+        "nr_bw": "Lebar pita 5G",
+        "nr_cellid": "Cell ID 5G",
+        "network_type": "Tipe jaringan"
+      },
+      "value_up": "tersedia",
+      "value_down": "terputus",
+      "value_unknown": "tidak diketahui"
+    },
+    "identity": {
+      "title": "Sel saat ini",
+      "as_of": "Per {{time}} — sampel terbaru pada rentang ini.",
+      "lte_pci": "PCI 4G",
+      "lte_earfcn": "EARFCN 4G",
+      "lte_band": "Band 4G",
+      "lte_bw": "Lebar pita 4G",
+      "nr_pci": "PCI 5G",
+      "nr_arfcn": "ARFCN 5G",
+      "nr_band": "Band 5G",
+      "nr_bw": "Lebar pita 5G",
+      "cellid": "Cell ID",
+      "tac": "TAC",
+      "network_type": "Tipe jaringan",
+      "registered": "Terdaftar",
+      "nr_avail": "5G tersedia",
+      "empty": "Belum ada sampel identitas sel pada rentang ini."
+    },
+    "bands": {
+      "title": "Band & carrier aggregation",
+      "description": "Band mana yang dipakai sepanjang rentang ini, dan seberapa sering setiap kombinasi agregasi muncul. Batas segmen adalah band yang muncul atau hilang — termasuk carrier teragregasi, yang mengubah kombinasi tanpa mengubah sel pelayan.",
+      "empty": "Belum ada data band pada rentang ini. Kombinasi band dicatat per sampel; rentang yang lebih awal darinya tidak punya data.",
+      "awaiting": "Menunggu sampel pertama yang mencatat kombinasi band.",
+      "run_tip": "{{bands}} · {{duration}}",
+      "run_meta": "{{ca}} carrier · {{bw}} MHz",
+      "run_meta_ca": "{{ca}} carrier",
+      "run_meta_bw": "{{bw}} MHz",
+      "unknown": "Tidak dilaporkan",
+      "strip_aria": "Band dan kombinasi agregasi sepanjang rentang yang dipilih",
+      "col_combo": "Kombinasi",
+      "col_share": "Porsi",
+      "col_samples": "Sampel",
+      "col_bw": "Lebar pita",
+      "col_last": "Terakhir terlihat",
+      "foot": "Porsi adalah proporsi sampel band pada rentang ini yang memakai kombinasi tersebut.",
+      "ca_chart": "Carrier teragregasi",
+      "bw_chart": "Lebar pita teragregasi"
+    },
+    "legend": {
+      "title": "Cara membaca halaman ini",
+      "availability": "Ketersediaan 5G",
+      "series": "Seri grafik",
+      "bands": "Warna band",
+      "gap": "Jeda pada garis adalah sampel tanpa pembacaan — bukan nilai nol.",
+      "cadence": "Satu sampel arsip per menit, hanya ditulis selama poller berjalan.",
+      "legend_aria": "Legenda yang menjelaskan warna dan tanda yang dipakai pada halaman ini"
+    },
+    "charts": {
+      "rf_title": "Sinyal radio",
+      "phy_title": "Kedalaman lapisan fisik",
+      "system_title": "Beban perangkat",
+      "gap_note": "Jeda pada garis adalah slot waktu tanpa pembacaan — bukan nilai nol.",
+      "no_data": "Tidak ada sampel arsip untuk panel ini pada rentang ini.",
+      "outage_band": "5G terputus",
+      "metric": {
+        "rsrp": "RSRP",
+        "sinr": "SINR",
+        "rsrq": "RSRQ",
+        "rssi": "RSSI",
+        "cqi": "CQI",
+        "rank": "Rank",
+        "mcs": "MCS",
+        "tx_power": "Daya TX",
+        "temp": "Suhu",
+        "cpu": "CPU",
+        "mem": "Memori",
+        "dl": "Unduh",
+        "ul": "Unggah",
+        "total_cells": "Carrier teragregasi",
+        "ca": "Carrier teragregasi",
+        "bw": "Lebar pita teragregasi"
+      },
+      "series": {
+        "lte": "4G LTE",
+        "nr": "5G NR",
+        "soc": "SoC",
+        "modem": "Modem"
+      }
+    },
+    "error": {
+      "read": "Tidak dapat membaca arsip. Periksa apakah poller berjalan, lalu muat ulang.",
+      "auth": "Sesi Anda telah berakhir. Masuk lagi."
+    }
   }
 }

@@ -695,3 +695,50 @@ single reading. The 5-minute sampler stays, but for trends.
 
 `/tmp` state is deliberately volatile: `qmanager_dns_edge.json`,
 `qmanager_dns_stats_history.json`, `smartdns.log`, `smartdns.cache`.
+
+## Added 2026-10-23 — Cell History (`/cellular/history`), archive schema v3
+
+**The archive now records serving-cell identity, band combos and 5G availability per
+sample**, and one page reads it. Archive: `/usrdata/qmanager/metrics/YYYY-MM-DD.csv`,
+marker `#qm_phy_archive,3`, **46 fields**, 30-day retention. Measured on this unit:
+**~139 B/row**, ~1100 rows/day (one per ~75 s — Tier 3 is 15 cycles at `POLL_PERIOD=5`
+and skips during a scan), so ~153 KB/day and **~4.6 MB** at 30 days on a volume with
+49.7 MB free. v1 (23 cols) measured 74.5 B/row; v2 was 42 cols.
+
+**New columns, all appended after `total_cells`** (readers resolve by name, so old day
+files still serve their PHY series and simply declare no identity):
+`rat,registered,lte_pci,lte_earfcn,lte_band,lte_bw,lte_cellid,lte_tac,nr_pci,nr_arfcn,
+nr_band,nr_bw,nr_cellid,nr_tac,nr_avail,cpu_pct,mem_pct,dl_bps,ul_bps,ca_cc,nrca_cc,
+bw_mhz,bands`.
+
+- `nr_avail` is **three-valued**: `1` NR leg reported, `0` read and no NR leg, **empty**
+  = nobody looked. Empty never opens/closes an outage and never counts in a denominator.
+- `bands` is the **combo**, e.g. `B3+B1+N78` — the fact that answers "which band went
+  away", because losing an SCC changes the combo without changing the PCC. Empty for
+  pre-v3 rows, so a window straddling the bump invents no "no bands" period.
+- `ca_cc: 0` is a **reading** (no aggregation), not a gap.
+- Band strings arrive display-ready (`B3`, `N78`) — `parse_serving_cell` adds the prefix.
+  Nothing downstream prefixes again.
+
+**Endpoint**: `fetch_signal_history.sh?view=cells&range=<r>` adds `view`, `window`,
+`coverage`, `snapshot.cell`+`as_of`, and `cells.{availability,outages,events,stats,
+timeline,bands,combos}` — all from the **same single awk pass** that produces the
+series. No new CGI, no new daemon, no new fork per archive row (1 jq before, 1 after;
+the identity rides in a `--argjson` on the existing call). The no-query and `?range=`
+forms are unchanged.
+
+**Page**: `/cellular/history`, one range pill (1h…30d; **no `now`** — the dashboard is
+the live surface), panels behind a localStorage picker, and an availability hero that
+cannot be hidden. The **day × hour matrix** answers the night-drop question; the
+**bands & CA panel** answers the band question.
+
+**Live state observed while building** (2026-10-24 ~01:00 UTC): camped on **B3, PCI 227,
+EARFCN 1850**, `ca_count 0`, NR leg **inactive** (`nr_avail 0`) — i.e. the device was in
+the exact condition the page exists to explain, which made it a real fixture.
+
+**Deploy order that matters**: ship → `qm_pathfix.sh` → `restart`. Shipping after the
+pathfix puts `/usr/lib/qmanager` back into the deployed copies and the poller dies with
+`203/EXEC`. And **a schema bump does not reach the day file already open** — rotate it
+at deploy time (`mv <date>.csv <date>.csv.v1`), or the new rows are dropped by the
+field-count guard until UTC midnight. `2026-10-24.csv.v1` and `.v2` are those rotated
+files; they no longer match `*.csv`, so they are out of the window and out of retention.

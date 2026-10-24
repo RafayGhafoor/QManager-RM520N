@@ -2761,5 +2761,241 @@
       "temperature": "Il sensore di temperatura del modulo stesso. Letture alte prolungate limitano la radio prima che qualcosa smetta visibilmente di funzionare.",
       "total_cells": "Quante celle il poller riusciva a vedere in ogni intervallo. Risponde a \"la radio sentiva qualcosa\", non a \"era agganciata\"."
     }
+  },
+  "history": {
+    "page": {
+      "title": "Cronologia",
+      "description": "Quello che la radio ha davvero fatto nell'intervallo scelto — quando il 5G non era disponibile, quale cella era in servizio e come si è mosso il segnale. Registrato una volta al minuto sul dispositivo, indipendentemente dal fatto che questa pagina sia aperta."
+    },
+    "range": {
+      "h1": "1h",
+      "h3": "3h",
+      "h6": "6h",
+      "h12": "12h",
+      "h24": "24h",
+      "d7": "7g",
+      "d30": "30g"
+    },
+    "range_aria": "Intervallo dati",
+    "refresh": "Aggiorna",
+    "refreshing": "Lettura…",
+    "stale": "Non aggiornato",
+    "panels": {
+      "button": "Pannelli",
+      "count": "{{shown}}/{{total}}",
+      "title": "Mostra pannelli",
+      "items": {
+        "pattern": {
+          "label": "Schema notturno",
+          "hint": "Disponibilità 5G per ora del giorno"
+        },
+        "timeline": {
+          "label": "Cella di servizio",
+          "hint": "Quale cella e banda erano in servizio, nel tempo"
+        },
+        "rf": {
+          "label": "Segnale radio",
+          "hint": "RSRP, SINR, RSRQ, RSSI — 4G vs 5G"
+        },
+        "bands": {
+          "label": "Bande e aggregazione",
+          "hint": "Quali bande e combinazioni di aggregazione erano in servizio"
+        },
+        "phy": {
+          "label": "Profondità del livello fisico",
+          "hint": "CQI, rank, MCS, potenza TX"
+        },
+        "events": {
+          "label": "Eventi di cella",
+          "hint": "Ogni cambio di PCI, banda e 5G"
+        },
+        "identity": {
+          "label": "Cella attuale",
+          "hint": "PCI, banda e larghezza di banda più recenti"
+        },
+        "system": {
+          "label": "Carico del dispositivo",
+          "hint": "Temperatura, CPU, memoria, velocità"
+        },
+        "outages": {
+          "label": "Interruzioni 5G",
+          "hint": "Ogni tratto in cui il 5G è caduto"
+        }
+      }
+    },
+    "window": {
+      "samples": "{{count}} campioni archiviati",
+      "span": "{{first}} – {{last}}",
+      "short": "Più corto del {{range}} richiesto — l'archivio arriva solo fin qui.",
+      "empty": "Nessun campione archiviato in questo intervallo. Il poller registra una riga al minuto, quindi si riempie mentre gira.",
+      "identity_from": "L'identità della cella viene registrata da {{time}} in poi. I campioni precedenti in questo intervallo la anticipano, quindi qualsiasi cambio di cella prima di allora non è noto."
+    },
+    "availability": {
+      "title": "Disponibilità 5G",
+      "headline": "Il 5G è stato disponibile per il {{pct}} dell'intervallo",
+      "headline_unknown": "La disponibilità 5G per questo intervallo non è ancora nota",
+      "coverage": "{{known}} campioni su {{samples}} potevano dirlo",
+      "downtime": "Non disponibile per {{duration}}",
+      "uptime": "Disponibile per {{duration}}",
+      "outage_count": "Interruzioni distinte: {{count}}",
+      "no_outage": "In questo intervallo il 5G non è mai caduto",
+      "legend": {
+        "up": "5G disponibile",
+        "partial": "In parte disponibile",
+        "down": "5G non disponibile",
+        "unknown": "Nessun dato"
+      },
+      "bucket": "{{time}} — 5G disponibile in {{up}} campioni su {{known}}",
+      "bucket_unknown": "{{time}} — nessun dato registrato",
+      "awaiting": "Non ci sono ancora abbastanza campioni archiviati in questo intervallo per dirlo.",
+      "strip_aria": "Disponibilità 5G nell'intervallo scelto"
+    },
+    "pattern": {
+      "title": "Schema notturno",
+      "description": "Disponibilità 5G per ora del giorno, una riga per giorno. Le caselle scure sono le ore in cui il 5G non era disponibile.",
+      "needs_day": "Serve un intervallo di almeno un giorno — scegli 24h o più per vedere lo schema.",
+      "hour_axis": "Ora del giorno",
+      "day_axis": "Giorno",
+      "pct_axis": "5G disponibile",
+      "cell": "{{day}} {{hour}} — 5G disponibile in {{pct}} dei {{known}} campioni",
+      "cell_unknown": "{{day}} {{hour}} — nessun dato registrato"
+    },
+    "timeline": {
+      "title": "Cella di servizio",
+      "description": "Ogni segmento è una serie ininterrotta su una cella. Passa su un segmento per vederne banda, PCI e disponibilità 5G.",
+      "empty": "Nessun campione di identità della cella in questo intervallo.",
+      "run": "{{cell}} · {{duration}}",
+      "run_detail": "PCI {{pci}} · banda {{band}} · 5G disponibile {{pct}}",
+      "band_not_reported": "banda non riportata",
+      "no_pci": "nessun PCI riportato",
+      "lte_row": "LTE",
+      "nr_row": "5G"
+    },
+    "outages": {
+      "title": "Interruzioni 5G",
+      "description": "Tratti contigui in cui il modem non riportava alcun ramo 5G, con la cella che era in servizio in quel momento.",
+      "empty": "Nessuna interruzione 5G in questo intervallo.",
+      "col_start": "Inizio",
+      "col_duration": "Durata",
+      "col_serving": "Cella di servizio",
+      "col_samples": "Campioni",
+      "unknown_serving": "nessuna cella riportata"
+    },
+    "events": {
+      "title": "Eventi di cella",
+      "description": "Ogni cambio di cella di servizio, banda o disponibilità 5G, misurato rispetto all'ultimo valore noto — così una caduta del 5G rientrata su un'altra cella viene registrata due volte.",
+      "rollup_title": "Tempo su ciascuna cella",
+      "rollup_cell": "Cella di servizio",
+      "rollup_cellid": "Cell ID",
+      "rollup_time": "Tempo",
+      "rollup_availability": "5G disponibile",
+      "rollup_last": "Ultima volta",
+      "show_all": "Mostra tutti i {{count}} cambi",
+      "hide_all": "Nascondi l'elenco dei cambi",
+      "empty": "Nessun cambio di cella in questo intervallo — stesso PCI, banda ed EARFCN per tutto il tempo.",
+      "no_identity": "Nessun campione di identità della cella in questo intervallo.",
+      "problem": "{{cell}} ha avuto il 5G non disponibile nel {{pct}} dei {{count}} campioni con sosta su quella cella.",
+      "field": {
+        "nr_avail": "5G",
+        "bands": "Combinazione di bande",
+        "lte_pci": "PCI 4G",
+        "lte_band": "Banda 4G",
+        "lte_earfcn": "EARFCN 4G",
+        "lte_bw": "Larghezza di banda 4G",
+        "lte_cellid": "Cell ID",
+        "nr_pci": "PCI 5G",
+        "nr_band": "Banda 5G",
+        "nr_arfcn": "ARFCN 5G",
+        "nr_bw": "Larghezza di banda 5G",
+        "nr_cellid": "Cell ID 5G",
+        "network_type": "Tipo di rete"
+      },
+      "value_up": "disponibile",
+      "value_down": "non disponibile",
+      "value_unknown": "sconosciuto"
+    },
+    "identity": {
+      "title": "Cella attuale",
+      "as_of": "Al {{time}} — il campione più recente in questo intervallo.",
+      "lte_pci": "PCI 4G",
+      "lte_earfcn": "EARFCN 4G",
+      "lte_band": "Banda 4G",
+      "lte_bw": "Larghezza di banda 4G",
+      "nr_pci": "PCI 5G",
+      "nr_arfcn": "ARFCN 5G",
+      "nr_band": "Banda 5G",
+      "nr_bw": "Larghezza di banda 5G",
+      "cellid": "Cell ID",
+      "tac": "TAC",
+      "network_type": "Tipo di rete",
+      "registered": "Registrato",
+      "nr_avail": "5G disponibile",
+      "empty": "Nessun campione di identità della cella in questo intervallo."
+    },
+    "bands": {
+      "title": "Bande e aggregazione di portanti",
+      "description": "Quali bande erano in uso nell'intervallo e con che frequenza è comparsa ogni combinazione di aggregazione. Un confine di segmento è una banda che appare o scompare — compresa una portante aggregata, che cambia la combinazione senza cambiare la cella di servizio.",
+      "empty": "Nessun dato sulle bande in questo intervallo. La combinazione di bande è registrata per campione; un intervallo precedente non ne ha.",
+      "awaiting": "In attesa del primo campione che registra una combinazione di bande.",
+      "run_tip": "{{bands}} · {{duration}}",
+      "run_meta": "Portanti: {{ca}} · {{bw}} MHz",
+      "run_meta_ca": "Portanti: {{ca}}",
+      "run_meta_bw": "{{bw}} MHz",
+      "unknown": "Non riportato",
+      "strip_aria": "Bande e combinazioni di aggregazione nell'intervallo scelto",
+      "col_combo": "Combinazione",
+      "col_share": "Quota",
+      "col_samples": "Campioni",
+      "col_bw": "Larghezza di banda",
+      "col_last": "Ultima volta",
+      "foot": "La quota è la proporzione dei campioni di banda dell'intervallo in cui quella combinazione era in uso.",
+      "ca_chart": "Portanti aggregate",
+      "bw_chart": "Larghezza di banda aggregata"
+    },
+    "legend": {
+      "title": "Come leggere questa pagina",
+      "availability": "Disponibilità 5G",
+      "series": "Serie dei grafici",
+      "bands": "Colore della banda",
+      "gap": "Un'interruzione nella linea è un campione senza letture — mai un valore pari a zero.",
+      "cadence": "Un campione archiviato al minuto, scritto solo mentre il poller è in esecuzione.",
+      "legend_aria": "Legenda che spiega i colori e i segni usati in questa pagina"
+    },
+    "charts": {
+      "rf_title": "Segnale radio",
+      "phy_title": "Profondità del livello fisico",
+      "system_title": "Carico del dispositivo",
+      "gap_note": "Un'interruzione nella linea è una finestra senza letture — non un valore pari a zero.",
+      "no_data": "Nessun campione archiviato per questo pannello in questo intervallo.",
+      "outage_band": "5G non disponibile",
+      "metric": {
+        "rsrp": "RSRP",
+        "sinr": "SINR",
+        "rsrq": "RSRQ",
+        "rssi": "RSSI",
+        "cqi": "CQI",
+        "rank": "Rank",
+        "mcs": "MCS",
+        "tx_power": "Potenza TX",
+        "temp": "Temperatura",
+        "cpu": "CPU",
+        "mem": "Memoria",
+        "dl": "Download",
+        "ul": "Upload",
+        "total_cells": "Portanti aggregate",
+        "ca": "Portanti aggregate",
+        "bw": "Larghezza di banda aggregata"
+      },
+      "series": {
+        "lte": "4G LTE",
+        "nr": "5G NR",
+        "soc": "SoC",
+        "modem": "Modem"
+      }
+    },
+    "error": {
+      "read": "Impossibile leggere l'archivio. Verifica che il poller sia in esecuzione, poi aggiorna.",
+      "auth": "La tua sessione è scaduta. Accedi di nuovo."
+    }
   }
 }
