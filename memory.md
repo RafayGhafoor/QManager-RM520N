@@ -746,3 +746,25 @@ pathfix puts `/usr/lib/qmanager` back into the deployed copies and the poller di
 at deploy time (`mv <date>.csv <date>.csv.v1`), or the new rows are dropped by the
 field-count guard until UTC midnight. `2026-10-24.csv.v1` and `.v2` are those rotated
 files; they no longer match `*.csv`, so they are out of the window and out of retention.
+
+## 2026-10-24 — chart time axes fixed everywhere; swap is now on the dashboard
+
+**`lib/chart-time.ts` owns the conversion.** Two chart paths handed a formatter
+something that was not epoch seconds and both printed `Invalid Date`: a
+`scale="time"` axis (recharts measures in **ms** and generates ticks as `Date`
+objects) and the shared `ChartTooltipContent`'s `labelFormatter` (which receives
+the **series name** when the x-axis is numeric). `toMs()` accepts `Date` /
+seconds / ms / numeric string and splits by magnitude at `1e12`; every formatter
+returns `—` for anything else. Axes now pass **explicit `ticks`** in ms, and
+`components/ui/chart-tooltip-time.tsx` reads the time from the hovered datum
+rather than from the library's label. Fixed on **both** Cell History and
+Detailed Metrics — the defect was live on the older page too.
+
+**Swap row on the dashboard.** `/proc/meminfo` is read in the poller's existing
+single pass, extended to `SwapTotal`/`SwapFree`; `device.swap_used_mb` /
+`swap_total_mb` are published and a Swap row sits directly under Memory. On this
+unit the swap device is **zram0** (compressed RAM), so a full figure is RAM
+pressure, not a slow disk. Live reading at deploy: **83 MB of 89 MB used
+(93 %)**, memory 124/178 MB — worth watching, and it explains the netmgrd growth
+in `docs/reference/netmgrd-growth.md`. `0/0` means no swap device and the row
+hides rather than drawing an empty meter; a missing cache field renders absent.

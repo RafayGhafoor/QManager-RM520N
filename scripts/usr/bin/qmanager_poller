@@ -412,6 +412,12 @@ conn_start_time=0
 cpu_usage=0
 memory_used_mb=0
 memory_total_mb=0
+# zram swap: SwapTotal — SwapFree from the same /proc/meminfo pass that already
+# reads MemTotal/MemAvailable. On this SoC the swap device is a compressed RAM
+# block (zram0), so a high figure is pressure on RAM, not a slow disk — which is
+# exactly why it belongs beside the memory row rather than in a diagnostics page.
+swap_used_mb=0
+swap_total_mb=0
 uptime_seconds=0
 
 # System health (modem subsystem + cpu/storage telemetry consumed by the
@@ -829,17 +835,37 @@ update_proc_metrics() {
     # old grep produced.
     local mem_total
     local mem_available
-    local _pm_key _pm_val
+    local swap_total
+    local swap_free
+    local _pm_key _pm_val _pm_tail
     mem_total=""
     mem_available=""
+    swap_total=""
+    swap_free=""
     while read -r _pm_key _pm_val _pm_tail; do
         case "$_pm_key" in
             MemTotal:)     mem_total="$_pm_val" ;;
             MemAvailable:) mem_available="$_pm_val" ;;
+            SwapTotal:)    swap_total="$_pm_val" ;;
+            SwapFree:)     swap_free="$_pm_val" ;;
             *)             continue ;;
         esac
-        [ -n "$mem_total" ] && [ -n "$mem_available" ] && break
+        # SwapTotal/SwapFree sit just after MemAvailable, so this still breaks
+        # within the first few lines. A kernel without either leaves both empty
+        # and the row publishes 0/0, which the UI reads as "no swap device"
+        # rather than as "swap is empty".
+        [ -n "$mem_total" ] && [ -n "$mem_available" ] && \
+            [ -n "$swap_total" ] && [ -n "$swap_free" ] && break
     done < /proc/meminfo 2>/dev/null
+
+    case "$swap_total" in ''|*[!0-9]*) swap_total=0 ;; esac
+    case "$swap_free"  in ''|*[!0-9]*) swap_free=0  ;; esac
+    swap_total_mb=$((swap_total / 1024))
+    if [ "$swap_total" -ge "$swap_free" ]; then
+        swap_used_mb=$(( (swap_total - swap_free) / 1024 ))
+    else
+        swap_used_mb=0
+    fi
 
     if [ -n "$mem_total" ]; then
         memory_total_mb=$((mem_total / 1024))
@@ -2751,6 +2777,8 @@ write_cache() {
         --argjson cpu "${cpu_usage:-0}" \
         --argjson mem_used "${memory_used_mb:-0}" \
         --argjson mem_total "${memory_total_mb:-0}" \
+        --argjson swap_used "${swap_used_mb:-0}" \
+        --argjson swap_total "${swap_total_mb:-0}" \
         --argjson uptime "${uptime_seconds:-0}" \
         --argjson conn_up "${conn_uptime_seconds:-0}" \
         --arg firmware "$boot_firmware" \
@@ -2885,6 +2913,7 @@ write_cache() {
             device: {
                 temperature: $temp, cpu_usage: $cpu,
                 memory_used_mb: $mem_used, memory_total_mb: $mem_total,
+                swap_used_mb: $swap_used, swap_total_mb: $swap_total,
                 uptime_seconds: $uptime, conn_uptime_seconds: $conn_up,
                 firmware: $firmware, build_date: $build_date,
                 manufacturer: $mfr, model: $model,

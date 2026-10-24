@@ -84,6 +84,8 @@
     "cpu_usage": "Penggunaan CPU",
     "high_cpu_warning": "CPU Tinggi",
     "memory_usage": "Penggunaan Memori",
+    "swap_usage": "Swap",
+    "no_swap": "Tidak ada perangkat swap",
     "storage_label": "Penyimpanan",
     "data_used_label": "Data Terpakai",
     "live_traffic_label": "Lalu Lintas Langsung",

@@ -84,6 +84,8 @@
     "cpu_usage": "CPU Usage",
     "high_cpu_warning": "High CPU",
     "memory_usage": "Memory Usage",
+    "swap_usage": "Swap",
+    "no_swap": "No swap device",
     "storage_label": "Storage",
     "data_used_label": "Data Used",
     "live_traffic_label": "Live Traffic",

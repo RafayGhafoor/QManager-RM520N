@@ -262,6 +262,8 @@ const DeviceMetricsComponent = ({
   const cpu = deviceData?.cpu_usage ?? null;
   const memUsed = deviceData?.memory_used_mb ?? 0;
   const memTotal = deviceData?.memory_total_mb ?? 0;
+  const swapUsed = deviceData?.swap_used_mb ?? null;
+  const swapTotal = deviceData?.swap_total_mb ?? null;
 
   // Same spelling as device-status.tsx and network-status.tsx, so the cards on
   // this surface cannot disagree about what "unreachable" means.
@@ -360,6 +362,18 @@ const DeviceMetricsComponent = ({
       : formatTemperature(temp, unitPrefs?.tempUnit);
   const cpuValue = cpu !== null ? `${cpu}%` : ABSENT;
   const memValue = memTotal > 0 ? `${memUsed} MB / ${memTotal} MB` : ABSENT;
+  // Three distinct readings, not two: no swap device at all (0/0), a device the
+  // cache has not reported yet (absent), and a real figure. Collapsing the first
+  // two would print "0 MB / 0 MB" on a box that has 89 MB of zram.
+  const hasSwap = (swapTotal ?? 0) > 0 && swapUsed !== null;
+  const swapPct =
+    hasSwap && swapTotal! > 0 ? Math.round((swapUsed! * 100) / swapTotal!) : null;
+  const swapValue =
+    swapTotal === null && swapUsed === null
+      ? ABSENT
+      : swapTotal === 0
+        ? t("metrics.no_swap")
+        : `${swapUsed ?? 0} MB / ${swapTotal} MB`;
   const storageValue =
     storageTotalKb > 0
       ? `${formatBytes(storageUsedKb * 1024)} / ${formatBytes(storageTotalKb * 1024)}`
@@ -479,6 +493,33 @@ const DeviceMetricsComponent = ({
           </span>
         </MeterRow>
 
+        {/* ── Swap (zram) ─────────────────────────────────────────────────
+            Directly under Memory because it is the same quantity with a
+            different ceiling: on this SoC the swap device is compressed RAM
+            (zram0), so a full swap means RAM pressure, not a slow disk. It is
+            its own row rather than a suffix on Memory because the two move
+            independently — memory can sit at 60 % while swap is full of pages
+            that were cold an hour ago. */}
+        {swapTotal !== 0 ? (
+          <MeterRow
+            label={t("metrics.swap_usage")}
+            bar={
+              <MetricBar
+                value={swapPct}
+                max={100}
+                warnAt={50}
+                dangerAt={85}
+                track="surface-container-high"
+                index={3}
+              />
+            }
+          >
+            <span className={VALUE_CLASS}>
+              <TickingValue value={swapUsed}>{swapValue}</TickingValue>
+            </span>
+          </MeterRow>
+        ) : null}
+
         {/* ── Storage (/usrdata partition) ──────────────────────────────── */}
         <MeterRow
           label={t("metrics.storage_label")}
@@ -489,7 +530,7 @@ const DeviceMetricsComponent = ({
               warnAt={80}
               dangerAt={95}
               track="surface-container-high"
-              index={3}
+              index={4}
             />
           }
         >

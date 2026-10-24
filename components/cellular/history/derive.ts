@@ -88,84 +88,16 @@ export function identityLagsWindow(
   return coverage.cell_from !== null && coverage.cell_from > window.start + 60;
 }
 
-/**
- * Whatever a caller hands us, as a real Date — or `null` when it is not one.
- *
- * THIS EXISTS BECAUSE THE INPUT IS NOT ALWAYS EPOCH SECONDS. Three shapes reach
- * these formatters and only the first is ours:
- *
- *   * epoch SECONDS  — the archive's own unit, and what the payload contract
- *     says every timestamp is;
- *   * epoch MILLISECONDS — recharts' `scale="time"` measures its domain in ms,
- *     so with that scale the axis hands a tick formatter millisecond values;
- *   * a `Date` — d3's time scale generates its ticks as Date objects, so the
- *     very same tick formatter receives Dates (this is what produced a page of
- *     "Invalid Date" labels: `new Date(aDate * 1000)` is NaN);
- *   * `null` — a window or an "as of" that has no sample behind it yet.
- *
- * The seconds/milliseconds split is decided by MAGNITUDE, not by a flag: every
- * real timestamp on this device is > 1e9 seconds and < 1e12 ms, so `1e12` is
- * the boundary and it cannot be crossed by either unit in this century. A
- * formatter that guesses wrong shows 1970, which is at least a date; one that
- * does not normalise at all shows "Invalid Date", which is worse than nothing.
- */
-export function toDate(value: unknown): Date | null {
-  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
-  const n = typeof value === "number" ? value : Number(value);
-  if (!Number.isFinite(n) || n <= 0) return null;
-  const ms = n < 1e12 ? n * 1000 : n;
-  const date = new Date(ms);
-  return Number.isNaN(date.getTime()) ? null : date;
-}
-
-/** The em dash every formatter falls back to. Never the word "Invalid". */
-const NO_DATE = "—";
-
-/** Local `HH:MM`, 24-hour. */
-export function formatClock(ts: unknown): string {
-  const date = toDate(ts);
-  if (date === null) return NO_DATE;
-  return date.toLocaleTimeString(undefined, {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
-}
-
-/** Local date plus `HH:MM` — the voice of an event, an outage's start, an "as of". */
-export function formatMoment(ts: unknown): string {
-  const date = toDate(ts);
-  if (date === null) return NO_DATE;
-  return date.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
-}
-
-/** Local calendar day, short form — a matrix row label. */
-export function formatDay(ts: unknown): string {
-  const date = toDate(ts);
-  if (date === null) return NO_DATE;
-  return date.toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-  });
-}
-
-/**
- * An axis tick. A range of a day or more repeats `HH:MM` across the axis, so
- * past a day the tick prints the date instead (the same call
- * `detailed-metrics/trend-chart.tsx` made).
- *
- * `unknown` in, because recharts' time scale hands this either milliseconds or
- * a `Date`; see `toDate`.
- */
-export function formatAxisTick(ts: unknown, longSpan: boolean): string {
-  return longSpan ? formatDay(ts) : formatClock(ts);
-}
+// The date maths lives in `lib/chart-time.ts`, because the Detailed Metrics
+// chart had the identical defect and a second copy of this decision is a second
+// place to get it wrong. Re-exported under the names this page already uses.
+export {
+  toDate,
+  formatClock,
+  formatMoment,
+  formatDay,
+  formatAxisTick,
+} from "@/lib/chart-time";
 
 /**
  * "3h 05m", "42m", "18s" — two units at most.

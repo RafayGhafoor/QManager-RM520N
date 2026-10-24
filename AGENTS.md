@@ -71,9 +71,14 @@ Anything that *can* be met by extending the backend must still be.
    disappeared at night, sometimes band 1, so we should be able to know") — the archive already held the PHY series,
    but nothing recorded *serving-cell identity, band, or 5G availability* per sample, and a history panel is a
    component. `app/cellular/history/**`, `components/cellular/history/**`, `components/app-sidebar.tsx` (one nav
-   entry), `hooks/use-cell-history.ts`, `types/cell-history.ts`, `public/locales/*/{cellular,sidebar}.json`. Backend
-   half is `scripts/` only (`qm_phy_archive_row` schema v2, `qmanager_poller`'s `ctx`, `fetch_signal_history.sh`
-   `?view=cells`). Recorded in [`docs/specs/cell-history.md`](./docs/specs/cell-history.md).
+   entry), `hooks/use-cell-history.ts`, `types/cell-history.ts`, `lib/chart-time.ts`,
+   `components/ui/chart-tooltip-time.tsx`, `public/locales/*/{cellular,sidebar,dashboard}.json`. Backend half is
+   `scripts/` only (`qm_phy_archive_row` schema v3, `qmanager_poller`'s `ctx` and its swap fields,
+   `fetch_signal_history.sh` `?view=cells`). The two chart-time files are here because the **same defect** shipped on
+   the Detailed Metrics chart (exception 3) and could not be fixed in one place without a shared module; the swap
+   row lands in `components/dashboard/device-metrics.tsx`, which exception 9 already covers. Recorded in
+   [`docs/specs/cell-history.md`](./docs/specs/cell-history.md) and
+   [`docs/reference/chart-time.md`](./docs/reference/chart-time.md).
 9. **Live Traffic row on the dashboard's Device Metrics card** (2026-10-24, owner asked for it: *"on dashboard, in live
    metrics lets add Live Traffic above Data Used (togglable) … it needs to be lightweight and real-time"*, and chose Rust
    for the producer: *"if you can do in rust and if its better than do that we have code already in rust"*) — the rate had

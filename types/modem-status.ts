@@ -272,6 +272,17 @@ export interface DeviceStatus {
   memory_used_mb: number;
   /** Total memory in MB */
   memory_total_mb: number;
+  /**
+   * Used swap in MB — zram on this SoC, i.e. compressed RAM rather than a disk.
+   *
+   * Optional because it is a later addition to the cache: a browser holding one
+   * payload from before it existed should render "no reading", not `NaN`. `0`
+   * with a `0` total means there is no swap device, which the row states
+   * instead of drawing an empty meter.
+   */
+  swap_used_mb?: number;
+  /** Total swap in MB. See `swap_used_mb`. */
+  swap_total_mb?: number;
   /** Device uptime in seconds */
   uptime_seconds: number;
   /** Active connection uptime in seconds */

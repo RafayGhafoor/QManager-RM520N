@@ -84,6 +84,8 @@
     "cpu_usage": "CPU 使用率",
     "high_cpu_warning": "CPU 占用过高",
     "memory_usage": "内存使用率",
+    "swap_usage": "交换分区",
+    "no_swap": "无交换分区",
     "storage_label": "存储",
     "data_used_label": "已用流量",
     "live_traffic_label": "实时流量",

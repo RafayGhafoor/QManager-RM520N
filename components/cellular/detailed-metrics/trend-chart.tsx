@@ -5,9 +5,10 @@ import { CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts";
 import {
   ChartContainer,
   ChartTooltip,
-  ChartTooltipContent,
   type ChartConfig,
 } from "@/components/ui/chart";
+import { ChartTooltipTime } from "@/components/ui/chart-tooltip-time";
+import { axisTicks, formatAxisTick, toMs } from "@/lib/chart-time";
 import type { DetailedMetricSeriesPoint } from "@/types/detailed-metrics";
 
 import { CHART_BOX } from "./shapes";
@@ -33,18 +34,14 @@ import { CHART_BOX } from "./shapes";
 //    arrival is the card's transition, not the line's.
 // =============================================================================
 
-/** Millisecond formatting is locale-dependent; the range decides the granularity. */
+/**
+ * The axis label. Delegated to `lib/chart-time` rather than formatted here: this
+ * chart fed `new Date(ts * 1000)` a value that was already milliseconds (the
+ * time axis measures in ms and ticks as `Date`), so the axis and every hover
+ * read "Invalid Date". One shared conversion is the fix.
+ */
 function tickFormatterFor(longSpan: boolean) {
-  return (ts: number) => {
-    const date = new Date(ts * 1000);
-    return longSpan
-      ? date.toLocaleDateString(undefined, { month: "2-digit", day: "2-digit" })
-      : date.toLocaleTimeString(undefined, {
-          hour: "2-digit",
-          minute: "2-digit",
-          hour12: false,
-        });
-  };
+  return (ts: unknown) => formatAxisTick(ts, longSpan);
 }
 
 export interface TrendChartProps {
@@ -66,6 +63,15 @@ export function TrendChart({ points, label, unit, longSpan }: TrendChartProps) {
 
   const tickFormatter = tickFormatterFor(longSpan);
 
+  // Milliseconds on the axis (the time scale's own unit) with EXPLICIT ticks, so
+  // the formatter's input is a number this module produced and not a `Date` the
+  // chart library invented.
+  const data = points.map((point) => ({ ...point, ms: toMs(point.ts) ?? NaN }));
+  const ticks = axisTicks(
+    data.length > 0 ? data[0].ms : null,
+    data.length > 0 ? data[data.length - 1].ms : null,
+  );
+
   return (
     <ChartContainer
       config={config}
@@ -75,13 +81,14 @@ export function TrendChart({ points, label, unit, longSpan }: TrendChartProps) {
       role="img"
       aria-label={label}
     >
-      <LineChart data={points} margin={{ top: 8, right: 12, bottom: 4, left: 0 }}>
+      <LineChart data={data} margin={{ top: 8, right: 12, bottom: 4, left: 0 }}>
         <CartesianGrid vertical={false} stroke="var(--border)" />
         <XAxis
-          dataKey="ts"
+          dataKey="ms"
           type="number"
           scale="time"
           domain={["dataMin", "dataMax"]}
+          ticks={ticks}
           tickFormatter={tickFormatter}
           tickLine={false}
           axisLine={false}
@@ -95,11 +102,10 @@ export function TrendChart({ points, label, unit, longSpan }: TrendChartProps) {
           domain={["auto", "auto"]}
         />
         <ChartTooltip
-          content={
-            <ChartTooltipContent
-              labelFormatter={(value) => tickFormatter(Number(value))}
-            />
-          }
+          // Not ChartTooltipContent: for a numeric x-axis its labelFormatter
+          // receives the series name rather than the time, which is what made
+          // every hover read "Invalid Date".
+          content={<ChartTooltipTime unit={unit} />}
         />
         <Line
           dataKey="v"

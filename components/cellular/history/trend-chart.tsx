@@ -5,11 +5,11 @@ import { CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts";
 import {
   ChartContainer,
   ChartTooltip,
-  ChartTooltipContent,
   type ChartConfig,
 } from "@/components/ui/chart";
+import { ChartTooltipTime } from "@/components/ui/chart-tooltip-time";
+import { axisTicks, formatAxisTick, toMs } from "@/lib/chart-time";
 
-import { formatAxisTick } from "./derive";
 import { CHART_BOX } from "./shapes";
 
 // =============================================================================
@@ -66,10 +66,25 @@ export function TrendChart({
   } satisfies ChartConfig;
 
   const tick = (ts: unknown) => formatAxisTick(ts, longSpan);
-  // One extra field per point, not a second array: recharts needs ms on the
-  // axis while everything else on the page — and the payload contract — is
-  // epoch seconds.
-  const data = points.map((point) => ({ ...point, ms: point.ts * 1000 }));
+
+  // One extra field per point, not a second array: a time axis measures its
+  // domain in milliseconds while everything else on the page — and the payload
+  // contract — is epoch seconds.
+  const data = points.map((point) => ({
+    ...point,
+    ms: toMs(point.ts) ?? NaN,
+  }));
+
+  // EXPLICIT TICKS, in milliseconds. Left to itself the chart library generates
+  // its own time ticks as `Date` objects and hands them to `tickFormatter`; that
+  // path is what printed "Invalid Date" across this axis. Handing it the array
+  // fixes the formatter's input type here rather than inside the library.
+  const first = data.length > 0 ? data[0].ms : NaN;
+  const last = data.length > 0 ? data[data.length - 1].ms : NaN;
+  const ticks = axisTicks(
+    Number.isFinite(first) ? first : null,
+    Number.isFinite(last) ? last : null,
+  );
   const decimals =
     points.some((point) => point.v !== null && !Number.isInteger(point.v));
 
@@ -91,6 +106,7 @@ export function TrendChart({
           type="number"
           scale="time"
           domain={["dataMin", "dataMax"]}
+          ticks={ticks}
           tickFormatter={tick}
           tickLine={false}
           axisLine={false}
@@ -104,20 +120,10 @@ export function TrendChart({
           domain={domain === null ? ["auto", "auto"] : [domain[0], domain[1]]}
         />
         <ChartTooltip
-          content={
-            // THE LABEL COMES FROM THE DATUM, NOT FROM `labelFormatter`'s first
-            // argument. For a numeric x-axis the shared ChartTooltipContent
-            // passes that argument as the SERIES label ("RSRP · dBm"), not the
-            // timestamp — formatting it as a date is what printed "Invalid
-            // Date" on hover. `payload[0].payload` is the plotted row, so its
-            // own `ts` (epoch seconds) is the time under the cursor.
-            <ChartTooltipContent
-              labelFormatter={(_value, payload) => {
-                const row = payload?.[0]?.payload as { ts?: unknown } | undefined;
-                return formatAxisTick(row?.ts, longSpan);
-              }}
-            />
-          }
+          // The shared ChartTooltipContent is NOT used here: for a numeric
+          // x-axis its labelFormatter receives the series name, not the time.
+          // This one reads the timestamp out of the hovered datum.
+          content={<ChartTooltipTime unit={unit} />}
         />
         <Line
           dataKey="v"
