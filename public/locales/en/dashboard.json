@@ -89,7 +89,7 @@
     "live_traffic_label": "Live Traffic",
     "live_traffic_toggle": "Live traffic",
     "live_traffic_warming": "Measuring…",
-    "live_traffic_tooltip": "Sampled once a second from the modem's own WAN byte counter and shown in bits per second. Switching it off stops the one request per second this row makes.",
+    "live_traffic_tooltip": "Read from the modem's own WAN byte counter once a second and shown in bytes per second — the same units as the Data Used total below (multiply by 8 for megabits). Switching it off stops the one request per second this row makes.",
     "reset_counter_aria": "Reset data usage counter",
     "reset_confirm_title": "Reset Data Used counter?",
     "reset_confirm_desc": "This will zero the cumulative download and upload total. The counter will resume tracking immediately.",

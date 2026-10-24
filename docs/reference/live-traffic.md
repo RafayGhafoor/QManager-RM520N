@@ -57,11 +57,13 @@ consequences worth knowing before changing it:
   ubifs to remember two integers. Verified that this httpd serves through the
   symlink (`curl http://127.0.0.1:8080/live-traffic.json` → 200).
 - **Never ship a real `www/live-traffic.json`.** A file of that name in `public/`
-  is copied into `out/` by `bun run build` and will *replace* the symlink on the
-  next deploy, so the row freezes at whatever the build contained. This happened
-  once during development. The unit's `ExecStartPre` (`ln -sfn`) heals it on the
-  next service start — restart `qmanager-traffic` after any deploy that touched
-  `public/`.
+  is copied into `out/` by `bun run build` and *replaces* the symlink on the next
+  deploy, freezing the row at whatever the build contained. This happened twice
+  during development — the second time it served fabricated test values to the
+  live dashboard. Two guards now exist and neither is optional:
+  `deploy/qm_pathfix.sh` unconditionally `rm -f`s and re-creates the link on every
+  deploy (it is already the must-run-after-every-deploy step), and the unit's
+  `ExecStartPre` re-does it on start.
 
 No WebSocket and no SSE: busybox httpd cannot upgrade a connection, and the port
 the sibling product uses for its stream (`:8092`) belongs to the vendor stack
@@ -125,9 +127,28 @@ hook compares `ts` between reads and, after two identical timestamps, reports
 staleness and the row draws `—`.
 
 The row itself is a `PillRow` above Data Used, with the card's existing direction
-inks and glyphs, and `formatBitsPerSec()` for the figures. It is deliberately
-**not** wrapped in `TickingValue`: that component dips the figure on every change,
-and a 1 Hz rate would dip once a second.
+inks and glyphs. It is deliberately **not** wrapped in `TickingValue`: that
+component dips the figure on every change, and a 1 Hz rate would dip once a
+second.
+
+## Units: bytes per second, not bits
+
+The document carries **bits** per second (the canonical rate unit, and what the
+sampler's own contract states). The row renders **bytes** per second —
+`formatBytes(bps / 8) + "/s"` — because:
+
+- Data Used directly below is a byte total, so `1.1 MB/s` above `37.4 GB` is one
+  measurement in one unit family;
+- the sibling product renders the same counter the same way
+  (`greenpacket-o5a`, `v2/src/pages/Dashboard.svelte:80`:
+  `formatBytes(n) + '/s'` over gp-metricsd's bytes/s), and that is the number the
+  owner compares against.
+
+The first deploy shipped `Mbps`, which read ~8x larger than the product UI during
+the same transfer — reported, correctly, as wrong results. `formatBitsPerSec()`
+still exists in `types/modem-status.ts` for anything that wants the bit figure;
+changing the row to it again means changing the tooltip copy in all five locales
+with it.
 
 ## The switch
 

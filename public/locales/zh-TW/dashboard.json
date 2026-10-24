@@ -89,7 +89,7 @@
     "live_traffic_label": "即時流量",
     "live_traffic_toggle": "即時流量",
     "live_traffic_warming": "測量中…",
-    "live_traffic_tooltip": "每秒從數據機自身的 WAN 位元組計數器取樣一次，以位元/秒顯示。關閉後將停止此列每秒一次的請求。",
+    "live_traffic_tooltip": "每秒從數據機自身的 WAN 位元組計數器讀取一次，以位元組/秒顯示——與下方「已用資料量」總計同一單位（乘以 8 得到兆位元）。關閉後將停止此列每秒一次的請求。",
     "reset_counter_aria": "重設資料使用量計數器",
     "reset_confirm_title": "要重設「已用資料量」計數器嗎？",
     "reset_confirm_desc": "這將會把累計下載與上傳總量歸零。計數器將立即恢復追蹤。",

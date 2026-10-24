@@ -112,4 +112,24 @@ find "$QM_ROOT/www/cgi-bin" -type f -exec chmod 755 {} + 2>/dev/null
 chmod 755 "$QM_ROOT"/lib/*.sh 2>/dev/null
 chmod 755 "$QM_ROOT"/bin/* 2>/dev/null
 
+# ---------------------------------------------------------------------------
+# Re-assert the Live Traffic symlink.
+#
+# The dashboard's Live Traffic row is served from www/live-traffic.json, which
+# must be a SYMLINK to /tmp/qmanager_traffic.json (the sampler's tmpfs document),
+# not a file: a real file there freezes the row at whatever it contains, and it
+# would also put a write-per-second on flash. qmanager-traffic.service recreates
+# the link on start, but a deploy extracts www/ *after* that, so a stray file
+# shipped in out/ (e.g. a leftover dev feed in public/) silently wins until the
+# unit is restarted. Measured happening twice on 2026-10-24.
+#
+# Unconditional and idempotent: rm -f then ln -sfn, so a file, a stale link and
+# a correct link all end in the same state. See docs/reference/live-traffic.md.
+# ---------------------------------------------------------------------------
+if [ -d "$QM_ROOT/www" ]; then
+    rm -f "$QM_ROOT/www/live-traffic.json"
+    ln -sfn /tmp/qmanager_traffic.json "$QM_ROOT/www/live-traffic.json" \
+        && echo "  live-traffic.json -> /tmp/qmanager_traffic.json"
+fi
+
 echo "  done"

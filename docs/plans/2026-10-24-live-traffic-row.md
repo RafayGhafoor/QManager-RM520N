@@ -91,6 +91,21 @@ process is created, and nothing is written to flash.
 4. **`pnpm`-style archaeology is not verification.** Verified in a browser at the
    three widths the trio uses, dark and light, in all three states (rates,
    measuring, absent), and clicked the switch rather than assuming it.
+5. **The units were wrong for this UI, and only the owner could see it.** The row
+   shipped `Mbps`; the product UI it sits beside renders bytes/s
+   (`v2/src/pages/Dashboard.svelte:80`), so the same transfer read ~8x different in
+   the two places. Reported as "the live traffic is showing wrong results". The
+   measurement was verified first — a controlled 20 MB download moved
+   `rmnet_ipa0` rx by 22.06 MB, a 10 MB upload moved tx by 10.98 MB, and a 60 s
+   window matched the modem's own `AT+QGDCNT` within 1–7 % — so the fix was one
+   line in the renderer, not a change to the sampler. Lesson: when a display is
+   reported wrong, measure the pipeline *and* the unit before touching the maths.
+6. **The docroot symlink is now healed by the deploy step.** A stray
+   `public/live-traffic.json` (the dev feed used for the browser checks) was
+   copied into `out/` and extracted over the symlink — the second time it served
+   fabricated 9.2 Mbps/220 Kbps values to the live dashboard. `qm_pathfix.sh` now
+   `rm -f`s and re-creates the link unconditionally; the unit's `ExecStartPre`
+   does it again on start.
 
 ## Still open
 

@@ -37,7 +37,6 @@ import { TickGroup } from "@/components/ui/tick-group";
 
 import type { DeviceStatus, LteStatus, NrStatus } from "@/types/modem-status";
 import {
-  formatBitsPerSec,
   formatBytes,
   calculateLteDistance,
   calculateNrDistance,
@@ -170,6 +169,25 @@ function MeterRow({
       {bar}
     </motion.div>
   );
+}
+
+/**
+ * The card speaks BYTES, so the rate is bytes per second.
+ *
+ * Data Used directly below is a byte total (`formatBytes`: "37.4 GB"), and this
+ * row is the rate of that same counter — so "1.1 MB/s" beside "37.4 GB" is one
+ * measurement in one unit family. It is also the convention the sibling product
+ * shipped with (`greenpacket-o5a`, `v2/src/pages/Dashboard.svelte:80`:
+ * `formatBytes(n) + '/s'` over gp-metricsd's bytes/s), which is what an owner
+ * comparing the two UIs will read first.
+ *
+ * The document keeps BITS per second, because that is the canonical rate unit
+ * and what a link budget is quoted in (and the sampler's own contract); the
+ * conversion happens here, once, in the renderer. `formatBitsPerSec` exists in
+ * types/modem-status.ts for anything that wants the other convention.
+ */
+function formatRate(bitsPerSec: number): string {
+  return `${formatBytes(Math.round(bitsPerSec / 8))}/s`;
 }
 
 /**
@@ -512,11 +530,11 @@ const DeviceMetricsComponent = ({
               <>
                 <RateCell
                   direction="down"
-                  value={formatBitsPerSec(liveSample.rx_bps)}
+                  value={formatRate(liveSample.rx_bps)}
                 />
                 <RateCell
                   direction="up"
-                  value={formatBitsPerSec(liveSample.tx_bps)}
+                  value={formatRate(liveSample.tx_bps)}
                 />
               </>
             ) : liveIsBlind ? (

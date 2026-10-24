@@ -174,7 +174,14 @@ core forever. The Rust loop is one wakeup per second and no processes.
 - [x] the row renders **immediately above** the Data Used pill, and nowhere else.
 - [x] direction inks already on the card + an arrow glyph each — colour is never
       the only channel (The Glyph-Carries-The-State Rule).
-- [x] `formatBitsPerSec()`, so `0` renders `0 bps` and never an empty cell.
+- [x] **bytes per second**, rendered as `formatBytes(bits / 8)` + `/s`, so the
+      rate agrees with the byte-based Data Used total beneath it and with the
+      sibling product (`v2/src/pages/Dashboard.svelte:80` renders
+      `formatBytes(bytes) + '/s'`). The document keeps bits/s; the conversion is
+      the renderer's single job. `0` renders `0 B/s`, never an empty cell.
+      *This was wrong on the first deploy — the row showed Mbps while everything
+      the owner compares against shows MB/s, i.e. 8x, and was reported as "wrong
+      results".*
 - [x] the switch lives in `CardHeader`'s `CardAction`: a control that only exists
       inside the row it hides cannot bring it back.
 - [x] switch state survives a reload (per browser), and two tabs agree.
@@ -220,4 +227,5 @@ core forever. The Rust loop is one wakeup per second and no processes.
 | Sampler stopped while the row is open | `systemctl stop qmanager-traffic` in the dev harness | two identical `ts` → row drops to `—`, resumes on restart |
 | Row switched off | clicked the switch in a browser | row unmounts, no requests, choice survives reload |
 | `/tmp` cleared by reboot | reboot (see plan) | symlink dangles until the unit starts, then `warming` for one tick |
-| A real file shipped in `public/` | a dev feed file briefly existed and shadowed the symlink on redeploy | fixed; the unit's `ln -sfn` heals it on restart, and the reference doc now says never to ship one |
+| A real file shipped in `public/` | a dev feed file was copied into `out/` and extracted over the symlink **twice**, once serving fabricated test values | `qm_pathfix.sh` now unconditionally `rm -f` + `ln -sfn`s the docroot entry, so every deploy ends in the right state; the unit's `ExecStartPre` heals it too |
+| Unit mismatch (bits vs bytes) | compared the row with the product UI during the same transfer | 8x apart; row now renders bytes/s like the product |

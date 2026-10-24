@@ -89,7 +89,7 @@
     "live_traffic_label": "实时流量",
     "live_traffic_toggle": "实时流量",
     "live_traffic_warming": "测量中…",
-    "live_traffic_tooltip": "每秒从调制解调器自身的 WAN 字节计数器采样一次，以比特/秒显示。关闭后将停止此行每秒一次的请求。",
+    "live_traffic_tooltip": "每秒从调制解调器自身的 WAN 字节计数器读取一次，以字节/秒显示——与下方“已用流量”总计同一单位（乘以 8 得到兆比特）。关闭后将停止此行每秒一次的请求。",
     "reset_counter_aria": "重置流量计数器",
     "reset_confirm_title": "重置已用流量计数器？",
     "reset_confirm_desc": "此操作会将累计下载和上传总量清零。计数器将立即恢复统计。",

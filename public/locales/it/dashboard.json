@@ -89,7 +89,7 @@
     "live_traffic_label": "Traffico in tempo reale",
     "live_traffic_toggle": "Traffico live",
     "live_traffic_warming": "Misurazione…",
-    "live_traffic_tooltip": "Campionato una volta al secondo dal contatore di byte WAN del modem e mostrato in bit al secondo. Disattivandolo si ferma la richiesta al secondo di questa riga.",
+    "live_traffic_tooltip": "Letto dal contatore di byte WAN del modem una volta al secondo e mostrato in byte al secondo — le stesse unità del totale Consumo dati qui sotto (moltiplica per 8 per i megabit). Disattivandolo si ferma la richiesta al secondo di questa riga.",
     "reset_counter_aria": "Reimposta il contatore del consumo dati",
     "reset_confirm_title": "Reimpostare il contatore del consumo dati?",
     "reset_confirm_desc": "Questa azione azzera il totale cumulativo di download e upload. Il contatore riprenderà subito a registrare i dati.",

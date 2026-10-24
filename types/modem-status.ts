@@ -355,9 +355,20 @@ export interface LiveTrafficSample {
   ok: true;
   /** The /proc/net/dev counter actually read (e.g. "rmnet_ipa0"). */
   iface: string;
-  /** Download rate in BITS per second. */
+  /**
+   * Download rate in BITS per second.
+   *
+   * The document speaks bits because that is the canonical rate unit and what a
+   * link budget is quoted in. The dashboard renders `formatBytes(bps / 8)` +
+   * "/s", i.e. bytes per second, so the row agrees with the byte-based Data Used
+   * total beside it and with the sibling product
+   * (`greenpacket-o5a`, `v2/src/pages/Dashboard.svelte:80`). Do not change one
+   * side of that pair without the other — the same connection once read 8x
+   * different between the two UIs, which is exactly what "wrong results" looked
+   * like.
+   */
   rx_bps: number;
-  /** Upload rate in BITS per second. */
+  /** Upload rate in BITS per second — see `rx_bps` for the render convention. */
   tx_bps: number;
   /**
    * The real interval the two rates were averaged over, in ms.
