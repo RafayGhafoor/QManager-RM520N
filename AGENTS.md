@@ -8,7 +8,7 @@ Scope: this branch is **deployment-only**. The application code (`app/`,
 `components/`, `lib/`, `types/`, `hooks/`) tracks upstream QManager and should
 not be modified here — the product-specific work lives in `deploy/`.
 
-**Seven recorded exceptions.** The criterion is the same in every case: the feature
+**Eight recorded exceptions.** The criterion is the same in every case: the feature
 needs a control the backend cannot provide, so it could not live in `deploy/` alone.
 Anything that *can* be met by extending the backend must still be.
 
@@ -67,7 +67,7 @@ Anything that *can* be met by extending the backend must still be.
    `components/app-sidebar.tsx` (one nav entry), `public/locales/*/{common,sidebar}.json`. Recorded in
    [`docs/specs/smartdns-o5a.md`](./docs/specs/smartdns-o5a.md) and
    [`docs/specs/dns-edge-selection.md`](./docs/specs/dns-edge-selection.md), reference [`docs/reference/smartdns.md`](./docs/reference/smartdns.md).
-7. **Cell History page shows when 5G dropped and on which cell** (2026-10-23, owner asked for it — "5G cell gets
+8. **Cell History page shows when 5G dropped and on which cell** (2026-10-23, owner asked for it — "5G cell gets
    disappeared at night, sometimes band 1, so we should be able to know") — the archive already held the PHY series,
    but nothing recorded *serving-cell identity, band, or 5G availability* per sample, and a history panel is a
    component. `app/cellular/history/**`, `components/cellular/history/**`, `components/app-sidebar.tsx` (one nav
