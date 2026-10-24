@@ -62,6 +62,22 @@ not work on it. `atcli_smd11` therefore reuses the vendor's proven approach from
 `+CME ERROR`, then kill the reader. It always exits 0 because `qcmd` does its
 own OK/ERROR text parsing. Override the port with `AT_DEV=...`.
 
+## Native binaries (built at deploy time, never committed)
+
+`native/qmanager_atd` (the AT broker) and `native/qmanager_traffic` (the Live
+Traffic sampler) are our own source. Neither ships as a committed binary: build
+them on the build machine and stage the result, exactly as above. Both are
+`--target armv7-unknown-linux-musleabihf`, statically linked with `rust-lld` (no
+cross gcc), and `target/` is gitignored in each crate.
+
+```bash
+cargo build --release --target armv7-unknown-linux-musleabihf
+cargo test                       # host tests; qmanager_traffic's run on macOS
+```
+
+`uname -m` on this device is `armv7l`; the aarch64 staging in each
+`.cargo/config.toml` is for the upstream Suncomm X75 and does not run here.
+
 ## Third-party payloads (fetched, never committed)
 
 `deploy/.gitignore` keeps binaries out of git. Place these in `stage/bin/`:
@@ -98,6 +114,14 @@ cp -a scripts/usr/lib/qmanager/.       stage/lib/
 cp -a scripts/usr/bin/.                stage/bin/
 cp -a deploy/atcli_smd11 deploy/sudo   stage/bin/
 
+# 2b. The Live Traffic sampler — our own Rust binary, so it is BUILT here and
+#     not committed (see "Native binaries" below). Cross-compiled for the
+#     device's armv7 musl target; `cargo test` runs on the build machine.
+( cd native/qmanager_traffic \
+  && cargo build --release --target armv7-unknown-linux-musleabihf )
+cp native/qmanager_traffic/target/armv7-unknown-linux-musleabihf/release/qmanager_traffic stage/bin/
+chmod +x stage/bin/qmanager_traffic
+
 # 3. jq is not shipped in this repo — fetch a static ARMv7 build
 curl -fsSL -o stage/bin/jq \
   https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-armhf
@@ -128,6 +152,35 @@ cp -a dependencies/NOTICE stage/lib/qmi/NOTICE
 tar czf - -C stage . | ssh root@<device> 'mkdir -p /usrdata/qmanager && tar xzf - -C /usrdata/qmanager'
 # The CA bundle lives in the QManager-owned state dir, not /etc/ssl (read-only).
 ssh root@<device> 'mkdir -p /usrdata/qmanager/etc && mv /usrdata/qmanager/cacert.pem /usrdata/qmanager/etc/cacert.pem'
+
+# -----------------------------------------------------------------------------
+# NORMALISE OWNERSHIP AND MODE — do not skip this (2026-10-24)
+# -----------------------------------------------------------------------------
+# `tar czf - | tar xzf -` runs as root on the device and therefore PRESERVES the
+# archive's numeric uid/gid and modes. Building the tarball on macOS stamps every
+# file with the developer's uid (501) and, for anything that was not already
+# executable, 0644. Observed on this device: 146 files owned by 501, three of them
+# without an exec bit — including `qmanager_poller` and `fetch_signal_history.sh`.
+#
+# The failure is silent and looks like an application bug:
+#   systemctl status qmanager-poller -> status=203/EXEC (Permission denied)
+#   the History page -> "Could not read the archive"  (the CGI 404s because
+#   busybox httpd will not execute a non-executable file)
+#   the PHY archive -> parked as YYYY-MM-DD.csv.v1 and no new rows
+#
+# macOS also adds AppleDouble sidecars (`._name`) which are useless here.
+ssh root@<device> '
+  find /usrdata/qmanager -name "._*" -type f -delete
+  chown root:root /usrdata/qmanager && chmod 755 /usrdata/qmanager
+  chown -R root:root /usrdata/qmanager/bin /usrdata/qmanager/lib /usrdata/qmanager/www/cgi-bin
+  find /usrdata/qmanager/bin /usrdata/qmanager/www/cgi-bin -type f -exec chmod 755 {} +
+'
+# Deliberately NOT recursive over all of /usrdata/qmanager: /etc/qmanager is
+# www-data-owned by design (the CGI writes auth.json and profiles there), and a
+# blanket chown would take that away.
+# Verify, and expect ZERO for both counts:
+ssh root@<device> 'find /usrdata/qmanager/bin /usrdata/qmanager/www/cgi-bin -type f ! -user root | wc -l; \
+                  find /usrdata/qmanager/bin /usrdata/qmanager/www/cgi-bin -type f ! -perm -u+x | wc -l'
 tar czf - -C deploy qm_pathfix.sh qm_wait_modem.sh | ssh root@<device> \
   'tar xzf - -C /tmp && sh /tmp/qm_pathfix.sh && \
    cp /tmp/qm_wait_modem.sh /usrdata/qmanager/bin/ && chmod +x /usrdata/qmanager/bin/qm_wait_modem.sh'
@@ -150,6 +203,13 @@ tar czf - -C deploy qmanager-dpi.service qmanager-dpi-ensure.service qmanager-dp
 # 5c. IP Passthrough boot re-apply (the setting is runtime-only; see docs/reference/ip-passthrough.md)
 tar czf - -C deploy qmanager-ippt.service | ssh root@<device> \
   'tar xzf - -C /etc/systemd/system && chmod 644 /etc/systemd/system/qmanager-ippt.service && systemctl daemon-reload'
+
+# 5d. Live Traffic sampler (dashboard Live Traffic row). The unit's own
+#     ExecStartPre creates /usrdata/qmanager/www/live-traffic.json as a SYMLINK
+#     to /tmp/qmanager_traffic.json, so the 1 Hz write stays in tmpfs and httpd
+#     still serves it statically — see docs/reference/live-traffic.md.
+tar czf - -C deploy qmanager-traffic.service | ssh root@<device> \
+  'tar xzf - -C /etc/systemd/system && chmod 644 /etc/systemd/system/qmanager-traffic.service && systemctl daemon-reload && systemctl enable qmanager-traffic.service'
 
 # 6. Boot wiring — `enable` alone does NOT survive this firmware's boot
 #    transaction (see qm_boot_hook.sh). This is what actually starts them.
