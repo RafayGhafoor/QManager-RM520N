@@ -75,7 +75,14 @@ over_deadline() {
 # One line per upstream: "<url>\t<short>". Bootstrap entries are skipped: they only
 # exist to resolve the DoH hostnames themselves and must not be measured as peers.
 pool() {
+    # The generated EDGE block RE-DECLARES providers that are already in the base
+    # pool (with -group edge), so reading it as input would measure each of those
+    # twice and write them into the membership list twice. Measured 2026-10-24:
+    # 8 base + 3 generated = 11 rows, ledger with 6 members. Skip the block.
     awk '
+        /^# BEGIN QMANAGER-EDGE/ { inb = 1; next }
+        /^# END QMANAGER-EDGE/   { inb = 0; next }
+        inb { next }
         /^server / {
             url = $2
             if (url !~ /^(https|h3|tls|quic):\/\//) next

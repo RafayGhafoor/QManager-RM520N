@@ -68,9 +68,21 @@ listening() {
 # --- helper: does the candidate answer a known name on the scratch port? ------
 # The answer is NOT compared to an IP (CDNs rotate); we only require NOERROR with
 # at least one A record, which is enough to prove the directive set is serviceable.
+#
+# RETRIES, because the candidate is COLD. Measured 2026-10-24: a fresh instance
+# needs bootstrap + a DoH race for its first name, which regularly exceeds a 2 s
+# budget — and a validation that fails on a slow-but-correct config is worse than
+# useless: it blocks the refresh and leaves the old block in place. Three attempts
+# at 4 s each still sits inside the caller's timeout.
 answers() {
-    _r=$(dig +short +time=2 +tries=1 @127.0.0.1 -p "$1" "$CTRL_NAME" 2>/dev/null | grep -cE '^[0-9]')
-    [ "${_r:-0}" -ge 1 ]
+    _a=0
+    while [ "$_a" -lt 3 ]; do
+        _r=$(dig +short +time=4 +tries=1 @127.0.0.1 -p "$1" "$CTRL_NAME" 2>/dev/null | grep -cE '^[0-9]')
+        [ "${_r:-0}" -ge 1 ] && return 0
+        _a=$((_a + 1))
+        [ "$_a" -lt 3 ] && sleep 2
+    done
+    return 1
 }
 
 # --- helper: kill just the scratch instance, matched by process NAME ----------
