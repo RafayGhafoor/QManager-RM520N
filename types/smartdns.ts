@@ -176,6 +176,17 @@ export interface SmartDnsEdgeState {
   members: string[];
   /** Epoch seconds of the last successful refresh, or `null` if it never ran. */
   last_refresh: number | null;
+  /**
+   * The last FULL provider measurement, stored on the device when the algorithm
+   * last ran (`/tmp/qmanager_dns_edge.json`).
+   *
+   * This is what lets the edge table show measured quality on FIRST LOAD instead
+   * of staying blank until someone presses Refresh — the measurements already
+   * happened, they were simply not being returned. It is a STORED reading, not a
+   * live probe: `last_refresh` dates it, and the card must not present it as
+   * current when that timestamp is old.
+   */
+  measured?: SmartDnsProbeProvider[] | null;
 }
 
 /** Response from GET /cgi-bin/quecmanager/network/smartdns.sh */

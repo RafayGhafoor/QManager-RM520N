@@ -21,6 +21,11 @@ Environment=PATH=/usrdata/qmanager/bin:/usr/bin:/bin:/sbin:/usr/sbin
 # Wait for a REAL answer, not just the device node: the poller caches device
 # identity once at start, and a modem that is still booting answers with the
 # "RDY" URC, which was observed baking "model": "RDY" into the cache.
+# Repair a deploy that landed files without an exec bit. Measured twice on
+# 2026-10-24: a tar-based ship built on macOS leaves uid 501 + 0644, and this unit
+# then dies with status=203/EXEC (Permission denied) while the dashboard goes
+# silently stale. One fork, ~10 ms, silent when there is nothing to fix.
+ExecStartPre=/usrdata/qmanager/bin/qm_fixperms.sh
 ExecStartPre=/usrdata/qmanager/bin/qm_wait_modem.sh 150
 ExecStart=/usrdata/qmanager/bin/qmanager_poller
 TimeoutStartSec=170

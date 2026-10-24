@@ -3,10 +3,15 @@
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { FileWarningIcon } from "lucide-react";
+import { ChevronDownIcon, FileWarningIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { CardFoot } from "@/components/ui/card-foot";
 import { SaveButton, useSaveFlash } from "@/components/ui/save-button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -94,6 +99,13 @@ export function ConfigEditorCard({
   const [text, setText] = React.useState("");
   const [baseline, setBaseline] = React.useState<string | null>(null);
   const [saveError, setSaveError] = React.useState<string | null>(null);
+
+  // COLLAPSED BY DEFAULT. The editor is the largest surface on the page and the
+  // one used least often: reading state, providers and performance is the common
+  // visit, editing the resolver config is rare and deliberate. Owner asked for it
+  // collapsed (2026-10-24). The header still shows whether there are UNSAVED
+  // changes while closed, so collapsing cannot hide a pending edit.
+  const [open, setOpen] = React.useState(false);
   const seededRef = React.useRef(false);
 
   // Seed ONCE, from the first read that carries the file. Re-seeding on every
@@ -140,15 +152,39 @@ export function ConfigEditorCard({
   };
 
   return (
-    <Card className={CARD_SHELL}>
-      <CardHeader className={cn(CARD_PAD, CARD_HEAD.ROOT)}>
-        <div className={CARD_HEAD.TITLES}>
-          <CardTitle className={CARD_TITLE}>{t(`${K}.config.title`)}</CardTitle>
-          <span className={CARD_HEAD.DESC}>{t(`${K}.config.description`)}</span>
-        </div>
-      </CardHeader>
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <Card className={CARD_SHELL}>
+        <CardHeader className={cn(CARD_PAD, CARD_HEAD.ROOT)}>
+          <CollapsibleTrigger asChild>
+            <button
+              type="button"
+              className="flex w-full items-start justify-between gap-3 text-left"
+              aria-label={t(`${K}.config.show_editor`)}
+            >
+              <div className={CARD_HEAD.TITLES}>
+                <CardTitle className={CARD_TITLE}>{t(`${K}.config.title`)}</CardTitle>
+                <span className={CARD_HEAD.DESC}>{t(`${K}.config.description`)}</span>
+              </div>
+              <span className="flex shrink-0 items-center gap-2">
+                {dirty ? (
+                  <span className="text-primary text-[0.6875rem] font-semibold uppercase tracking-[0.06em]">
+                    {t(`${K}.config.unsaved`)}
+                  </span>
+                ) : null}
+                <ChevronDownIcon
+                  aria-hidden="true"
+                  className={cn(
+                    "size-4 text-on-surface-variant transition-transform duration-200",
+                    open && "rotate-180",
+                  )}
+                />
+              </span>
+            </button>
+          </CollapsibleTrigger>
+        </CardHeader>
 
-      <CardContent className={cn(CARD_PAD, "flex flex-col gap-4")}>
+        <CollapsibleContent>
+          <CardContent className={cn(CARD_PAD, "flex flex-col gap-4")}>
         {isLoading && status === null ? (
           <Skeleton className="h-[22rem] w-full rounded-field" aria-hidden="true" />
         ) : deviceConfig === null ? (
@@ -228,7 +264,9 @@ export function ConfigEditorCard({
           </>
         }
       />
-    </Card>
+        </CollapsibleContent>
+      </Card>
+    </Collapsible>
   );
 }
 

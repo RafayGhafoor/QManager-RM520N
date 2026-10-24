@@ -564,7 +564,8 @@
         "not_applied": "Tidak diterapkan",
         "dropped": "Dikeluarkan",
         "none_dropped": "Tidak ada yang dikeluarkan."
-      }
+      },
+      "refreshing_hint": "{{seconds}} dtk berjalan · biasanya 40–60 dtk"
     },
     "test": {
       "title": "Penguji domain",
@@ -599,13 +600,14 @@
         "malformed_result": "Probe mengembalikan data yang tidak bisa dibaca halaman ini.",
         "transport": "Modem tidak menjawab permintaan.",
         "generic": "Uji domain gagal."
-      }
+      },
+      "running_hint": "{{seconds}} dtk berjalan · biasanya 30–40 dtk"
     },
     "perf": {
       "title": "Performa",
       "description": "Manfaat resolver ini. Tidak satu pun penghitung miliknya sendiri — setiap angka menyebut sumbernya.",
       "refresh": "Segarkan",
-    "hit_rate_note": "dnsmasq tidak melaporkan total kueri lokal pada firmware ini, jadi rasio cache tidak bisa dihitung tanpa mencatat kueri. Angkanya dibiarkan kosong, bukan ditaksir.",
+      "hit_rate_note": "dnsmasq tidak melaporkan total kueri lokal pada firmware ini, jadi rasio cache tidak bisa dihitung tanpa mencatat kueri. Angkanya dibiarkan kosong, bukan ditaksir.",
       "hit_rate": {
         "label": "Rasio cache",
         "source": "statistik cache dnsmasq"
@@ -660,88 +662,90 @@
       "unreadable_title": "Tidak bisa membaca konfigurasi",
       "unreadable_body": "Pembacaan status tidak membawa isi file. Segarkan, lalu sunting setelah terbaca.",
       "toast_saved": "Konfigurasi disimpan dan resolver dimulai ulang.",
-      "toast_error": "Tidak bisa menyimpan konfigurasi."
+      "toast_error": "Tidak bisa menyimpan konfigurasi.",
+      "show_editor": "Tampilkan editor konfigurasi"
     }
-  },    "ipPassthrough": {
-      "page": {
-        "title": "Passthrough IP",
-        "description": "Berikan alamat IP operator langsung ke router di belakang modem ini, bukan membagikannya lewat NAT."
-      },
-      "header": {
-        "refresh": "Segarkan"
-      },
-      "status": {
-        "label": "Passthrough",
-        "title": {
-          "off": "Nonaktif",
-          "active": "Aktif",
-          "pending": "Menunggu perangkat",
-          "off_pending": "Sedang dimatikan"
-        },
-        "blurb": {
-          "off": "Modem berbagi satu alamat dengan semua perangkat di LAN.",
-          "active": "IP operator diberikan ke {{mac}}. Modem ini tetap dapat dijangkau di alamat LAN-nya.",
-          "pending": "Diaktifkan, tetapi belum berjalan. Mulai begitu ada perangkat terhubung ke port LAN.",
-          "off_pending": "Masih aktif sampai modem di-reboot."
-        }
-      },
-      "card": {
-        "title": "Passthrough",
-        "description": "Mengaktifkan langsung diterapkan tanpa reboot. Menonaktifkan akan me-reboot modem.",
-        "apply": "Terapkan",
-        "discard": "Buang perubahan",
-        "unsaved_one": "{{count}} perubahan belum tersimpan",
-        "unsaved_other": "{{count}} perubahan belum tersimpan"
-      },
-      "groups": {
-        "passthrough": "Passthrough"
-      },
-      "rows": {
-        "mode": {
-          "label": "Passthrough IP"
-        }
-      },
-      "options": {
+  },
+  "ipPassthrough": {
+    "page": {
+      "title": "Passthrough IP",
+      "description": "Berikan alamat IP operator langsung ke router di belakang modem ini, bukan membagikannya lewat NAT."
+    },
+    "header": {
+      "refresh": "Segarkan"
+    },
+    "status": {
+      "label": "Passthrough",
+      "title": {
         "off": "Nonaktif",
-        "on": "Aktif"
+        "active": "Aktif",
+        "pending": "Menunggu perangkat",
+        "off_pending": "Sedang dimatikan"
       },
-      "mode_note": {
-        "rest": "Modem memilih perangkat sendiri: router yang terhubung ke port LAN-nya. Modem ini tetap dapat dijangkau di alamat LAN-nya.",
-        "to_on": "Diterapkan sekarang tanpa reboot. Router Anda mendapat IP operator dan mungkin tersambung ulang sejenak.",
-        "to_off": "Tersimpan. Tidak ada yang aktif, jadi tidak perlu reboot.",
-        "to_off_reboot": "Menonaktifkan akan me-reboot modem agar berlaku."
-      },
-      "dialog": {
-        "on": {
-          "title": "Aktifkan Passthrough IP?",
-          "body": "Router yang terhubung ke port LAN mendapat IP operator. Diterapkan sekarang tanpa reboot, dan koneksi Anda mungkin terputus sejenak.",
-          "confirm": "Aktifkan"
-        },
-        "off": {
-          "title": "Nonaktifkan Passthrough IP?",
-          "body": "Tersimpan. Tidak ada yang aktif, jadi tidak perlu reboot.",
-          "confirm": "Nonaktifkan"
-        },
-        "off_reboot": {
-          "title": "Nonaktifkan dan reboot?",
-          "body": "Passthrough yang berjalan baru hilang setelah modem di-reboot. Halaman ini beralih ke hitung mundur reboot dan mengeluarkan Anda dari sesi.",
-          "confirm": "Nonaktifkan dan reboot"
-        },
-        "cancel": "Batal"
-      },
-      "toast_apply_error": "Tidak dapat menerapkan pengaturan Passthrough IP",
-      "toast_active": "Passthrough IP aktif",
-      "toast_pending": "Tersimpan. Mulai begitu ada perangkat terhubung.",
-      "toast_off": "Passthrough IP nonaktif",
-      "errors": {
-        "read_title": "Tidak dapat membaca pengaturan passthrough",
-        "read_body": "Tidak ada yang diubah. Coba lagi, atau periksa apakah modem menjawab.",
-        "retry": "Coba lagi",
-        "card_unread": "Modem belum menjawab, jadi tidak ada yang dapat diubah sampai pembacaan pertama masuk.",
-        "no_changes": "Belum ada yang berubah.",
-        "many_clients": "Lebih dari satu perangkat terhubung. Passthrough hanya mengikat satu, yaitu yang terakhir terhubung."
+      "blurb": {
+        "off": "Modem berbagi satu alamat dengan semua perangkat di LAN.",
+        "active": "IP operator diberikan ke {{mac}}. Modem ini tetap dapat dijangkau di alamat LAN-nya.",
+        "pending": "Diaktifkan, tetapi belum berjalan. Mulai begitu ada perangkat terhubung ke port LAN.",
+        "off_pending": "Masih aktif sampai modem di-reboot."
       }
     },
+    "card": {
+      "title": "Passthrough",
+      "description": "Mengaktifkan langsung diterapkan tanpa reboot. Menonaktifkan akan me-reboot modem.",
+      "apply": "Terapkan",
+      "discard": "Buang perubahan",
+      "unsaved_one": "{{count}} perubahan belum tersimpan",
+      "unsaved_other": "{{count}} perubahan belum tersimpan"
+    },
+    "groups": {
+      "passthrough": "Passthrough"
+    },
+    "rows": {
+      "mode": {
+        "label": "Passthrough IP"
+      }
+    },
+    "options": {
+      "off": "Nonaktif",
+      "on": "Aktif"
+    },
+    "mode_note": {
+      "rest": "Modem memilih perangkat sendiri: router yang terhubung ke port LAN-nya. Modem ini tetap dapat dijangkau di alamat LAN-nya.",
+      "to_on": "Diterapkan sekarang tanpa reboot. Router Anda mendapat IP operator dan mungkin tersambung ulang sejenak.",
+      "to_off": "Tersimpan. Tidak ada yang aktif, jadi tidak perlu reboot.",
+      "to_off_reboot": "Menonaktifkan akan me-reboot modem agar berlaku."
+    },
+    "dialog": {
+      "on": {
+        "title": "Aktifkan Passthrough IP?",
+        "body": "Router yang terhubung ke port LAN mendapat IP operator. Diterapkan sekarang tanpa reboot, dan koneksi Anda mungkin terputus sejenak.",
+        "confirm": "Aktifkan"
+      },
+      "off": {
+        "title": "Nonaktifkan Passthrough IP?",
+        "body": "Tersimpan. Tidak ada yang aktif, jadi tidak perlu reboot.",
+        "confirm": "Nonaktifkan"
+      },
+      "off_reboot": {
+        "title": "Nonaktifkan dan reboot?",
+        "body": "Passthrough yang berjalan baru hilang setelah modem di-reboot. Halaman ini beralih ke hitung mundur reboot dan mengeluarkan Anda dari sesi.",
+        "confirm": "Nonaktifkan dan reboot"
+      },
+      "cancel": "Batal"
+    },
+    "toast_apply_error": "Tidak dapat menerapkan pengaturan Passthrough IP",
+    "toast_active": "Passthrough IP aktif",
+    "toast_pending": "Tersimpan. Mulai begitu ada perangkat terhubung.",
+    "toast_off": "Passthrough IP nonaktif",
+    "errors": {
+      "read_title": "Tidak dapat membaca pengaturan passthrough",
+      "read_body": "Tidak ada yang diubah. Coba lagi, atau periksa apakah modem menjawab.",
+      "retry": "Coba lagi",
+      "card_unread": "Modem belum menjawab, jadi tidak ada yang dapat diubah sampai pembacaan pertama masuk.",
+      "no_changes": "Belum ada yang berubah.",
+      "many_clients": "Lebih dari satu perangkat terhubung. Passthrough hanya mengikat satu, yaitu yang terakhir terhubung."
+    }
+  },
   "trafficEngine": {
     "page": {
       "title": "Mesin Lalu Lintas",

@@ -158,7 +158,12 @@ classify() {
 _domains=${_want_domains:-$PROBE_DOMAINS}
 [ -n "$_want_upstreams" ] && _only="$_want_upstreams" || _only=""
 
-_lg=$(live_group)
+# Space-joined on purpose: the membership test below is a space-delimited case
+# pattern, and a newline-separated list left every provider "not in group" because
+# only the final entry was ever followed by a space. That made the UI report
+# "Not in group" for all eight providers, and made the recommendation say
+# "rewrite" when the live block already matched.
+_lg=$(live_group | tr '\n' ' ')
 _tmpd=$(mktemp -d /tmp/qm_dnsprobe.XXXXXX 2>/dev/null) || exit 1
 trap 'rm -rf "$_tmpd"' EXIT INT TERM
 _rows="$_tmpd/rows"      # one JSON object per provider

@@ -564,7 +564,8 @@
         "not_applied": "未应用",
         "dropped": "已排除",
         "none_dropped": "没有排除任何上游。"
-      }
+      },
+      "refreshing_hint": "已用 {{seconds}} 秒 · 通常 40–60 秒"
     },
     "test": {
       "title": "域名测试",
@@ -599,13 +600,14 @@
         "malformed_result": "探测返回了页面无法读取的数据。",
         "transport": "设备没有响应请求。",
         "generic": "域名测试失败。"
-      }
+      },
+      "running_hint": "已用 {{seconds}} 秒 · 通常 30–40 秒"
     },
     "perf": {
       "title": "性能",
       "description": "解析器带来的收益。这些都不是它自己的计数器，每个数值都注明来源。",
       "refresh": "刷新",
-    "hit_rate_note": "本固件的 dnsmasq 不报告本地查询总数，因此不开启日志就无法计算命中率。该数值保持为空，而不是估算。",
+      "hit_rate_note": "本固件的 dnsmasq 不报告本地查询总数，因此不开启日志就无法计算命中率。该数值保持为空，而不是估算。",
       "hit_rate": {
         "label": "缓存命中率",
         "source": "dnsmasq 缓存统计"
@@ -660,88 +662,90 @@
       "unreadable_title": "无法读取配置",
       "unreadable_body": "读取结果中没有文件内容。请先刷新，读回后再编辑。",
       "toast_saved": "配置已保存，解析器已重启。",
-      "toast_error": "无法保存配置。"
+      "toast_error": "无法保存配置。",
+      "show_editor": "显示配置编辑器"
     }
-  },    "ipPassthrough": {
-      "page": {
-        "title": "IP 直通",
-        "description": "将运营商分配的 IP 地址直接交给此调制解调器后面的路由器，而不是通过 NAT 共享。"
+  },
+  "ipPassthrough": {
+    "page": {
+      "title": "IP 直通",
+      "description": "将运营商分配的 IP 地址直接交给此调制解调器后面的路由器，而不是通过 NAT 共享。"
+    },
+    "header": {
+      "refresh": "刷新"
+    },
+    "status": {
+      "label": "直通",
+      "title": {
+        "off": "已关闭",
+        "active": "已启用",
+        "pending": "等待设备",
+        "off_pending": "正在关闭"
       },
-      "header": {
-        "refresh": "刷新"
-      },
-      "status": {
-        "label": "直通",
-        "title": {
-          "off": "已关闭",
-          "active": "已启用",
-          "pending": "等待设备",
-          "off_pending": "正在关闭"
-        },
-        "blurb": {
-          "off": "调制解调器与局域网内所有设备共用一个地址。",
-          "active": "运营商 IP 已交给 {{mac}}。此调制解调器仍可通过其局域网地址访问。",
-          "pending": "已开启，但尚未生效。一旦有设备连接到局域网端口即会生效。",
-          "off_pending": "在调制解调器重启前仍然生效。"
-        }
-      },
-      "card": {
-        "title": "直通",
-        "description": "开启后立即生效，无需重启。关闭会重启调制解调器。",
-        "apply": "应用",
-        "discard": "放弃更改",
-        "unsaved_one": "{{count}} 项未保存的更改",
-        "unsaved_other": "{{count}} 项未保存的更改"
-      },
-      "groups": {
-        "passthrough": "直通"
-      },
-      "rows": {
-        "mode": {
-          "label": "IP 直通"
-        }
-      },
-      "options": {
-        "off": "关闭",
-        "on": "开启"
-      },
-      "mode_note": {
-        "rest": "调制解调器会自动选择设备：连接在其局域网端口上的路由器。此调制解调器仍可通过其局域网地址访问。",
-        "to_on": "立即生效，无需重启。你的路由器会获得运营商 IP，并可能短暂重新连接。",
-        "to_off": "已保存。当前没有生效的直通，因此无需重启。",
-        "to_off_reboot": "关闭需要重启调制解调器才能生效。"
-      },
-      "dialog": {
-        "on": {
-          "title": "开启 IP 直通？",
-          "body": "连接在局域网端口上的路由器将获得运营商 IP。立即生效，无需重启，你的连接可能短暂中断。",
-          "confirm": "开启"
-        },
-        "off": {
-          "title": "关闭 IP 直通？",
-          "body": "已保存。当前没有生效的直通，因此无需重启。",
-          "confirm": "关闭"
-        },
-        "off_reboot": {
-          "title": "关闭并重启？",
-          "body": "正在运行的直通只有在调制解调器重启后才会清除。本页面将转到重启倒计时并让你退出登录。",
-          "confirm": "关闭并重启"
-        },
-        "cancel": "取消"
-      },
-      "toast_apply_error": "无法应用 IP 直通设置",
-      "toast_active": "IP 直通已启用",
-      "toast_pending": "已保存。有设备连接后即会生效。",
-      "toast_off": "IP 直通已关闭",
-      "errors": {
-        "read_title": "无法读取直通设置",
-        "read_body": "未做任何更改。请重试，或检查调制解调器是否在响应。",
-        "retry": "重试",
-        "card_unread": "调制解调器尚未响应，在首次读取完成前没有可更改的内容。",
-        "no_changes": "尚未有任何更改。",
-        "many_clients": "已连接多台设备。直通只绑定一台，即最近连接的那台。"
+      "blurb": {
+        "off": "调制解调器与局域网内所有设备共用一个地址。",
+        "active": "运营商 IP 已交给 {{mac}}。此调制解调器仍可通过其局域网地址访问。",
+        "pending": "已开启，但尚未生效。一旦有设备连接到局域网端口即会生效。",
+        "off_pending": "在调制解调器重启前仍然生效。"
       }
     },
+    "card": {
+      "title": "直通",
+      "description": "开启后立即生效，无需重启。关闭会重启调制解调器。",
+      "apply": "应用",
+      "discard": "放弃更改",
+      "unsaved_one": "{{count}} 项未保存的更改",
+      "unsaved_other": "{{count}} 项未保存的更改"
+    },
+    "groups": {
+      "passthrough": "直通"
+    },
+    "rows": {
+      "mode": {
+        "label": "IP 直通"
+      }
+    },
+    "options": {
+      "off": "关闭",
+      "on": "开启"
+    },
+    "mode_note": {
+      "rest": "调制解调器会自动选择设备：连接在其局域网端口上的路由器。此调制解调器仍可通过其局域网地址访问。",
+      "to_on": "立即生效，无需重启。你的路由器会获得运营商 IP，并可能短暂重新连接。",
+      "to_off": "已保存。当前没有生效的直通，因此无需重启。",
+      "to_off_reboot": "关闭需要重启调制解调器才能生效。"
+    },
+    "dialog": {
+      "on": {
+        "title": "开启 IP 直通？",
+        "body": "连接在局域网端口上的路由器将获得运营商 IP。立即生效，无需重启，你的连接可能短暂中断。",
+        "confirm": "开启"
+      },
+      "off": {
+        "title": "关闭 IP 直通？",
+        "body": "已保存。当前没有生效的直通，因此无需重启。",
+        "confirm": "关闭"
+      },
+      "off_reboot": {
+        "title": "关闭并重启？",
+        "body": "正在运行的直通只有在调制解调器重启后才会清除。本页面将转到重启倒计时并让你退出登录。",
+        "confirm": "关闭并重启"
+      },
+      "cancel": "取消"
+    },
+    "toast_apply_error": "无法应用 IP 直通设置",
+    "toast_active": "IP 直通已启用",
+    "toast_pending": "已保存。有设备连接后即会生效。",
+    "toast_off": "IP 直通已关闭",
+    "errors": {
+      "read_title": "无法读取直通设置",
+      "read_body": "未做任何更改。请重试，或检查调制解调器是否在响应。",
+      "retry": "重试",
+      "card_unread": "调制解调器尚未响应，在首次读取完成前没有可更改的内容。",
+      "no_changes": "尚未有任何更改。",
+      "many_clients": "已连接多台设备。直通只绑定一台，即最近连接的那台。"
+    }
+  },
   "trafficEngine": {
     "page": {
       "title": "流量引擎",

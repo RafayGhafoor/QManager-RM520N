@@ -238,8 +238,23 @@ case "${1:-}" in
 
 apply-edge)
     _LEDGER_JSON=""
-    [ -x "$PROBE" ] || { out '{"ok":false,"error":"probe_missing"}'; exit 1; }
-    _j=$("$PROBE" --json 2>/dev/null)
+    # A probe report may arrive on stdin (the CGI already measured). Re-measuring
+    # here was the DOUBLE SWEEP: the caller ran the sweep to show the decision, then
+    # this ran it again to act on it — two full provider sweeps per click, roughly
+    # 2x the wait for identical data. Use the caller's report when it is a valid
+    # Contract-1 object; fall back to measuring only when run standalone (the timer
+    # does exactly that).
+    _j=""
+    if [ ! -t 0 ]; then
+        _stdin=$(cat 2>/dev/null)
+        case "$_stdin" in
+            *'"providers"'*) printf '%s' "$_stdin" | jq -e '.recommendation.action' >/dev/null 2>&1 && _j=$_stdin ;;
+        esac
+    fi
+    if [ -z "$_j" ]; then
+        [ -x "$PROBE" ] || { out '{"ok":false,"error":"probe_missing"}'; exit 1; }
+        _j=$("$PROBE" --json 2>/dev/null)
+    fi
     [ -n "$_j" ] || { out '{"ok":false,"error":"probe_failed"}'; exit 1; }
 
     if ! build_edge_candidate "$_j"; then
@@ -251,7 +266,7 @@ apply-edge)
     _LEDGER_JSON=$(printf '%s' "$_j" | jq -c --argjson now "$(date +%s)" \
         '{ts: $now, members: .recommendation.good, domains: .probe_domains,
           threshold_ms: .threshold_ms,
-          providers: [.providers[] | {short, quality_ms, verdict}]}')
+          providers: .providers}')
 
     if ! validate_candidate "$NEW"; then
         rm -f "$NEW"

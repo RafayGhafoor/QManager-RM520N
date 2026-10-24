@@ -59,6 +59,18 @@ DNS_SIDECAR="/tmp/qmanager_dns.json"
 STATUS_JSON="/tmp/qmanager_status.json"
 LOG="/tmp/smartdns.log"
 SYSLOG="/var/log/syslog"
+HIST="/tmp/qmanager_dns_stats_history.json"
+
+# --- range selection -------------------------------------------------------
+# The page charts a WINDOW, so the sampler's ring file is the primary input: a
+# single snapshot has no rate in it. Anything unrecognised falls back to 6 h rather
+# than erroring — a bad chart range is not a reason to lose the whole panel.
+_rsec=21600
+case "${QUERY_STRING:-}" in
+    *range=1h*)  _rsec=3600 ;;
+    *range=24h*) _rsec=86400 ;;
+    *range=6h*)  _rsec=21600 ;;
+esac
 
 # --- dnsmasq counters ------------------------------------------------------
 # SIGUSR1 makes dnsmasq print one summary block. We take the LAST block, because
@@ -149,9 +161,18 @@ fi
 # --- pool + blocked --------------------------------------------------------
 members=0
 if [ -f "$CONF" ]; then
-    _all=$(grep -c '^server ' "$CONF" 2>/dev/null); _all=${_all:-0}
-    _boot=$(grep '^server ' "$CONF" 2>/dev/null | grep -c 'bootstrap-dns'); _boot=${_boot:-0}
-    members=$(( _all - _boot ))
+    # Exclude the generated EDGE block and the bootstrap entries: the block
+    # RE-DECLARES providers already in the base pool, so counting it reported 11
+    # for an 8-provider pool and the card disagreed with the probe.
+    _n=$(awk '
+        /^# BEGIN QMANAGER-EDGE/ { inb = 1; next }
+        /^# END QMANAGER-EDGE/   { inb = 0; next }
+        inb { next }
+        /^server / && !/bootstrap-dns/ { c++ }
+        END { print c + 0 }
+    ' "$CONF" 2>/dev/null)
+    case "$_n" in ''|*[!0-9]*) _n=0 ;; esac
+    members=$_n
 fi
 errors=0
 if [ -f "$LOG" ]; then
@@ -163,6 +184,75 @@ if [ -f "$CONF" ]; then
 fi
 
 _now=$(date +%s)
+
+# --- history: the rate series ---------------------------------------------
+# Deltas are computed in awk rather than inside the final jq expression: the
+# arithmetic is the part a reader needs to check, and burying a
+# subtraction-and-scale inside 20 lines of JSON assembly hides it.
+#
+# NOTE ON A BUG THIS REPLACES: the first version of this file referenced
+# $hist/$hn/$rsec/... without ever assigning them (an edit applied the jq half but
+# not this half), so every --argjson received an empty string, jq exited with
+# "invalid JSON text passed to --argjson", and the endpoint returned HTTP 200 with
+# an EMPTY BODY — which the page renders as "couldn't read performance figures".
+# A 200 with no body is the worst failure shape: it looks like success at the
+# transport layer. Every block below has a default so it can never be empty.
+_hist='[]'
+if [ -f "$HIST" ]; then
+    _h=$(jq -c --argjson now "$_now" --argjson rsec "$_rsec" \
+        '[.[] | select((.ts // 0) >= ($now - $rsec))]' "$HIST" 2>/dev/null)
+    case "$_h" in \[*\]) _hist=$_h ;; esac
+fi
+_hn=$(printf '%s' "$_hist" | jq 'length' 2>/dev/null)
+case "$_hn" in ''|*[!0-9]*) _hn=0 ;; esac
+
+hist_ok=false
+win_sec=null; fwd_delta=null; fwd_per_min=null
+ins_delta=null; ins_per_min=null; ret_delta=null; hist_cache=null
+if [ "$_hn" -ge 2 ]; then
+    # [.[0], .[-1]][] is NOT the same as .[0, (.[-1])]: the latter indexes the array
+    # WITH 0 and the last element as KEYS, which jq rejects ("Array/string slice
+    # indices must be integers") and prints only the first row before failing, so
+    # every rate came out null and the card said "still collecting".
+    _rows=$(printf '%s' "$_hist" | jq -r '[.[0], .[-1]][]
+        | [(.ts // 0), (if .forwarded == null then "n" else (.forwarded|tostring) end),
+           (if .ins_total == null then "n" else (.ins_total|tostring) end),
+           (if .cache_size == null then "n" else (.cache_size|tostring) end)] | @tsv' 2>/dev/null)
+    _a=$(printf '%s\n' "$_rows" | sed -n '1p')
+    _b=$(printf '%s\n' "$_rows" | sed -n '2p')
+    if [ -n "$_a" ] && [ -n "$_b" ]; then
+        _calc=$(printf '%s\n%s\n' "$_a" "$_b" | awk -F'\t' '
+            NR==1 { t1=$1; f1=$2; i1=$3; cs=$4; next }
+            NR==2 {
+                dt=$1-t1; d="-"; pr="-"; di="-"; pi="-"
+                if ($2 != "n" && f1 != "n") { d=$2-f1; if (dt > 0) pr=sprintf("%.2f", d*60/dt) }
+                if ($3 != "n" && i1 != "n") { di=$3-i1; if (dt > 0) pi=sprintf("%.2f", di*60/dt) }
+                printf "%s %s %s %s %s %s\n", dt, d, pr, di, pi, $4
+            }')
+        set -- $_calc
+        win_sec=$1; fwd_delta=$2; fwd_per_min=$3
+        ins_delta=$4; ins_per_min=$5; hist_cache=$6
+        hist_ok=true
+        [ "$fwd_delta" = "-" ] && fwd_delta=null
+        [ "$fwd_per_min" = "-" ] && fwd_per_min=null
+        [ "$ins_delta" = "-" ] && ins_delta=null
+        [ "$ins_per_min" = "-" ] && ins_per_min=null
+        case "$hist_cache" in ''|n|*[!0-9]*) hist_cache=null ;; esac
+    fi
+fi
+# Last-resort guards: an --argjson with an empty value kills the whole payload.
+for _v in _hist; do :; done
+[ -n "${_hist:-}" ] || _hist='[]'
+[ -n "${_hn:-}" ] || _hn=0
+[ -n "${_rsec:-}" ] || _rsec=21600
+[ -n "${hist_ok:-}" ] || hist_ok=false
+[ -n "${win_sec:-}" ] || win_sec=null
+[ -n "${fwd_delta:-}" ] || fwd_delta=null
+[ -n "${fwd_per_min:-}" ] || fwd_per_min=null
+[ -n "${ins_delta:-}" ] || ins_delta=null
+[ -n "${ins_per_min:-}" ] || ins_per_min=null
+[ -n "${ret_delta:-}" ] || ret_delta=null
+[ -n "${hist_cache:-}" ] || hist_cache=null
 
 jq -n \
     --argjson sampled "$sampled" \
@@ -198,12 +288,13 @@ jq -n \
         sampled_at: $now,
         cache: {
             size: $csize,
-            insertions_reused: $reused,
-            insertions_total: $rtotal,
+            insertions: $rtotal,
+            reused: $reused,
+            evictions: null,
             answered_locally: $loc,
             hit_rate_pct: $hrate,
             source: "dnsmasq SIGUSR1 (front cache — the path clients actually take)",
-            note: "hit rate = answered locally / (forwarded + answered locally), from the dnsmasq counters"
+            note: "hit rate = answered locally / (forwarded + answered locally); insertions/reused come from the dnsmasq N/M line. Evictions is null on purpose: dnsmasq reports RE-USE of unexpired entries, not a separate eviction count, and inventing one would be a guess"
         },
         forwarding: {
             queries_forwarded: $fwdq,

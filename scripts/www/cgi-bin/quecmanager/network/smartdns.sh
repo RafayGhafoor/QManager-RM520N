@@ -89,20 +89,33 @@ edge_block() {
 
 edge_domains() {
     [ -f "$CONF" ] || { printf '[]'; return; }
+    # Extract the domain straight out of `nameserver /<domain>/<group>` with awk.
+    # The previous version regex-captured it through jq and over-escaped the
+    # slashes, so it matched nothing and the page showed an empty domain list even
+    # though three nameserver lines were live.
     awk '
-        /^# BEGIN QMANAGER-EDGE v1/ { inb = 1; next }
-        /^# END QMANAGER-EDGE v1/   { inb = 0; next }
-        inb && /^nameserver \// { print }
-    ' "$CONF" 2>/dev/null | jq -R -s -c 'split("\n") | map(select(length > 0)) | map(capture("/\\/(?<d>[^/]+)\\/").d)'
+        /^# BEGIN QMANAGER-EDGE/ { inb = 1; next }
+        /^# END QMANAGER-EDGE/   { inb = 0; next }
+        inb && /^nameserver \// { n = split($2, a, "/"); if (n >= 2 && a[2] != "") print a[2] }
+    ' "$CONF" 2>/dev/null | jq -R -s -c 'split("\n") | map(select(length > 0))'
 }
 
 # Number of upstreams that actually race for ordinary names. Bootstrap entries are
 # excluded: they exist to resolve the DoH hostnames themselves, not to answer.
 provider_count() {
     [ -f "$CONF" ] || { printf '0'; return; }
-    _all=$(grep -c '^server ' "$CONF" 2>/dev/null); _all=${_all:-0}
-    _boot=$(grep '^server ' "$CONF" 2>/dev/null | grep -c 'bootstrap-dns'); _boot=${_boot:-0}
-    printf '%s' "$(( _all - _boot ))"
+    # Exclude the generated EDGE block: it RE-DECLARES providers that are already in
+    # the base pool, so counting it reports 11 for an 8-provider pool (measured), and
+    # the page then disagrees with the probe, which skips the block.
+    _n=$(awk '
+        /^# BEGIN QMANAGER-EDGE/ { inb = 1; next }
+        /^# END QMANAGER-EDGE/   { inb = 0; next }
+        inb { next }
+        /^server / && !/bootstrap-dns/ { c++ }
+        END { print c + 0 }
+    ' "$CONF" 2>/dev/null)
+    case "$_n" in ''|*[!0-9]*) _n=0 ;; esac
+    printf '%s' "$_n"
 }
 
 blocked_count() {
@@ -154,13 +167,31 @@ build_status() {
 
     _members=$(edge_block); _domains=$(edge_domains)
     _last="null"
+    _measured="[]"
     # The helper stamps this on each successful refresh; absence means never run.
     if [ -f "$EDGE_LEDGER" ]; then
         _last=$(jq -r '.ts // "null"' "$EDGE_LEDGER" 2>/dev/null)
         case "$_last" in ''|*[!0-9]*) _last=null ;; esac
+        # The last full provider measurement, so the edge table is populated on
+        # first load instead of blank until someone presses Refresh. This is a
+        # STORED reading with a timestamp beside it, not a fresh probe: the card
+        # renders it as measured-since-boot, and `last_refresh` dates it.
+        _measured=$(jq -c '.providers // []' "$EDGE_LEDGER" 2>/dev/null)
+        case "$_measured" in \[*\]) ;; *) _measured="[]" ;; esac
     fi
 
     _tail=$(tail -6 "$LOG" 2>/dev/null | jq -R -s -c 'split("\n") | map(select(length > 0))')
+
+    # The config TEXT, because the editor needs it and no other endpoint returns it.
+    # This was a gap in the contract: `save` takes text, the page offers an editor,
+    # but the only reader returned metadata. The page therefore sat on its
+    # "could not read the config" state forever.
+    #
+    # --rawfile keeps the bytes verbatim (no shell newline stripping); an unreadable
+    # or missing file is swapped for /dev/null so jq still runs, and an empty read
+    # becomes null rather than "" so the UI can tell "empty file" from "no file".
+    _readconf="$CONF"
+    [ -r "$_readconf" ] || _readconf=/dev/null
 
     jq -n \
         --argjson enabled "$_running" \
@@ -179,7 +210,9 @@ build_status() {
         --argjson members "$_members" \
         --argjson domains "$_domains" \
         --argjson last "$_last" \
+        --argjson measured "$_measured" \
         --argjson tail "$_tail" \
+        --rawfile cfg "$_readconf" \
         '{
             success: true,
             enabled: $enabled,
@@ -191,6 +224,7 @@ build_status() {
             config_size: $size,
             config_mtime: $mtime,
             config_valid: null,
+            config: (if $cfg == "" then null else $cfg end),
             cache_size: $csize,
             cache_loaded: $cloaded,
             provider_count: $pcount,
@@ -200,7 +234,8 @@ build_status() {
                 mode: (if ($members | length) > 0 then "generated" else "none" end),
                 members: $members,
                 domains: $domains,
-                last_refresh: $last
+                last_refresh: $last,
+                measured: $measured
             },
             logs_tail: $tail
         }'
@@ -248,7 +283,10 @@ do_refresh_edges() {
         return
     fi
     _rec=$(printf '%s' "$_m" | jq -c '.recommendation // null' 2>/dev/null)
-    _res=$(qm_timeout 150 sudo -n "$APPLY" apply-edge 2>/dev/null </dev/null)
+    # Hand the measurement over instead of letting apply-edge repeat it: the sweep
+    # is the slow part (30-40 s), and running it twice per click is what made this
+    # feel stalled. apply-edge still measures on its own when the timer calls it.
+    _res=$(printf '%s' "$_m" | qm_timeout 150 sudo -n "$APPLY" apply-edge 2>/dev/null)
     _applied=false
     case "$_res" in *'"applied":false'*) _applied=false ;; *'"ok":true'*) _applied=true ;; esac
     jq -n --argjson rec "$_rec" --argjson applied "$_applied" --argjson providers \

@@ -27,6 +27,7 @@ import type { SmartDnsTestResponse } from "@/types/smartdns";
 import type { SmartDnsTestError } from "@/hooks/use-smartdns";
 
 import CardNotice from "./card-notice";
+import { ElapsedNote } from "./elapsed-note";
 import { formatNumber, sortByFastest } from "./format";
 import {
   CARD_HEAD,
@@ -168,6 +169,14 @@ export function TesterCard({
             )}
             {t(isTesting ? `${K}.test.running` : `${K}.test.run`)}
           </Button>
+
+            {/* Same reasoning as the edge refresh: 30-40 s, one request, no
+                progress to watch. Elapsed + measured range beats a bare spinner. */}
+            <ElapsedNote
+              running={isTesting}
+              estimateKey={`${K}.test.running_hint`}
+              className="text-on-surface-variant text-[0.75rem] tabular-nums"
+            />
         </form>
 
         {errorMessage ? (

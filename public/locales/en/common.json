@@ -564,7 +564,8 @@
         "not_applied": "Not applied",
         "dropped": "Dropped",
         "none_dropped": "Nothing was dropped."
-      }
+      },
+      "refreshing_hint": "{{seconds}}s elapsed · usually 40–60s"
     },
     "test": {
       "title": "Domain tester",
@@ -599,13 +600,14 @@
         "malformed_result": "The probe returned something the page cannot read.",
         "transport": "The modem did not answer the request.",
         "generic": "The domain test failed."
-      }
+      },
+      "running_hint": "{{seconds}}s elapsed · usually 30–40s"
     },
     "perf": {
       "title": "Performance",
       "description": "What the resolver buys. None of these are its own counters — each figure names its source.",
       "refresh": "Refresh",
-    "hit_rate_note": "dnsmasq reports no local-query total on this firmware, so a hit rate cannot be computed without query logging. The figure stays empty rather than estimated.",
+      "hit_rate_note": "dnsmasq reports no local-query total on this firmware, so a hit rate cannot be computed without query logging. The figure stays empty rather than estimated.",
       "hit_rate": {
         "label": "Cache hit rate",
         "source": "dnsmasq cache stats"
@@ -660,88 +662,90 @@
       "unreadable_title": "Couldn't read the config",
       "unreadable_body": "The status read carried no file text. Refresh, then edit once it is back.",
       "toast_saved": "Config saved and the resolver restarted.",
-      "toast_error": "Couldn't save the config."
+      "toast_error": "Couldn't save the config.",
+      "show_editor": "Show configuration editor"
     }
-  },    "ipPassthrough": {
-      "page": {
-        "title": "IP Passthrough",
-        "description": "Give the router behind this modem the carrier's IP address directly, instead of sharing it through NAT."
-      },
-      "header": {
-        "refresh": "Refresh"
-      },
-      "status": {
-        "label": "Passthrough",
-        "title": {
-          "off": "Off",
-          "active": "Active",
-          "pending": "Waiting for a device",
-          "off_pending": "Turning off"
-        },
-        "blurb": {
-          "off": "The modem shares one address with everything on the LAN.",
-          "active": "The carrier IP is handed to {{mac}}. This modem stays reachable at its LAN address.",
-          "pending": "On, but not active yet. It starts as soon as a device is connected to the LAN port.",
-          "off_pending": "Still active until the modem reboots."
-        }
-      },
-      "card": {
-        "title": "Passthrough",
-        "description": "Turning it on applies immediately with no reboot. Turning it off reboots the modem.",
-        "apply": "Apply",
-        "discard": "Discard changes",
-        "unsaved_one": "{{count}} unsaved change",
-        "unsaved_other": "{{count}} unsaved changes"
-      },
-      "groups": {
-        "passthrough": "Passthrough"
-      },
-      "rows": {
-        "mode": {
-          "label": "IP Passthrough"
-        }
-      },
-      "options": {
+  },
+  "ipPassthrough": {
+    "page": {
+      "title": "IP Passthrough",
+      "description": "Give the router behind this modem the carrier's IP address directly, instead of sharing it through NAT."
+    },
+    "header": {
+      "refresh": "Refresh"
+    },
+    "status": {
+      "label": "Passthrough",
+      "title": {
         "off": "Off",
-        "on": "On"
+        "active": "Active",
+        "pending": "Waiting for a device",
+        "off_pending": "Turning off"
       },
-      "mode_note": {
-        "rest": "The modem picks the device by itself: the router connected to its LAN port. This modem stays reachable at its LAN address.",
-        "to_on": "Applies now with no reboot. Your router gets the carrier IP and may reconnect for a moment.",
-        "to_off": "Saved. Nothing is active, so no reboot is needed.",
-        "to_off_reboot": "Turning it off reboots the modem to take effect."
-      },
-      "dialog": {
-        "on": {
-          "title": "Turn on IP Passthrough?",
-          "body": "The router connected to the LAN port gets the carrier IP. It applies now, with no reboot, and your connection may drop for a moment.",
-          "confirm": "Turn on"
-        },
-        "off": {
-          "title": "Turn off IP Passthrough?",
-          "body": "Saved. Nothing is active, so no reboot is needed.",
-          "confirm": "Turn off"
-        },
-        "off_reboot": {
-          "title": "Turn off and reboot?",
-          "body": "A running passthrough only clears when the modem reboots. This page hands off to the reboot countdown and signs you out.",
-          "confirm": "Turn off and reboot"
-        },
-        "cancel": "Cancel"
-      },
-      "toast_apply_error": "Couldn't apply the IP Passthrough setting",
-      "toast_active": "IP Passthrough is active",
-      "toast_pending": "Saved. It starts once a device is connected.",
-      "toast_off": "IP Passthrough is off",
-      "errors": {
-        "read_title": "Couldn't read the passthrough setting",
-        "read_body": "Nothing has been changed. Try again, or check that the modem is answering.",
-        "retry": "Retry",
-        "card_unread": "The modem hasn't answered yet, so there is nothing to change until the first read lands.",
-        "no_changes": "Nothing has changed yet.",
-        "many_clients": "More than one device is connected. Passthrough binds one, the most recently connected."
+      "blurb": {
+        "off": "The modem shares one address with everything on the LAN.",
+        "active": "The carrier IP is handed to {{mac}}. This modem stays reachable at its LAN address.",
+        "pending": "On, but not active yet. It starts as soon as a device is connected to the LAN port.",
+        "off_pending": "Still active until the modem reboots."
       }
     },
+    "card": {
+      "title": "Passthrough",
+      "description": "Turning it on applies immediately with no reboot. Turning it off reboots the modem.",
+      "apply": "Apply",
+      "discard": "Discard changes",
+      "unsaved_one": "{{count}} unsaved change",
+      "unsaved_other": "{{count}} unsaved changes"
+    },
+    "groups": {
+      "passthrough": "Passthrough"
+    },
+    "rows": {
+      "mode": {
+        "label": "IP Passthrough"
+      }
+    },
+    "options": {
+      "off": "Off",
+      "on": "On"
+    },
+    "mode_note": {
+      "rest": "The modem picks the device by itself: the router connected to its LAN port. This modem stays reachable at its LAN address.",
+      "to_on": "Applies now with no reboot. Your router gets the carrier IP and may reconnect for a moment.",
+      "to_off": "Saved. Nothing is active, so no reboot is needed.",
+      "to_off_reboot": "Turning it off reboots the modem to take effect."
+    },
+    "dialog": {
+      "on": {
+        "title": "Turn on IP Passthrough?",
+        "body": "The router connected to the LAN port gets the carrier IP. It applies now, with no reboot, and your connection may drop for a moment.",
+        "confirm": "Turn on"
+      },
+      "off": {
+        "title": "Turn off IP Passthrough?",
+        "body": "Saved. Nothing is active, so no reboot is needed.",
+        "confirm": "Turn off"
+      },
+      "off_reboot": {
+        "title": "Turn off and reboot?",
+        "body": "A running passthrough only clears when the modem reboots. This page hands off to the reboot countdown and signs you out.",
+        "confirm": "Turn off and reboot"
+      },
+      "cancel": "Cancel"
+    },
+    "toast_apply_error": "Couldn't apply the IP Passthrough setting",
+    "toast_active": "IP Passthrough is active",
+    "toast_pending": "Saved. It starts once a device is connected.",
+    "toast_off": "IP Passthrough is off",
+    "errors": {
+      "read_title": "Couldn't read the passthrough setting",
+      "read_body": "Nothing has been changed. Try again, or check that the modem is answering.",
+      "retry": "Retry",
+      "card_unread": "The modem hasn't answered yet, so there is nothing to change until the first read lands.",
+      "no_changes": "Nothing has changed yet.",
+      "many_clients": "More than one device is connected. Passthrough binds one, the most recently connected."
+    }
+  },
   "trafficEngine": {
     "page": {
       "title": "Traffic Engine",

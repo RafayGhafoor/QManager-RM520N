@@ -564,7 +564,8 @@
         "not_applied": "未套用",
         "dropped": "已排除",
         "none_dropped": "沒有排除任何上游。"
-      }
+      },
+      "refreshing_hint": "已用 {{seconds}} 秒 · 通常 40–60 秒"
     },
     "test": {
       "title": "網域測試",
@@ -599,13 +600,14 @@
         "malformed_result": "探測回傳了頁面無法讀取的資料。",
         "transport": "裝置沒有回應請求。",
         "generic": "網域測試失敗。"
-      }
+      },
+      "running_hint": "已用 {{seconds}} 秒 · 通常 30–40 秒"
     },
     "perf": {
       "title": "效能",
       "description": "解析器帶來的效益。這些都不是它自己的計數器，每個數值都註明來源。",
       "refresh": "重新整理",
-    "hit_rate_note": "本韌件的 dnsmasq 不回報本地查詢總數，因此不開啟日誌就無法計算命中率。該數值保持為空，而不是估計。",
+      "hit_rate_note": "本韌件的 dnsmasq 不回報本地查詢總數，因此不開啟日誌就無法計算命中率。該數值保持為空，而不是估計。",
       "hit_rate": {
         "label": "快取命中率",
         "source": "dnsmasq 快取統計"
@@ -660,88 +662,90 @@
       "unreadable_title": "無法讀取設定",
       "unreadable_body": "讀取結果中沒有檔案內容。請先重新整理，讀回後再編輯。",
       "toast_saved": "設定已儲存，解析器已重新啟動。",
-      "toast_error": "無法儲存設定。"
+      "toast_error": "無法儲存設定。",
+      "show_editor": "顯示設定編輯器"
     }
-  },    "ipPassthrough": {
-      "page": {
-        "title": "IP 直通",
-        "description": "將電信業者配發的 IP 位址直接交給這台數據機後方的路由器，而不是透過 NAT 共用。"
+  },
+  "ipPassthrough": {
+    "page": {
+      "title": "IP 直通",
+      "description": "將電信業者配發的 IP 位址直接交給這台數據機後方的路由器，而不是透過 NAT 共用。"
+    },
+    "header": {
+      "refresh": "重新整理"
+    },
+    "status": {
+      "label": "直通",
+      "title": {
+        "off": "已關閉",
+        "active": "已啟用",
+        "pending": "等待裝置",
+        "off_pending": "正在關閉"
       },
-      "header": {
-        "refresh": "重新整理"
-      },
-      "status": {
-        "label": "直通",
-        "title": {
-          "off": "已關閉",
-          "active": "已啟用",
-          "pending": "等待裝置",
-          "off_pending": "正在關閉"
-        },
-        "blurb": {
-          "off": "數據機與區域網路內所有裝置共用一個位址。",
-          "active": "電信業者 IP 已交給 {{mac}}。這台數據機仍可透過其區域網路位址連線。",
-          "pending": "已開啟，但尚未生效。一有裝置連接到區域網路連接埠就會生效。",
-          "off_pending": "在數據機重新啟動前仍然生效。"
-        }
-      },
-      "card": {
-        "title": "直通",
-        "description": "開啟後立即生效，無需重新啟動。關閉會重新啟動數據機。",
-        "apply": "套用",
-        "discard": "捨棄變更",
-        "unsaved_one": "{{count}} 項未儲存的變更",
-        "unsaved_other": "{{count}} 項未儲存的變更"
-      },
-      "groups": {
-        "passthrough": "直通"
-      },
-      "rows": {
-        "mode": {
-          "label": "IP 直通"
-        }
-      },
-      "options": {
-        "off": "關閉",
-        "on": "開啟"
-      },
-      "mode_note": {
-        "rest": "數據機會自動選擇裝置：連接在其區域網路連接埠上的路由器。這台數據機仍可透過其區域網路位址連線。",
-        "to_on": "立即生效，無需重新啟動。您的路由器會取得電信業者 IP，並可能短暫重新連線。",
-        "to_off": "已儲存。目前沒有生效的直通，因此無需重新啟動。",
-        "to_off_reboot": "關閉需要重新啟動數據機才會生效。"
-      },
-      "dialog": {
-        "on": {
-          "title": "開啟 IP 直通？",
-          "body": "連接在區域網路連接埠上的路由器將取得電信業者 IP。立即生效，無需重新啟動，您的連線可能短暫中斷。",
-          "confirm": "開啟"
-        },
-        "off": {
-          "title": "關閉 IP 直通？",
-          "body": "已儲存。目前沒有生效的直通，因此無需重新啟動。",
-          "confirm": "關閉"
-        },
-        "off_reboot": {
-          "title": "關閉並重新啟動？",
-          "body": "執行中的直通只有在數據機重新啟動後才會清除。本頁面會轉到重啟倒數並將您登出。",
-          "confirm": "關閉並重新啟動"
-        },
-        "cancel": "取消"
-      },
-      "toast_apply_error": "無法套用 IP 直通設定",
-      "toast_active": "IP 直通已啟用",
-      "toast_pending": "已儲存。有裝置連接後就會生效。",
-      "toast_off": "IP 直通已關閉",
-      "errors": {
-        "read_title": "無法讀取直通設定",
-        "read_body": "未做任何變更。請再試一次，或確認數據機是否有回應。",
-        "retry": "重試",
-        "card_unread": "數據機尚未回應，在首次讀取完成前沒有可變更的內容。",
-        "no_changes": "尚未有任何變更。",
-        "many_clients": "已連接多台裝置。直通只綁定一台，即最近連接的那台。"
+      "blurb": {
+        "off": "數據機與區域網路內所有裝置共用一個位址。",
+        "active": "電信業者 IP 已交給 {{mac}}。這台數據機仍可透過其區域網路位址連線。",
+        "pending": "已開啟，但尚未生效。一有裝置連接到區域網路連接埠就會生效。",
+        "off_pending": "在數據機重新啟動前仍然生效。"
       }
     },
+    "card": {
+      "title": "直通",
+      "description": "開啟後立即生效，無需重新啟動。關閉會重新啟動數據機。",
+      "apply": "套用",
+      "discard": "捨棄變更",
+      "unsaved_one": "{{count}} 項未儲存的變更",
+      "unsaved_other": "{{count}} 項未儲存的變更"
+    },
+    "groups": {
+      "passthrough": "直通"
+    },
+    "rows": {
+      "mode": {
+        "label": "IP 直通"
+      }
+    },
+    "options": {
+      "off": "關閉",
+      "on": "開啟"
+    },
+    "mode_note": {
+      "rest": "數據機會自動選擇裝置：連接在其區域網路連接埠上的路由器。這台數據機仍可透過其區域網路位址連線。",
+      "to_on": "立即生效，無需重新啟動。您的路由器會取得電信業者 IP，並可能短暫重新連線。",
+      "to_off": "已儲存。目前沒有生效的直通，因此無需重新啟動。",
+      "to_off_reboot": "關閉需要重新啟動數據機才會生效。"
+    },
+    "dialog": {
+      "on": {
+        "title": "開啟 IP 直通？",
+        "body": "連接在區域網路連接埠上的路由器將取得電信業者 IP。立即生效，無需重新啟動，您的連線可能短暫中斷。",
+        "confirm": "開啟"
+      },
+      "off": {
+        "title": "關閉 IP 直通？",
+        "body": "已儲存。目前沒有生效的直通，因此無需重新啟動。",
+        "confirm": "關閉"
+      },
+      "off_reboot": {
+        "title": "關閉並重新啟動？",
+        "body": "執行中的直通只有在數據機重新啟動後才會清除。本頁面會轉到重啟倒數並將您登出。",
+        "confirm": "關閉並重新啟動"
+      },
+      "cancel": "取消"
+    },
+    "toast_apply_error": "無法套用 IP 直通設定",
+    "toast_active": "IP 直通已啟用",
+    "toast_pending": "已儲存。有裝置連接後就會生效。",
+    "toast_off": "IP 直通已關閉",
+    "errors": {
+      "read_title": "無法讀取直通設定",
+      "read_body": "未做任何變更。請再試一次，或確認數據機是否有回應。",
+      "retry": "重試",
+      "card_unread": "數據機尚未回應，在首次讀取完成前沒有可變更的內容。",
+      "no_changes": "尚未有任何變更。",
+      "many_clients": "已連接多台裝置。直通只綁定一台，即最近連接的那台。"
+    }
+  },
   "trafficEngine": {
     "page": {
       "title": "流量引擎",

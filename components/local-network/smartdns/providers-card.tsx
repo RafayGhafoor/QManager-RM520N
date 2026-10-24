@@ -32,6 +32,7 @@ import type {
 } from "@/types/smartdns";
 
 import CardNotice from "./card-notice";
+import { ElapsedNote } from "./elapsed-note";
 import { formatMoment, formatNumber, shortUpstream } from "./format";
 import {
   CARD_HEAD,
@@ -208,7 +209,15 @@ export function ProvidersCard({
 }: ProvidersCardProps) {
   const { t, i18n } = useTranslation("common");
 
-  const rows = buildRows(status, recommendation, lastTest, recommendation?.providers);
+  // Precedence: a fresh refresh reply beats the STORED measurement, which beats
+  // nothing. The stored rows are what keep the table populated on first load —
+  // the algorithm already measured them, they just were not being returned.
+  const rows = buildRows(
+    status,
+    recommendation,
+    lastTest,
+    recommendation?.providers ?? status?.edge?.measured ?? undefined,
+  );
   const mode = status?.edge?.mode ?? null;
 
   return (
@@ -239,6 +248,15 @@ export function ProvidersCard({
                 : `${K}.providers.refresh`,
             )}
           </Button>
+
+            {/* A sweep is 40-60 s on this device and there is no server-side
+                progress to subscribe to, so show elapsed time + the measured
+                range instead of an unexplained spinner. */}
+            <ElapsedNote
+              running={isRefreshing}
+              estimateKey={`${K}.providers.refreshing_hint`}
+              className="text-on-surface-variant text-[0.75rem] tabular-nums"
+            />
         </div>
       </CardHeader>
 
