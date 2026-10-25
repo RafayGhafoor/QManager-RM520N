@@ -58,6 +58,17 @@ patch_file() {
     f="$1"
     [ -f "$f" ] || return 0
     [ -L "$f" ] && return 0
+    # NEVER patch this script itself. It lives in $QM_ROOT/bin, so the bin/* loop
+    # below reaches it, and its own SEDARGS contain the very patterns it rewrites:
+    # after one run its rules read `/usrdata/qmanager/lib -> /usrdata/qmanager/lib`
+    # and `/etc/systemd/system -> /etc/systemd/system`, i.e. no-ops. Measured
+    # 2026-10-25 on the live install: the deployed qm_pathfix.sh had become a
+    # no-op, so a redeployed qmanager_tower_schedule_arm still carried
+    # UNIT_DIR=/lib/systemd/system (unwritable) and arming silently failed. Every
+    # later deploy then relocates nothing.
+    case "$f" in
+        */qm_pathfix.sh) return 0 ;;
+    esac
     magic=$(head -c 2 "$f" 2>/dev/null)
     if [ "$magic" != "#!" ] && [ "${f##*.}" != "sh" ]; then
         skipped=$((skipped + 1))

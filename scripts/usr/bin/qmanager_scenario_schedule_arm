@@ -50,6 +50,24 @@ case "$action" in
     *) printf '{"success":false,"error":"invalid_action","detail":"action must be install or teardown"}\n'; exit 1 ;;
 esac
 
+# --- Serialize arm against teardown -----------------------------------------
+# Same overlap hazard as qmanager_tower_schedule_arm: scenario schedules are
+# armed when a profile becomes active, which can coincide with the previous
+# profile's teardown. One lock file is shared by the whole schedule family.
+# BusyBox flock has no -w, so poll -x -n (the qcmd idiom), for up to 30 s — see
+# the longer note in qmanager_tower_schedule_arm. Failure to take it is not
+# fatal: proceed unlocked (logged) rather than refusing an arm.
+SCHED_LOCK=/tmp/qmanager_schedule_arm.lock
+exec 9>"$SCHED_LOCK" 2>/dev/null
+_lock_tries=0
+while [ "$_lock_tries" -lt 30 ]; do
+    flock -x -n 9 2>/dev/null && break
+    _lock_tries=$((_lock_tries + 1))
+    sleep 1
+done
+[ "$_lock_tries" -ge 30 ] && \
+    logger -t qmanager "schedule arm: proceeding unlocked (contention > 30 s)" 2>/dev/null
+
 # Missing-unit no-op: a device that predates the .service this timer targets
 # (older OTA base) has nothing to schedule against. Report success so the
 # caller still lands cleanly instead of surfacing a hard error.

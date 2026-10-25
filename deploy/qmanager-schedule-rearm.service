@@ -1,0 +1,18 @@
+# /etc/systemd/system/qmanager-schedule-rearm.service
+#
+# Runs deploy/qm_schedule_rearm.sh once per boot, to restart the timers that the
+# arm helpers created at save time — this firmware drops them from the boot
+# transaction even though they carry a timers.target.wants symlink (see the
+# script header for the measurement, and AGENTS.md Hard rule 6).
+#
+# No [Install] section: it is started from /etc/init.d/turin_web.sh by
+# deploy/qm_boot_hook.sh (UNITS), which is the only boot path proven to run on
+# this device. `systemctl enable` would read "enabled" and never execute.
+[Unit]
+Description=QManager schedule rearm (restart armed schedules after boot)
+After=systemd-tmpfiles-setup.service
+
+[Service]
+Type=oneshot
+ExecStart=/usrdata/qmanager/bin/qm_schedule_rearm.sh
+RemainAfterExit=no

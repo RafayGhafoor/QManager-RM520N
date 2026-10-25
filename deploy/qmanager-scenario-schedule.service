@@ -1,0 +1,18 @@
+# /etc/systemd/system/qmanager-scenario-schedule.service
+#
+# Deploy-layer copy of scripts/etc/systemd/system/qmanager-scenario-schedule.service,
+# ExecStart repointed at /usrdata/qmanager/bin. Same defect class as the
+# tower-schedule pair: qmanager_scenario_schedule_arm returns
+# {"armed":false,"reason":"unit_absent"} unless this file exists, so a saved
+# Connection Scenario schedule could never fire.
+[Unit]
+Description=QManager scenario schedule apply (triggered by qmanager-scenario-schedule.timer)
+
+[Service]
+Type=oneshot
+ExecStart=/usrdata/qmanager/bin/qmanager_scenario_schedule --now
+
+# No [Install] section — this unit is only ever started by
+# qmanager-scenario-schedule.timer, never boot-enabled directly. That .timer
+# is generated and armed at runtime by qmanager_scenario_schedule_arm whenever
+# a profile with an enabled scenario schedule becomes active.

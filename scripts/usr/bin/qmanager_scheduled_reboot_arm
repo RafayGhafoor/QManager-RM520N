@@ -64,6 +64,24 @@ case "$action" in
     *) printf '{"success":false,"error":"invalid_action","detail":"action must be install or teardown"}\n'; exit 1 ;;
 esac
 
+# --- Serialize arm against teardown -----------------------------------------
+# Same overlap hazard as qmanager_tower_schedule_arm: the UI writes on every
+# edit, so a save can race another save's teardown and report arm_failed after
+# tearing its own unit down. One lock file is shared by the whole schedule
+# family. BusyBox flock has no -w, so poll -x -n (the qcmd idiom), for up to
+# 30 s — see the longer note in qmanager_tower_schedule_arm. Failure to take it
+# is not fatal: proceed unlocked (logged) rather than refusing a save.
+SCHED_LOCK=/tmp/qmanager_schedule_arm.lock
+exec 9>"$SCHED_LOCK" 2>/dev/null
+_lock_tries=0
+while [ "$_lock_tries" -lt 30 ]; do
+    flock -x -n 9 2>/dev/null && break
+    _lock_tries=$((_lock_tries + 1))
+    sleep 1
+done
+[ "$_lock_tries" -ge 30 ] && \
+    logger -t qmanager "schedule arm: proceeding unlocked (contention > 30 s)" 2>/dev/null
+
 teardown_unit() {
     systemctl stop "$UNIT" 2>/dev/null || true
     rm -f "$WANTS_DIR/$UNIT" 2>/dev/null

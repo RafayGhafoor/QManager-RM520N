@@ -1,0 +1,16 @@
+# /etc/systemd/system/qmanager-tower-schedule-clear.service
+#
+# Deploy-layer copy of scripts/etc/systemd/system/qmanager-tower-schedule-clear.service,
+# ExecStart repointed at /usrdata/qmanager/bin. See the apply-unit header for why
+# the pair must be shipped for the runtime-armed timers to be allowed to arm.
+[Unit]
+Description=QManager tower lock schedule clear (triggered by qmanager-tower-schedule-clear.timer)
+
+[Service]
+Type=oneshot
+ExecStart=/usrdata/qmanager/bin/qmanager_tower_schedule clear
+
+# No [Install] section — this unit is only ever started by
+# qmanager-tower-schedule-clear.timer, never boot-enabled directly. That
+# .timer is generated and armed at runtime by qmanager_tower_schedule_arm.
+# Its sibling is qmanager-tower-schedule-apply.service.

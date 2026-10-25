@@ -66,6 +66,37 @@ case "$action" in
     *) printf '{"success":false,"error":"invalid_action","detail":"action must be install or teardown"}\n'; exit 1 ;;
 esac
 
+# --- Serialize arm against teardown -----------------------------------------
+# The UI writes on every edit, so two invocations can overlap: a save racing
+# another save's teardown, or a toggle-off landing between a save's write and
+# its post-write symlink check. Both write the same two .timer files and the
+# same two timers.target.wants symlinks, so the loser sees the winner's removal,
+# reports arm_failed — and its own failure path tears BOTH timers down, leaving
+# the config enabled and nothing armed. Reproduced 2026-10-25 on the O5A with
+# three interleaved install/teardown pairs: all three installs returned
+# {"success":false,"error":"arm_failed"}, which the UI shows as "Saved, but
+# the schedule isn't armed".
+#
+# One lock for the whole schedule family (this helper, the scheduled-reboot and
+# scenario-schedule helpers) so cross-feature saves serialize too — they write
+# different unit names, so this is belt-and-braces, not a requirement.
+# BusyBox flock has no -w, so poll -x -n (the idiom qcmd and apn_apply.sh use).
+# Wait up to 30 s: eight overlapping saves on this helper serialize to ~16 s, and
+# a 10 s cap was measured letting the tail-enders through unlocked together (three
+# processes took the lock in the same second; two then failed). A lock that still
+# cannot be taken is not fatal — proceed unlocked (the old behaviour, logged)
+# rather than refusing a save outright.
+SCHED_LOCK=/tmp/qmanager_schedule_arm.lock
+exec 9>"$SCHED_LOCK" 2>/dev/null
+_lock_tries=0
+while [ "$_lock_tries" -lt 30 ]; do
+    flock -x -n 9 2>/dev/null && break
+    _lock_tries=$((_lock_tries + 1))
+    sleep 1
+done
+[ "$_lock_tries" -ge 30 ] && \
+    logger -t qmanager "schedule arm: proceeding unlocked (contention > 30 s)" 2>/dev/null
+
 teardown_all() {
     for u in "$UNIT_APPLY" "$UNIT_CLEAR"; do
         systemctl stop "$u" 2>/dev/null || true

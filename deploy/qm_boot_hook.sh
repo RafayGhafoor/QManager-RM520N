@@ -55,10 +55,22 @@ MODE=${1:-apply}
 # Units started at boot. Adding to this list is the ONLY change needed to bring
 # a new QManager unit up at boot — the hook is additive, so an already-hooked
 # device picks up the new line without losing the existing ones.
+#
+# qmanager-schedule-rearm.service is a oneshot that restarts the timers the
+# scheduled features created at save time (Tower Lock schedule, scheduled
+# reboot, scenario schedules, unattended update). Those `.timer` files and their
+# timers.target.wants symlinks persist on /etc, but this firmware's boot
+# transaction cannot be trusted to pull them in (Hard rule 6), so the proven path
+# is the same one this hook uses for everything else. Without the rearm an armed
+# schedule simply stops firing at the next reboot.
+# (Do not use gp-tls-renew.timer as a counter-example either way: it reads
+# `inactive` after boot because it is MASKED in the product repo — symlinked to
+# /dev/null — not because timers.target.wants is ignored.)
+# See deploy/qm_schedule_rearm.sh.
 UNITS="qmanager-httpd.service qmanager-poller.service qmanager-ping.service
 qmanager-dpi.service qmanager-dpi-ensure.timer qmanager-ippt.service
 qmanager-dns.service qmanager-dns-edge.timer qmanager-dns-stats.timer
-qmanager-traffic.service"
+qmanager-traffic.service qmanager-schedule-rearm.service"
 
 [ -f "$TURIN" ] || { echo "ERROR: $TURIN not found" >&2; exit 1; }
 

@@ -183,7 +183,8 @@ already caused a failed install:
    `start_service_async` lines via `deploy/qm_boot_hook.sh` — the list lives in
    that script's `UNITS` variable and is the only place to add one (currently
    httpd, poller, ping, dpi, the dpi-ensure timer, the IP Passthrough re-apply
-   unit, the three DNS units and the Live Traffic sampler; idempotent and
+   unit, the three DNS units, the Live Traffic sampler and the schedule re-arm;
+   idempotent and
    additive, anchored on `systemctl daemon-reload`, one-time backup kept as
    `.pre-qmanager`). Add new boot-started units there, not by shipping a copy of
    the script.

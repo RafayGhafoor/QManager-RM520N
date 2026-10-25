@@ -1024,6 +1024,110 @@ succeeded**.
 
 ---
 
+## Deploying this on the GreenPacket O5A Pro (RG520N-EB)
+
+> **Scope: RG520N, measured 2026-10-25 on the live install.** The mechanism above
+> is unchanged; three deployment facts differ from the reference image, and each
+> one by itself makes a schedule save without arming. Two of them were live bugs
+> on this deployment until this date.
+
+### 1. The oneshot `.service` each timer triggers must be **shipped**
+
+Upstream installs `qmanager-tower-schedule-{apply,clear}.service`,
+`qmanager-scheduled-reboot.service` and `qmanager-scenario-schedule.service` into
+`/lib/systemd/system` as part of the installer's unit set. This branch's deploy
+did not — it ships only the units QManager needs *at boot*. Each arm helper
+opens with a presence test on that `.service` (`[ ! -f "$UNIT_DIR/$SERVICE" ]`)
+and answers
+
+```json
+{"success":true,"armed":false,"reason":"unit_absent"}
+```
+
+The CGI writes the `schedule` block to `/etc/qmanager/tower_lock.json` either
+way, so the UI shows *"Saved, but the schedule isn't armed: the scheduling
+service isn't installed on this device yet — update to the latest firmware"* —
+which is a firmware-shaped message for a **missing deployment artefact**. Measured
+before the fix, as root, on the live device:
+
+```
+/usrdata/qmanager/bin/qmanager_tower_schedule_arm install 02:00 03:00 0,1,2,3,4,5,6
+{"success":true,"armed":false,"reason":"unit_absent"}
+/usrdata/qmanager/bin/qmanager_scheduled_reboot_arm install 04:00 0,1,2,3,4,5,6
+{"success":true,"armed":false,"reason":"unit_absent"}
+```
+
+The same test after the units were installed returned
+`{"success":true,"armed":true,"reason":""}` and `systemctl list-timers` showed
+both `qmanager-tower-schedule-*.timer` units with a real `NEXT`.
+
+**Fix:** `deploy/qmanager-tower-schedule-{apply,clear}.service`,
+`deploy/qmanager-scheduled-reboot.service`, `deploy/qmanager-scenario-schedule.service`,
+`deploy/qmanager-auto-update.{service,timer}`, installed to `/etc/systemd/system`
+by `deploy/qm_schedule_units.sh` (deploy/README.md step 5e). Their `ExecStart=`
+already carries `/usrdata/qmanager/bin/...` because **`qm_pathfix.sh` never
+rewrites `/etc/systemd/system`** — it only patches the deployed `/usrdata` tree.
+
+### 2. The timers need a boot re-arm (`qmanager-schedule-rearm.service`)
+
+This firmware builds PID 1's first transaction before the ubifs `/etc` overlay is
+visible (AGENTS.md Hard rule 6), so a unit's `timers.target.wants` symlink cannot
+be trusted to start it. Measured 2026-10-25: an armed tower-schedule pair became
+active at boot **only** because `qm_boot_hook.sh` lists
+`qmanager-schedule-rearm.service`, which runs once per boot and restarts every
+timer whose `timers.target.wants` symlink exists (the symlink is the *armed*
+marker — the `.timer` file alone is not, since an "off" leaves it on flash):
+
+```
+Oct 25 22:54:28 systemd[1]: Starting QManager schedule rearm (restart armed schedules after boot)...
+Oct 25 22:54:28 qmanager: schedule rearm: started qmanager-tower-schedule-apply.timer qmanager-tower-schedule-clear.timer
+Oct 25 22:54:28 systemd[1]: qmanager-schedule-rearm.service: Succeeded.
+```
+
+Without it, a schedule armed today stops firing at the next reboot — the same
+silent-no-op class this whole document exists to kill, one layer down. Note the
+`systemctl` state of a oneshot with `RemainAfterExit=no` is `inactive (dead)`
+even after it succeeded, and journald is disabled on this device: **read
+`/var/log/syslog` (or `dmesg`), never `journalctl`.**
+
+### 3. Concurrent saves must serialize, or they *unarm* a live schedule
+
+The UI writes on every edit. Interleaved invocations of one arm helper race on
+the same two `.timer` files and the same two `.timers.target.wants` symlinks: the
+loser's post-write `[ -L ... ]` check sees the winner's removal, reports
+`arm_failed`, and **its failure path runs `teardown_all`, deleting both timers** —
+so a schedule the user just enabled ends up saved-but-unarmed. Reproduced
+2026-10-25 with three interleaved `install`/`teardown` pairs (all three installs
+returned `arm_failed`) and observed in the field first, as a burst of
+`qm_cgi_tower_schedule: Tower schedule timer arm/disarm failed: {..."arm_failed"...}`
+lines in `/var/log/syslog` while the browser was being edited.
+
+**Fix:** all three arm helpers take one `flock` on
+`/tmp/qmanager_schedule_arm.lock` (busybox `flock`, `-x -n` poll loop — the
+`qcmd` idiom, since busybox has no `-w`). The cap is **30 s, not 10**: eight
+overlapping saves serialize to ~16 s, and a 10 s cap let the tail-enders proceed
+unlocked together (three processes took the lock in the same second; two then
+failed). On timeout the helper proceeds unlocked and logs it rather than refusing
+a save. Verified: 8 interleaved install/teardown pairs now return zero
+`arm_failed`.
+
+### 4. Schedules fire in **UTC** on this deployment (open)
+
+`OnCalendar=` is evaluated in the system timezone, and this branch's timezone
+support is the `TZ` POSIX string for *processes* (`/etc/TZ` +
+`/etc/qmanager/tz.posix`, exported by `cgi_base.sh`) — because the firmware has
+no tzdata and no `/etc/localtime`. systemd does not read either file, so systemd
+stays on UTC (`timedatectl` → `Time zone: UTC`) while the UI and logs are on the
+configured zone. Measured 2026-10-25 with `timezone=PKT-5`: the UI saved
+`08:00`, and `systemctl list-timers` reported
+`Mon 2026-10-26 08:00:00 UTC` — i.e. the lock would apply at **13:00 local**, five
+hours late. Not fixed here: it needs a spec (convert `HH:MM` by the configured
+offset before rendering `OnCalendar=`, and keep the fire guard's comparison in
+the same clock), and it affects the scheduled reboot and scenario schedules
+identically.
+
+---
+
 ## Timezone interaction
 
 systemd evaluates `OnCalendar=` in the **system timezone**. A running timer

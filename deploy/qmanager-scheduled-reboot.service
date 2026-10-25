@@ -1,0 +1,18 @@
+# /etc/systemd/system/qmanager-scheduled-reboot.service
+#
+# Deploy-layer copy of scripts/etc/systemd/system/qmanager-scheduled-reboot.service,
+# ExecStart repointed at /usrdata/qmanager/bin. Same reason as the tower-schedule
+# pair: qmanager_scheduled_reboot_arm writes the .timer at runtime but will not
+# arm it unless this .service exists, and this deployment never shipped it —
+# Scheduled Reboot therefore saved and reported "unit_absent" instead of firing.
+[Unit]
+Description=QManager scheduled reboot (triggered by qmanager-scheduled-reboot.timer)
+
+[Service]
+Type=oneshot
+ExecStart=/usrdata/qmanager/bin/qmanager_scheduled_reboot
+
+# No [Install] section — this unit is only ever started by
+# qmanager-scheduled-reboot.timer, never boot-enabled directly. That .timer
+# is generated and armed at runtime by qmanager_scheduled_reboot_arm whenever
+# System Settings -> Scheduled Reboot is saved enabled.

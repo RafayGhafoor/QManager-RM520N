@@ -55,6 +55,45 @@ Services (both `enabled` + `active` under `multi-user.target`):
   CPU per 1 Hz read (~0.5 % of one core) and nothing when switched off.
   `docs/reference/live-traffic.md`.
 
+## Scheduled-feature units (added 2026-10-25)
+
+The scheduled features each fire into a oneshot `.service` that the arm helper
+**checks for before arming**; none of those existed on this install, so every
+schedule save was persisted but answered `reason: "unit_absent"` (the UI's
+"the scheduling service isn't installed on this device yet"). Installed into
+`/etc/systemd/system` by `deploy/qm_schedule_units.sh`:
+
+| Unit | Job |
+| --- | --- |
+| `qmanager-tower-schedule-apply.service` / `…-clear.service` | Tower Lock schedule apply / clear (timer pair generated at save time) |
+| `qmanager-scheduled-reboot.service` | System Settings → Scheduled Reboot |
+| `qmanager-scenario-schedule.service` | Connection Scenario schedule windows |
+| `qmanager-auto-update.service` + `.timer` | Unattended update check (daily, `Persistent=true`) |
+| `qmanager-schedule-rearm.service` | Oneshot at boot: restarts every timer whose `timers.target.wants` symlink exists |
+
+`/usrdata/qmanager/bin/qm_schedule_rearm.sh` is its ExecStart; it is in
+`qm_boot_hook.sh`'s `UNITS` list, because a `timers.target.wants` symlink alone
+does not survive this firmware's boot transaction. The generated `.timer` files
+live in `/etc/systemd/system` (writable) with symlinks in
+`/etc/systemd/system/timers.target.wants` — `/lib/systemd/system` is on the
+read-only squashfs. Arm/teardown serialize on `/tmp/qmanager_schedule_arm.lock`
+(busybox `flock`, 30 s cap): without it, overlapping UI saves collided, one
+reported `arm_failed` and tore **both** timers down while the config still said
+`enabled: true`. Proven by a real reboot and by the owner's own UI save — see
+[`docs/plans/2026-10-25-schedule-timer-units.md`](docs/plans/2026-10-25-schedule-timer-units.md).
+
+Known open item: `OnCalendar=` is evaluated in **UTC** on this device (systemd
+does not read the `TZ`-string timezone channel, and there is no tzdata for
+`/etc/localtime`), so a schedule entered as `08:00` local fires at `08:00 UTC` =
+`13:00` local with `PKT-5`.
+
+**Also fixed here: `qm_pathfix.sh` had patched itself into a no-op.** It lives in
+`$QM_ROOT/bin`, the `bin/*` loop rewrote it with its own `SEDARGS`, so on the
+device its rules read `/usrdata/qmanager/lib -> /usrdata/qmanager/lib` and
+`/etc/systemd/system -> /etc/systemd/system`. Every deploy after the first had
+been relocating **nothing** (caught because a re-streamed helper kept
+`UNIT_DIR=/lib/systemd/system`). `patch_file` now skips `qm_pathfix.sh` itself.
+
 ## Why the stock installer was not used
 
 1. The fork publishes **no releases**, so `qmanager-installer.sh` (which downloads

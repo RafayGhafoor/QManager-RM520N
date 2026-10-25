@@ -1,0 +1,20 @@
+# /etc/systemd/system/qmanager-auto-update.service
+#
+# Deploy-layer copy of scripts/etc/systemd/system/qmanager-auto-update.service,
+# ExecStart repointed at /usrdata/qmanager/bin. Installed together with
+# qmanager-auto-update.timer because qmanager_auto_update_arm (the UI toggle's
+# root half) returns {"armed":false,"reason":"unit_absent"} when the .timer is
+# absent — the same defect that made the Tower Lock schedule unable to arm.
+[Unit]
+Description=QManager Unattended Update Check (triggered by qmanager-auto-update.timer)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usrdata/qmanager/bin/qmanager_auto_update
+
+# No [Install] section — this unit is only ever started by
+# qmanager-auto-update.timer, never boot-enabled directly. The unattended
+# on/off switch lives in /etc/qmanager/qmanager.conf ("update.
+# auto_update_enabled"), checked at runtime by qmanager_auto_update itself.

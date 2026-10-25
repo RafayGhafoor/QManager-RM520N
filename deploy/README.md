@@ -28,7 +28,8 @@ bind-mounted along with `/etc`, `/data`, `/cache`, `/persist`). Nothing outside
 | `sudo` | Passthrough shim. Strips sudo flags and execs the command; CGI already runs as root, so no escalation is needed. |
 | `sms_tool` | Wrapper around the vendored `sms_tool.bin`. Defaults the device to `/dev/smd7` (SMS storage is not visible on `at_mdm0`) and takes the vendor's radio lock around each call. |
 | `qm_serve.sh` | `start\|stop\|restart\|status` manager for busybox httpd on **port 8080**. |
-| `qm_pathfix.sh` | Rewrites the paths QManager owns (`/usr/lib/qmanager` → `/usrdata/qmanager/lib`, `/usr/bin/<qm helper>` → `.../bin/<helper>`) across the deployed tree. |
+| `qm_pathfix.sh` | Rewrites the paths QManager owns (`/usr/lib/qmanager` → `/usrdata/qmanager/lib`, `/lib/systemd/system` → `/etc/systemd/system`, `/usr/bin/<qm helper>` → `.../bin/<helper>`) across the deployed tree. **Never patches itself** — it lives in `bin/`, so self-patching used to turn its own rules into no-ops after the first run (see the `patch_file` note). |
+| `qm_schedule_units.sh` | Installs the scheduled-feature units (`qmanager-tower-schedule-{apply,clear}.service`, `qmanager-scheduled-reboot.service`, `qmanager-scenario-schedule.service`, `qmanager-auto-update.{service,timer}`, `qmanager-schedule-rearm.service`) into `/etc/systemd/system` plus `bin/qm_schedule_rearm.sh`. Without them every schedule save answers `reason: unit_absent`. |
 | `qm_boot_hook.sh` | Makes QManager actually start at boot by inserting `start_service_async` lines for the httpd, poller and ping units into `/etc/init.d/turin_web.sh`. Required: this firmware drops units from PID 1's boot transaction. Add new boot units here; the hook is additive and idempotent. |
 | `qm_wait_modem.sh` | Poller `ExecStartPre` gate. Waits for a real `AT+CGMM` answer instead of just the device node — without it the poller caches the boot `RDY` URC as the model. |
 | `qmanager-httpd.service` | systemd unit: web UI. |
@@ -218,6 +219,24 @@ tar czf - -C deploy qmanager-ippt.service | ssh root@<device> \
 #     still serves it statically — see docs/reference/live-traffic.md.
 tar czf - -C deploy qmanager-traffic.service | ssh root@<device> \
   'tar xzf - -C /etc/systemd/system && chmod 644 /etc/systemd/system/qmanager-traffic.service && systemctl daemon-reload && systemctl enable qmanager-traffic.service'
+
+# 5e. Scheduled-feature units (Tower Lock Schedule, Scheduled Reboot,
+#     Connection Scenario schedules, unattended update). Each arm helper refuses
+#     to arm without the oneshot .service it triggers and answers
+#     {"armed":false,"reason":"unit_absent"}, which the UI renders as "the
+#     scheduling service isn't installed on this device yet". Installed as one
+#     set by qm_schedule_units.sh — it also drops qm_schedule_rearm.sh into bin/
+#     and verifies systemd can read every unit. Run BEFORE qm_boot_hook.sh, whose
+#     UNITS list now includes qmanager-schedule-rearm.service (the boot re-arm
+#     for runtime-armed timers; `enable` does not bring them up here).
+#     See docs/reference/scheduled-timers.md -> "Deploying this on the O5A Pro".
+tar czf - -C deploy qmanager-tower-schedule-apply.service \
+  qmanager-tower-schedule-clear.service qmanager-scheduled-reboot.service \
+  qmanager-scenario-schedule.service qmanager-auto-update.service \
+  qmanager-auto-update.timer qmanager-schedule-rearm.service \
+  qm_schedule_rearm.sh qm_schedule_units.sh | ssh root@<device> \
+  'rm -rf /tmp/qm-units && mkdir -p /tmp/qm-units && tar xzf - -C /tmp/qm-units && \
+   cd /tmp/qm-units && sh qm_schedule_units.sh'
 
 # 6. Boot wiring — `enable` alone does NOT survive this firmware's boot
 #    transaction (see qm_boot_hook.sh). This is what actually starts them.

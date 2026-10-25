@@ -1,0 +1,27 @@
+# /etc/systemd/system/qmanager-tower-schedule-apply.service
+#
+# Deploy-layer copy of scripts/etc/systemd/system/qmanager-tower-schedule-apply.service,
+# with ExecStart repointed at this deployment's helper prefix (/usrdata/qmanager/bin).
+# qm_pathfix.sh only rewrites the *deployed* tree, never /etc/systemd/system, so a
+# unit shipped there must already carry the relocated path.
+#
+# WHY THIS UNIT HAS TO BE SHIPPED AT ALL
+# The matching .timer is generated at runtime by qmanager_tower_schedule_arm, but
+# the .service it activates is not — and the arm helper refuses to arm anything
+# when this file is absent (it returns {"armed":false,"reason":"unit_absent"} and
+# the UI shows "the scheduling service isn't installed on this device yet").
+# Before 2026-10-25 this deployment shipped none of the scheduled-feature
+# services, so Tower Lock Schedule could be saved but never fired. See
+# docs/reference/scheduled-timers.md ("Deploying on the O5A Pro").
+[Unit]
+Description=QManager tower lock schedule apply (triggered by qmanager-tower-schedule-apply.timer)
+
+[Service]
+Type=oneshot
+ExecStart=/usrdata/qmanager/bin/qmanager_tower_schedule apply
+
+# No [Install] section — this unit is only ever started by
+# qmanager-tower-schedule-apply.timer, never boot-enabled directly. That
+# .timer is generated and armed at runtime by qmanager_tower_schedule_arm
+# whenever the Tower Lock schedule is saved enabled. Its sibling is
+# qmanager-tower-schedule-clear.service.
