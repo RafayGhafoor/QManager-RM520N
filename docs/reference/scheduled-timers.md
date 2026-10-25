@@ -35,8 +35,7 @@ actually fires.
 |------|------------------|---------------------|
 | UI surface | System Settings → Scheduled Operations | `/cellular/tower-locking` → Schedule |
 | CGI | `scripts/www/cgi-bin/quecmanager/system/settings.sh` (`save_scheduled_reboot`) | `scripts/www/cgi-bin/quecmanager/tower/schedule.sh` |
-| Arm helper (root) | `scripts/usr/bin/qmanager_scheduled_reboot_arm` | `scripts/usr/bin/qmanager_tower_schedule_arm` |
-| Timer unit(s) | `qmanager-scheduled-reboot.timer` (1) | `qmanager-tower-schedule-apply.timer` + `qmanager-tower-schedule-clear.timer` (pair) |
+| Arm helper (root) | `scripts/usr/bin/qmanager_scheduled_reboot_arm` | `scripts/usr/bin/qmanager_tower_schedule_arm` || Timer unit(s) | `qmanager-scheduled-reboot.timer` (1) | `qmanager-tower-schedule-apply.timer` + `qmanager-tower-schedule-clear.timer` (pair) |
 | Fire service(s) | `qmanager-scheduled-reboot.service` | `qmanager-tower-schedule-apply.service`, `qmanager-tower-schedule-clear.service` |
 | Fire worker | `scripts/usr/bin/qmanager_scheduled_reboot` | (tower-lock apply/clear scripts) |
 | Shared lib | `scripts/usr/lib/qmanager/schedule_timer.sh` | (same) |
@@ -1111,20 +1110,85 @@ failed). On timeout the helper proceeds unlocked and logs it rather than refusin
 a save. Verified: 8 interleaved install/teardown pairs now return zero
 `arm_failed`.
 
-### 4. Schedules fire in **UTC** on this deployment (open)
+### 4. A saved time is **local**, but systemd evaluates `OnCalendar=` in UTC here
 
 `OnCalendar=` is evaluated in the system timezone, and this branch's timezone
 support is the `TZ` POSIX string for *processes* (`/etc/TZ` +
 `/etc/qmanager/tz.posix`, exported by `cgi_base.sh`) — because the firmware has
-no tzdata and no `/etc/localtime`. systemd does not read either file, so systemd
-stays on UTC (`timedatectl` → `Time zone: UTC`) while the UI and logs are on the
+no tzdata and no `/etc/localtime`, and `/etc/localtime` is outside this branch's
+write scope anyway. systemd reads neither file, so systemd stays on UTC
+(`timedatectl` → `Time zone: UTC`) while the UI and the logs are on the
 configured zone. Measured 2026-10-25 with `timezone=PKT-5`: the UI saved
-`08:00`, and `systemctl list-timers` reported
-`Mon 2026-10-26 08:00:00 UTC` — i.e. the lock would apply at **13:00 local**, five
-hours late. Not fixed here: it needs a spec (convert `HH:MM` by the configured
-offset before rendering `OnCalendar=`, and keep the fire guard's comparison in
-the same clock), and it affects the scheduled reboot and scenario schedules
-identically.
+`08:00`, and `systemctl list-timers` reported `Mon 2026-10-26 08:00:00 UTC` — the
+lock would have applied at **13:00 local**, and the pair was inverted (the
+`03:30` clear fired at 08:30 local, *before* the 13:00 apply).
+
+So the translation happens at arm time, in `schedule_timer.sh`:
+
+| Function | Job |
+| --- | --- |
+| `_qm_posix_tz` | The configured POSIX TZ string (`QM_TZ_POSIX` overrides it — a test hook, like `QM_TEST_NOW_HHMM`). |
+| `_qm_utc_offset_minutes` | local − UTC in minutes, east positive. Read **live from libc** (`TZ=<posix> date +%z`), not parsed out of the POSIX string, so a DST zone yields the offset in force *now*. Prints `0` if it cannot be established — the old behaviour, rather than arming nothing. |
+| `_qm_local_to_utc <days> <HH:MM>` | The UTC trigger, **with the day mask rotated** when the boundary crosses midnight. |
+| `_qm_utc_oncalendar_line <days> <HH:MM>` | Translate + render; the drop-in for `_qm_oncalendar_line` at every arm-helper call site. |
+| `_qm_utc_oncalendar_rewrite` | Filters already-rendered `OnCalendar=` lines (the Connection Scenario generator's output, whose per-weekday jq reduce stays in local time — the offset is constant, so converting after the reduce is equivalent). Maps day **names** to 0-6 for the converter and back: feeding it names directly matched nothing, so a line needing a day rotation came back unchanged (caught by the `Tue 02:00` case). |
+
+The day rotation is the half that is easy to miss: `Mon 02:00` in a UTC+5 zone is
+`Sun 21:00` UTC, so the **weekday changes too**. Measured on the device:
+
+```
+$ QM_TZ_POSIX=PKT-5; _qm_utc_oncalendar_line "1" "02:00"
+OnCalendar=Sun 21:00:00
+days mask 0,6 (Sun,Sat) at 03:30 -> OnCalendar=Sat,Fri 22:30:00
+$ QM_TZ_POSIX=EST5;   _qm_utc_oncalendar_line "1" "23:00"   # west of UTC, other direction
+OnCalendar=Tue 04:00:00
+```
+
+The fire guard had to move with it — it is what denies a stray 1970-clock-step
+fire, and it compares the *configured* (local) `HH:MM` against "now". `now` and
+"today" are now read through `_qm_local_date` (configured zone) instead of bare
+`date` (UTC), in `_qm_now_matches_hhmm`, `_qm_today_in_days` and
+`_qm_clock_sane`. Measured discriminator on the live device at local 04:17
+(UTC 23:17, a different *weekday*):
+
+```
+guard vs 04:17 -> ALLOW        day check vs 1 (Mon, local) -> ALLOW
+guard vs 23:17 -> deny         day check vs 0 (Sun, UTC)   -> deny
+```
+
+And end to end, on the same device: a schedule saved as `04:24` local armed as
+`OnCalendar=… 23:24:00` (UTC) and the worker ran at **04:24 local**, logged
+`Schedule APPLY triggered` → `Schedule APPLY complete` (both lock types disabled
+in that config, which is the point: it reached the payload instead of being
+denied), and `qmanager-tower-schedule-apply.service: Succeeded`.
+
+Arm responses now carry `tz_offset_min` so the offset baked into an armed timer
+is visible: `{"success":true,"armed":true,"reason":"","tz_offset_min":300}`.
+
+**Residual risk, stated honestly:** the offset is baked into the `.timer`, so a
+DST transition leaves an armed schedule one hour off until its next save or
+reboot (a reboot re-arms only the timers that exist — it does not recompute
+them). Fixed-offset zones, which is everything this device's POSIX-string
+timezone channel reliably expresses (`PKT-5`), are exact indefinitely.
+
+### 5. The workers need `jq` on `PATH`, or every fire is denied
+
+`qmanager_tower_schedule` / `qmanager_scheduled_reboot` / `qmanager_scenario_schedule`
+read the saved schedule with `jq` **before** they source any library that might
+set `PATH`. systemd's default `PATH` contains neither `/usrdata/qmanager/bin`
+nor `/usr/sbin` (measured: `env -i sh -c 'command -v jq'` → nothing), so the
+schedule read returned empty and the guard answered
+`… skipped: schedule time unreadable/invalid (issue #9)` on **every** fire —
+silently, because the unit still reports `Succeeded`. The scheduled-feature
+units therefore set:
+
+```ini
+Environment=PATH=/usrdata/qmanager/bin:/usr/bin:/bin:/sbin:/usr/sbin
+```
+
+the same trap `deploy/qmanager-poller.service` already documents. This only
+surfaced once the units existed at all: before 2026-10-25 no timer ever fired on
+this deployment, so the worker had never run.
 
 ---
 
@@ -1132,9 +1196,18 @@ identically.
 
 systemd evaluates `OnCalendar=` in the **system timezone**. A running timer
 does not re-read the zone live; it picks up a zone change on the next
-`systemctl daemon-reload` or reboot. Practical guidance: set the timezone
-first, then configure these schedules, so the trigger times mean what the user
-expects. See [timezone.md](timezone.md#schedules-adopt-the-new-zone-on-daemon-reload-or-reboot).
+`systemctl daemon-reload` or reboot. Practical guidance on the reference image:
+set the timezone first, then configure these schedules, so the trigger times mean
+what the user expects. See
+[timezone.md](timezone.md#schedules-adopt-the-new-zone-on-daemon-reload-or-reboot).
+
+⚠️ **On the O5A Pro the system timezone is always UTC**, and the arm helpers
+translate the user's local `HH:MM` into it at arm time (see
+[section 4](#4-a-saved-time-is-local-but-systemd-evaluates-oncalendar-in-utc-here)).
+There, changing the timezone **does not** adjust an already-armed timer even on
+`daemon-reload` — re-save the schedule (or reboot *and* re-save, since the boot
+re-arm restarts the existing units rather than recomputing them) to pick up the
+new offset.
 
 ---
 

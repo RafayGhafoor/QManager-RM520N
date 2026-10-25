@@ -10,6 +10,12 @@ Description=QManager scenario schedule apply (triggered by qmanager-scenario-sch
 
 [Service]
 Type=oneshot
+# PATH is load-bearing: the workers read the saved schedule with `jq`, and
+# systemd's default PATH has neither our bin dir nor /usr/sbin — measured
+# 2026-10-25, `env -i sh -c 'command -v jq'` finds nothing, so the fire guard
+# read an empty schedule and skipped EVERY fire ("schedule time
+# unreadable/invalid"). Same trap deploy/qmanager-poller.service documents.
+Environment=PATH=/usrdata/qmanager/bin:/usr/bin:/bin:/sbin:/usr/sbin
 ExecStart=/usrdata/qmanager/bin/qmanager_scenario_schedule --now
 
 # No [Install] section — this unit is only ever started by

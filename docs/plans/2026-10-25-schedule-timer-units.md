@@ -77,24 +77,48 @@ new AGENTS.md exception is needed.
 | 8 interleaved `install`/`teardown` pairs (race stress) | **0** `arm_failed` (was 2-3 of 4 before the lock; a 10 s lock cap also failed, tail-enders proceeded unlocked together — hence 30 s) |
 | Real reboot (`boot_id` `49b21c83…` → `dd10db94…`, uptime 151 s at re-check) | `qmanager-schedule-rearm.service` ran at boot +41 s: `schedule rearm: started qmanager-tower-schedule-apply.timer qmanager-tower-schedule-clear.timer` in `/var/log/syslog`; both timers `active` with `NEXT` after boot |
 | UI save (owner in browser, `/var/log/syslog`) | `Tower schedule timer true: apply at 08:00, clear at 03:30, days=0,…,6, armed=true` — the warning is gone |
+| Local-time conversion, arm response | `{"success":true,"armed":true,"reason":"","tz_offset_min":300}`; `08:00` local arms as `OnCalendar=Sun,Mon,Tue,Wed,Thu,Fri,Sat 03:00:00` and `03:30` as `… 22:30:00` (both correct for PKT-5) |
+| Day-mask rotation | `_qm_utc_oncalendar_line "1" "02:00"` → `OnCalendar=Sun 21:00:00`; `EST5` + `Mon 23:00` → `Tue 04:00:00`; scenario-path filter: `Mon 08:00` → `Mon 03:00`, `Tue 02:00` → `Mon 21:00`, `Sat,Sun 03:30` → `Fri,Sat 22:30` (PKT) and `Mon 13:00`, `Tue 07:00`, `Sat,Sun 08:30` (EST5) |
+| Fire guard in local time | at local 04:17 (UTC 23:17, a different weekday): `04:17 → ALLOW`, `23:17 → deny`; `day 1 (Mon) → ALLOW`, `day 0 (Sun) → deny` |
+| **End-to-end fire at local time** | schedule saved as `04:24` local, armed as `OnCalendar=… 23:24:00`; at 23:24 UTC (= 04:24 local) the worker logged `Schedule APPLY triggered` → `Schedule APPLY complete` and the unit `Succeeded` |
 | Vendor stack | `http://127.0.0.1/` still 200; `qmanager-httpd`/`poller`/`ping`/`dpi`/`dpi-ensure.timer`/`dns*`/`traffic` all `active` with boot-time `ActiveEnterTimestamp` |
 | CPU/memory | **Unchanged by design**: no new resident process, no fork on any hot path. The rearm oneshot runs once per boot (3 `systemctl --no-block start` for the timers that exist) and exits. The lock adds one `flock` fd per save, not per poll cycle. No before/after benchmark table because there is no recurring cost to measure — recorded here rather than omitted. |
 
 ## Still broken / next
 
-1. **Schedules fire in UTC.** systemd does not read this deployment's timezone
-   channel (`/etc/TZ` + `/etc/qmanager/tz.posix`, `cgi_base.sh`-exported `TZ`), and
-   there is no tzdata to install `/etc/localtime` from, so `OnCalendar=` is
-   evaluated in UTC while the UI is on `PKT-5`. Measured: the UI saved `08:00`,
-   `systemctl list-timers` scheduled `08:00 UTC` = **13:00 local**. Affects Tower
-   Lock, Scheduled Reboot and scenario schedules equally. Needs a spec: translate
-   `HH:MM` by the configured offset before rendering `OnCalendar=`, and keep the
-   fire guard's own comparison in the same clock or it will deny the fire.
-2. **`gp-tls-renew.timer` reads `inactive` after boot** — it is a *masked* unit in
+1. ~~**Schedules fire in UTC.**~~ **Fixed after the owner asked ("will it launch at
+   8 AM?") — 04:11 local, schedule armed for 13:00.** `schedule_timer.sh` now
+   translates the saved local `HH:MM` to UTC (`_qm_utc_offset_minutes`, read live
+   from libc so a DST zone gets the offset in force now) and rotates the day mask
+   when the boundary crosses midnight (`Mon 02:00` PKT = `Sun 21:00` UTC);
+   `_qm_utc_oncalendar_line` / `_qm_utc_oncalendar_rewrite` are the new call sites
+   in all three arm helpers, and the fire guard's `now`/`today` moved to
+   `_qm_local_date` so it agrees. Arm responses carry `tz_offset_min`.
+   Verified on the device: `04:24` local armed as `OnCalendar=… 23:24:00` and the
+   worker ran at 04:24 local (`Schedule APPLY triggered` → `APPLY complete`);
+   guard discriminator at local 04:17 / UTC 23:17 gave ALLOW/deny and
+   ALLOW/deny for the local vs UTC weekday. Residual: a DST transition leaves an
+   armed timer an hour off until the next save.
+2. **The workers had no `jq` on `PATH`** — found by the end-to-end test above,
+   and it would have made the whole fix cosmetic. The schedule read happens
+   before any library sets `PATH`, and systemd's default `PATH` has neither
+   `/usrdata/qmanager/bin` nor `/usr/sbin` (`env -i sh -c 'command -v jq'` →
+   nothing), so every fire was denied with `schedule time unreadable/invalid`
+   while the unit still reported `Succeeded`. All six scheduled-feature units now
+   set `Environment=PATH=…`; the trap was already documented in
+   `deploy/qmanager-poller.service`.
+3. **`gp-tls-renew.timer` reads `inactive` after boot** — it is a *masked* unit in
    the product repo (`-> /dev/null`), not a QManager defect. Noted because it was
    briefly mis-read as evidence that `timers.target.wants` symlinks never work
-   here.
-3. The UI string for `unit_absent` ("update to the latest firmware") is now
+   here, and that wrong reading reached a code comment before being corrected.
+4. The UI string for `unit_absent` ("update to the latest firmware") is now
    misleading only in the genuine stale-OTA case. Left alone: it is app-layer
    copy, and fixing it would need a ninth-format exception for a message that no
    longer appears on this deployment.
+5. **The Connection Scenario path is not armed on this device** — it has no
+   saved profile, so there is nothing to arm. The scenario helper pipes the
+   generator's lines through `_qm_utc_oncalendar_rewrite`, and that filter is
+   proven at library level (see the table above, including the day-name mapping
+   `Tue 02:00` → `Mon 21:00`). It has NOT been proven end to end by firing a
+   scenario, because that would apply a scenario to a live radio. Recorded as
+   unproven rather than implied.

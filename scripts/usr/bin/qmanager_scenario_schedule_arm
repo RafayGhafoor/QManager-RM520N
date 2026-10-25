@@ -117,7 +117,11 @@ if [ ! -f /usr/lib/qmanager/scenario_mgr.sh ]; then
 fi
 . /usr/lib/qmanager/scenario_mgr.sh
 
-lines=$(_scenario_generate_oncalendar_lines "$profile_id")
+# The generator's timeline maths is per-weekday LOCAL time; each rendered line is
+# then translated to UTC (systemd's system zone on this device), which also
+# rotates the day mask for boundaries that cross midnight in UTC. The device
+# offset is constant, so converting after the reduce is equivalent.
+lines=$(_scenario_generate_oncalendar_lines "$profile_id" | _qm_utc_oncalendar_rewrite)
 
 # No schedule (disabled, no blocks, or an unresolvable profile) — tear down
 # any existing timer and report a clean no-op rather than arming a .timer
@@ -181,5 +185,6 @@ if [ "$rc" -ne 0 ] || [ ! -L "$WANTS_DIR/$UNIT" ]; then
     exit 1
 fi
 
-printf '{"success":true,"armed":true}\n'
+printf '{"success":true,"armed":true,"tz_offset_min":%s}\n' \
+    "$(_qm_utc_offset_minutes)"
 exit 0

@@ -85,7 +85,22 @@ reported `arm_failed` and tore **both** timers down while the config still said
 Known open item: `OnCalendar=` is evaluated in **UTC** on this device (systemd
 does not read the `TZ`-string timezone channel, and there is no tzdata for
 `/etc/localtime`), so a schedule entered as `08:00` local fires at `08:00 UTC` =
-`13:00` local with `PKT-5`.
+`13:00` local with `PKT-5`. **Fixed 2026-10-25 (04:11 local):** the arm helpers
+translate the saved local `HH:MM` into UTC via `_qm_utc_offset_minutes`
+(`schedule_timer.sh`, offset read live from libc) and rotate the day mask when
+the boundary crosses midnight (`Mon 02:00` PKT → `Sun 21:00` UTC); the fire guard
+now reads "now"/"today" in the configured zone so it agrees. Verified end to end:
+`04:24` local armed as `OnCalendar=… 23:24:00` and the worker ran at 04:24 local.
+`08:00/03:30` local now arms as `03:00/22:30` UTC. Arm responses carry
+`tz_offset_min`. Residual: a DST transition leaves an armed timer an hour off
+until the next save.
+
+**The workers also needed `jq` on `PATH`** — the schedule read happens before any
+library sets it, and systemd's default `PATH` has no `/usrdata/qmanager/bin`, so
+every fire was denied with `schedule time unreadable/invalid` while the unit
+reported `Succeeded`. All six scheduled-feature units now set
+`Environment=PATH=/usrdata/qmanager/bin:/usr/bin:/bin:/sbin:/usr/sbin` (same trap
+as `qmanager-poller.service`).
 
 **Also fixed here: `qm_pathfix.sh` had patched itself into a no-op.** It lives in
 `$QM_ROOT/bin`, the `bin/*` loop rewrote it with its own `SEDARGS`, so on the

@@ -119,7 +119,9 @@ if ! _qm_validate_days "$sched_days"; then
     exit 1
 fi
 
-line=$(_qm_oncalendar_line "$sched_days" "$sched_time")
+# LOCAL -> UTC: systemd evaluates OnCalendar= in the system zone, which is UTC
+# on this device (see schedule_timer.sh's timezone note).
+line=$(_qm_utc_oncalendar_line "$sched_days" "$sched_time")
 
 # No resolvable day -> tear down any existing timer rather than arm a .timer
 # with a zero OnCalendar= line (a systemd config error).
@@ -167,5 +169,6 @@ if [ "$rc" -ne 0 ] || [ ! -L "$WANTS_DIR/$UNIT" ]; then
     exit 1
 fi
 
-printf '{"success":true,"armed":true,"reason":""}\n'
+printf '{"success":true,"armed":true,"reason":"","tz_offset_min":%s}\n' \
+    "$(_qm_utc_offset_minutes)"
 exit 0

@@ -216,6 +216,24 @@ configure scheduled reboot / tower-lock windows, so the two agree.
 > timers, Low Power scheduling was deleted, and `qmanager_update`'s
 > `scrub_legacy_cron()` strips the dead legacy cron markers on every OTA.
 
+> ⚠️ **GreenPacket O5A Pro (RG520N-EB): the system zone is always UTC, and the
+> triggers are converted at arm time instead.** This deployment cannot install a
+> TZif over `/etc/localtime` — there is no tzdata on the firmware and `/etc` is
+> outside the branch's write scope — so the timezone feature is the POSIX `TZ`
+> string for *processes* (`/etc/TZ` + `/etc/qmanager/tz.posix`) and
+> `timedatectl` still reports `UTC`. Measured 2026-10-25: a Tower Lock window
+> saved as `08:00`–`03:30` (PKT-5) armed as `OnCalendar=… 08:00:00`, firing at
+> 13:00 local, with the clear firing *before* the apply. The arm helpers now
+> translate the saved local `HH:MM` (and rotate the day mask when the boundary
+> crosses midnight in UTC) via `_qm_utc_offset_minutes`, and the fire guard
+> compares against local now — see
+> [scheduled-timers.md](scheduled-timers.md#4-a-saved-time-is-local-but-systemd-evaluates-oncalendar-in-utc-here).
+> Consequence for this doc's guidance: on the O5A, **changing the zone does not
+> move an already-armed timer, not even across a reboot** (the boot re-arm
+> restarts the existing units). Re-save the schedule after a timezone change.
+> Fixed-offset zones are exact; a DST transition leaves an armed timer an hour
+> off until the next save.
+
 ---
 
 ## Related Docs
