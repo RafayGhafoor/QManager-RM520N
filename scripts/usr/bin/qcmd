@@ -132,14 +132,27 @@ is_long_command() {
 flock_wait() {
     _fd="$1"
     _wait="$2"
-    _elapsed=0
+    # Poll at 100 ms, NOT 1 s.
+    #
+    # BusyBox flock has no -w, so polling is unavoidable -- but a 1-second
+    # quantum rounds even a 50 ms contention up to a full second. Measured on the
+    # X16 2026-10-26 with the poller cycling continuously: 10 sequential
+    # `qcmd AT+CVERSION` calls averaged 1552 ms, against a 221 ms shim and a
+    # 7 ms uncontended flock, and every slow sample was ~N*1000 ms + shim time.
+    # That quantisation is what pushed poll_cycle to 13-17 s against its own
+    # 10 s budget. A 100 ms poll turns the same contention into ~100-300 ms.
+    #
+    # The counter is bumped BEFORE the sleep on purpose: if a device's sleep
+    # cannot do fractions the applet fails, and the loop must still terminate.
+    _ticks=$((_wait * 10))
+    _i=0
 
-    while [ "$_elapsed" -lt "$_wait" ]; do
+    while [ "$_i" -lt "$_ticks" ]; do
         if flock -x -n "$_fd" 2>/dev/null; then
             return 0
         fi
-        sleep 1
-        _elapsed=$((_elapsed + 1))
+        _i=$((_i + 1))
+        sleep 0.1
     done
 
     # One final try
