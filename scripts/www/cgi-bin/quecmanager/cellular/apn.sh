@@ -426,6 +426,37 @@ if [ "$REQUEST_METHOD" = "GET" ]; then
         ''|*[!0-9]*) setting_cid=1 ;;
     esac
 
+    # Seed the DISPLAY values from the modem when QManager has never saved an
+    # APN here -- which is the normal case for a box configured by the vendor
+    # dialer, because nothing but this CGI's own POST creates the sidecar.
+    #
+    # Today that meant every field on the card was blank while the chip still
+    # claimed "CID 1 in use for Internet": CID 1's AT+CGDCONT APN is legitimately
+    # empty (the dialer dials CID 6), so the blank was being read straight off the
+    # wrong context. Seeding from `active_cid` fixes both halves at once.
+    #
+    # Deliberately read-only: no file is created, `active` stays 0 (nothing has
+    # been SAVED through QManager, so the POST path keeps its exact meaning), and
+    # a later Save still uses whatever cid the request carries.
+    if [ -z "$setting_apn" ]; then
+        _seeded=$(printf '%s' "$profiles_json" | jq -r --argjson ac "$active_cid" '
+            [ .[] | select(.modem_profile == $ac)
+                  | {apn: .apn, pdp: .apn_type} ]
+            | map(select(.apn != null and .apn != "")) | first // empty
+            | "\(.apn)\t\(.pdp // "") "' 2>/dev/null)
+        if [ -n "$_seeded" ]; then
+            _seed_apn=$(printf '%s' "$_seeded" | cut -f1)
+            _seed_pdp=$(printf '%s' "$_seeded" | cut -f2 | tr -d ' ')
+            if [ -n "$_seed_apn" ]; then
+                setting_apn="$_seed_apn"
+                setting_cid="$active_cid"
+                case "$_seed_pdp" in
+                    ipv4|ipv6|ipv4v6) setting_pdp="$_seed_pdp" ;;
+                esac
+            fi
+        fi
+    fi
+
     apn_obj=$(jq -n \
         --arg apn "$setting_apn" \
         --arg pdp_type "$setting_pdp" \

@@ -78,7 +78,17 @@ detect_active_cid() {
     cgpaddr_cids=$(printf '%s\n' "$raw" | awk -F'[,"]' '
         /\+CGPADDR:/ {
             cid = $1; gsub(/[^0-9]/, "", cid)
-            ip = $3
+            # $2, not $3. `+CGPADDR: 6,10.123.14.113` splits on [,"] into
+            # $1="+CGPADDR: 6" $2="10.123.14.113" $3="" -- and this firmware
+            # emits exactly ONE address per line, so $3 is always empty. Every
+            # octet test then failed, cgpaddr_cids stayed empty, and the
+            # `|| active_cid="1"` fallback below made this function return 1
+            # unconditionally. That is why the APN page claimed "CID 1 in use
+            # for Internet" while the real bearer was CID 6.
+            ip = $2
+            # A dual-stack line carries "<v4> <mask>"; the mask is not part of
+            # the address and would fail the octet count.
+            sub(/ .*/, "", ip)
             if (ip != "" && ip != "0.0.0.0" && ip !~ /^0+(\.0+)*$/) {
                 split(ip, octets, ".")
                 if (length(octets) == 4 && octets[1]+0 > 0) {
