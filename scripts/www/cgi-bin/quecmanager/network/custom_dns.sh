@@ -248,12 +248,20 @@ assert_own_block() {
 
 # lan_dns_addr — the address LAN clients are actually told to query.
 #
-# The runtime config's `dhcp-option-force=6,<ip>` is the PRIMARY source because it
-# is literally the answer DHCP hands clients, and because on this firmware it is
-# the only one available: neither `ip` nor `ifconfig` is installed on the O5A
-# (verified 2026-10-26 — `command -v ip` and `command -v ifconfig` both miss).
-# The interface lookups stay as fallbacks for other devices, after the DHCP value,
-# so a wrong guess there cannot override the address clients really use.
+# Order is by truthfulness, not by availability:
+#   1. `dhcp-option-force=6,<ip>` in the runtime config — literally the answer DHCP
+#      hands clients, so it is the resolver they use by construction.
+#   2. `ip -4 -o addr show bridge0` — present on this firmware as real iproute2
+#      (`/sbin/ip` -> `/sbin/ip.iproute2`, 465 KB).
+#   3. `ifconfig bridge0` — busybox applet, `/sbin/ifconfig` -> `/bin/busybox.nosuid`.
+#   4. `busybox ip` / `busybox ifconfig` — for a device where the applets exist but
+#      were never symlinked onto PATH.
+#
+# ⚠️ Both `ip` and `ifconfig` ARE installed here. An earlier revision of this comment
+# claimed neither was, from `command -v ip` returning nothing — but a non-login SSH
+# shell has PATH=/usr/bin:/bin with NO /sbin, so `command -v` misses them while the
+# CGI (whose PATH cgi_base.sh sets to include /sbin) resolves both. Measure applet
+# availability from the environment that will run the code, not from an ssh shell.
 lan_dns_addr() {
     local ip
     if [ -f "$DNSMASQ_RUN_CONF" ]; then
@@ -263,7 +271,14 @@ lan_dns_addr() {
         ip=$(ip -4 -o addr show bridge0 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1)
     fi
     if [ -z "$ip" ] && command -v ifconfig >/dev/null 2>&1; then
+        # busybox prints `inet addr:192.168.0.1`; iproute2-style prints `inet 192.168.0.1`.
         ip=$(ifconfig bridge0 2>/dev/null | awk '/inet /{print $2}' | sed 's/^addr://' | head -1)
+    fi
+    if [ -z "$ip" ] && command -v busybox >/dev/null 2>&1; then
+        ip=$(busybox ip -4 -o addr show bridge0 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1)
+    fi
+    if [ -z "$ip" ] && command -v busybox >/dev/null 2>&1; then
+        ip=$(busybox ifconfig bridge0 2>/dev/null | awk '/inet /{print $2}' | sed 's/^addr://' | head -1)
     fi
     printf '%s' "$ip"
 }

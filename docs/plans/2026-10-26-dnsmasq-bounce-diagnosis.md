@@ -98,9 +98,17 @@ strip, where it would have dropped the rest of `smartdns.conf` — fixed the sam
   not — nothing supervises it) and must answer `dig @<lan-ip> example.com` with
   `status: NOERROR`. `<lan-ip>` comes from the runtime config's
   `dhcp-option-force=6,192.168.0.1` — the address DHCP literally hands clients —
-  because **neither `ip` nor `ifconfig` is installed on this firmware**
-  (`command -v ip` / `command -v ifconfig` both miss, measured 2026-10-26). The
-  interface lookups remain as fallbacks for other devices, after the DHCP value. Failure → `rollback_live_conf()`, which reuses the **same**
+  with `ip`, `ifconfig` and the `busybox` applets behind it as fallbacks.
+
+  **Correction, and a trap worth remembering.** The first revision of this plan
+  claimed `ip` and `ifconfig` were absent, because `command -v ip` and
+  `command -v ifconfig` both returned nothing on the device. That was wrong: a
+  non-login ssh session has `PATH=/usr/bin:/bin` with **no `/sbin`**. Both exist and
+  work — `/sbin/ip` → `/sbin/ip.iproute2` (real iproute2, 465 KB), `/sbin/ifconfig` →
+  `/bin/busybox.nosuid` (busybox applet), and `busybox --list` includes `ip` and
+  `ifconfig`. The CGI sees both because `cgi_base.sh` puts `/sbin` on PATH. Measure
+  tool availability from the environment that will run the code, not from an ssh
+  shell. Failure → `rollback_live_conf()`, which reuses the **same**
   `mv` grant (backup → staging → mv), so undoing a change never needs a privilege the
   forward path did not already use.
 - Staging dir recreated if missing.
@@ -140,6 +148,13 @@ Deployed to `/usrdata/qmanager/www/cgi-bin/quecmanager/network/custom_dns.sh`
 | Daemon not running | `pidof`/`systemctl`/`sudo` stubbed to fail the liveness check | tried `systemctl start dnsmasq_service@0.service`, then returned 1 so the caller rolls back |
 | `qmanager_dns_apply` unterminated edge block | block-free body + injected `BEGIN`, no `END` | exit **4** (refuse); healthy path still exit 0, 371 lines, `cmp` equal |
 | Real timer run after deploying `qmanager_dns_apply` | `systemctl start qmanager-dns-edge.service` | `Result=success`, `ExecMainStatus=0`; smartdns `active`; dnsmasq PID unchanged; markers intact |
+| **Rollback path, executed for real** | backup of a good file, live file overwritten with garbage, `rollback_live_conf` | `exit=0`, live file restored **byte-for-byte** (`cmp` equal); uses the same `mv` grant as the forward path |
+| Rollback with no backup | `BACKUP_FILE` removed, live file good | `exit=1`, live file **not** clobbered |
+| `edge_block_unterminated` through the real dispatcher | synthetic Contract-1 probe JSON (`action=rewrite`) on stdin + a scratch config (`SMARTDNS_CONF=`) with a lone `BEGIN` and 5 marker lines after it | `{"ok":false,"error":"edge_block_unterminated",...}`; scratch file unchanged (29 lines, all 5 tail markers intact) |
+| No false positive on the edge path | same JSON against a healthy scratch config | reached `validation_failed` (the stub config has no upstream), **not** `edge_block_unterminated` |
+| `lan_dns_addr` in four environments | CGI PATH (has `/sbin`), ssh PATH (`/usr/bin:/bin`, no `/sbin`), no runtime config, no address at all | `192.168.0.1` in the first three; the fourth returns empty and `verify_dns_live` exits **0** (daemon alive, nothing to probe) rather than failing a good save |
+| GET contract after the change | authenticated GET, parsed with `jq` | all 9 documented keys present; `{"enabled":false,"available":true,"dnsMode":"ABSENT","currentSource":"carrier","blockCorrupt":false,...}` |
+| Unauthenticated GET | no cookie | `Status: 401` + `"error":"unauthorized"` JSON, not an empty body |
 
 Device health after all of it: `dmesg` restart count still **5** (zero restarts across
 the entire session), dnsmasq PID still **17398**, vendor `:80` → 200, QManager `:8080`
@@ -154,6 +169,11 @@ the entire session), dnsmasq PID still **17398**, vendor `:80` → 200, QManager
   restart path is the vendor's, and our writer only ever HUPs. Recorded in
   `docs/reference/custom-dns.md`.
 - The sudoers `start` grant is **unverified on a real-sudo device** (see above).
+- The **verify-failure trigger** inside `verify_dns_live` (as opposed to its two
+  branches) has not been fired end-to-end: forcing it would mean deliberately breaking
+  LAN resolution on a live device. Its two branches — "daemon gone" (stubbed `pidof` →
+  start attempted → `exit 1`) and "no address to probe" (`exit 0`) — are exercised, and
+  the rollback it would call is exercised for real. The composition of the two is not.
 - The sibling repo's `deploy/install.sh` (`apply_dnsmasq_candidate`) also restarts
   `dnsmasq_service@0.service` and has the same one-way-flag strip
   (`strip_gp_smartdns_config`). It is not this repo; not touched. It *does* already do

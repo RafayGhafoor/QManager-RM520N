@@ -183,7 +183,8 @@ sudo /bin/mv /etc/data/qmanager/dnsmasq.conf.new /etc/data/dnsmasq.conf   (atomi
 sudo /bin/chown radio:radio /etc/data/dnsmasq.conf
 sudo /usr/bin/killall -HUP dnsmasq
 verify_dns_live: pidof dnsmasq, then dig @<lan-ip> example.com -> status: NOERROR
-   <lan-ip> = dhcp-option-force=6,<ip> from the runtime config (no `ip`/`ifconfig` here)
+   <lan-ip> = dhcp-option-force=6,<ip> from the runtime config, then `ip`, then
+              `ifconfig`, then `busybox ip`/`busybox ifconfig` (see below)
    daemon not running?  sudo /bin/systemctl start dnsmasq_service@0.service, re-check
    verification failed? rollback_live_conf (backup -> staging -> the SAME mv grant) + HUP
 ```
@@ -205,6 +206,24 @@ Two invariants, both enforced in code and both with a recorded failure behind th
 The same one-way-flag defect existed in `qmanager_dns_apply`'s `# BEGIN QMANAGER-EDGE v1` strip and was fixed the same way (exit 4 → `{"ok":false,"error":"edge_block_unterminated"}`). Any new marker-delimited block in this repo must use the structural form.
 
 `assert_own_block` is the second gate and is not redundant with `dnsmasq --test`: the test proves the file *parses*, it cannot know that the block we just wrote is still in it. This is the check that catches "saved successfully, configured nothing".
+
+### Which address the post-apply probe queries, and a PATH trap
+
+`lan_dns_addr` resolves the LAN address in this order: `dhcp-option-force=6,<ip>` from
+`/var/run/data/dnsmasq.conf.bridge0` (the answer DHCP literally hands clients), then
+`ip -4 -o addr show bridge0`, then `ifconfig bridge0`, then `busybox ip` / `busybox
+ifconfig` for a device whose applets were never symlinked.
+
+> ⚠️ **`ip` and `ifconfig` both exist on the O5A — do not conclude otherwise from an
+> ssh shell.** A non-login ssh session here has `PATH=/usr/bin:/bin` with **no `/sbin`**,
+> so `command -v ip` returns nothing and `ifconfig` "is not found", while both are
+> present and working: `/sbin/ip` → `/sbin/ip.iproute2` (real iproute2, 465 KB) and
+> `/sbin/ifconfig` → `/bin/busybox.nosuid` (busybox applet; `busybox --list` includes
+> both `ip` and `ifconfig`). The CGI's PATH is set by `cgi_base.sh` to
+> `/opt/bin:/opt/sbin:/usr/bin:/usr/sbin:/bin:/sbin:$PATH`, so it resolves both.
+> Measured 2026-10-26. **Probe applet availability from the environment that will run
+> the code, not from an ssh shell** — an earlier revision of this file claimed neither
+> was installed, from exactly that mistake.
 
 ### Sudoers fragment
 
