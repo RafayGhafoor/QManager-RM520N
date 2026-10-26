@@ -37,13 +37,19 @@ FAILOVER_ENABLED_FILE="/etc/qmanager/band_failover_enabled"
 FAILOVER_ACTIVATED_FLAG="/tmp/qmanager_band_failover"
 
 # --- Query modem for current band configuration ------------------------------
-qlog_info "Querying ue_capability_band"
+qlog_info "Querying policy_band"
 
-result=$(qcmd 'AT+QNWPREFCFG="ue_capability_band"' 2>/dev/null)
+# policy_band, NOT ue_capability_band. This endpoint answers "which bands are
+# SELECTED right now" -- the checkboxes the band picker draws as on. The
+# catalogue of selectable bands is a different question, answered by
+# ue_capability_band and published as device.supported_*_bands by the poller.
+# Querying the capability here made the page report all 19 radios bands as
+# "enabled" the moment the catalogue started working.
+result=$(qcmd 'AT+QNWPREFCFG="policy_band"' 2>/dev/null)
 rc=$?
 
 if [ $rc -ne 0 ] || [ -z "$result" ]; then
-    qlog_error "Failed to query ue_capability_band (rc=$rc)"
+    qlog_error "Failed to query policy_band (rc=$rc)"
     cgi_error "modem_error" "Failed to query current band configuration"
     exit 0
 fi
@@ -51,7 +57,7 @@ fi
 # Check for AT ERROR
 case "$result" in
     *ERROR*)
-        qlog_error "ue_capability_band returned ERROR: $result"
+        qlog_error "policy_band returned ERROR: $result"
         cgi_error "at_error" "Modem returned error for band query"
         exit 0
         ;;

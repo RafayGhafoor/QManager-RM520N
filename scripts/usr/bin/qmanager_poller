@@ -1609,7 +1609,14 @@ collect_boot_data() {
         . "$SUPPORTED_BANDS_FILE"
         qlog_info "Loaded supported bands from RAM cache"
     else
-        result=$(qcmd_exec 'AT+QNWPREFCFG="policy_band"')
+        # CAPABILITY, not policy. `policy_band` is what is currently ENABLED;
+        # `ue_capability_band` is what the radio can do. This value is published
+        # as `device.supported_*_bands` and is the band picker's catalogue on
+        # /cellular/cell-locking, so using policy here made that page offer only
+        # the bands that were already on -- there was no way to select any
+        # other band. The variable names and the "Supported bands" comment above
+        # always meant capability; the command did not match them.
+        result=$(qcmd_exec 'AT+QNWPREFCFG="ue_capability_band"')
         if [ $? -eq 0 ]; then
             parse_policy_band "$result"
             printf 'boot_supported_lte_bands="%s"\nboot_supported_nsa_nr5g_bands="%s"\nboot_supported_sa_nr5g_bands="%s"\n' \
