@@ -71,6 +71,12 @@ export function useModemStatus(
 
   // Use ref to track if the component is mounted (prevent state updates after unmount)
   const mountedRef = useRef(true);
+  // Freshness tracking that never compares two clocks (see the fetch callback).
+  // Both values are absolute-epoch readings from THIS browser, so subtracting
+  // them is meaningful even when the router and the client disagree about the
+  // time -- which is the whole point.
+  const lastSampleTsRef = useRef<number | null>(null);
+  const lastSampleChangeAtRef = useRef<number>(0);
   // Use ref for the interval so we can clear it
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -103,12 +109,27 @@ export function useModemStatus(
       const nowMs = Date.now();
       setReceivedAtMs(nowMs);
 
-      // Staleness compares the MODEM's timestamp against the browser's clock.
-      // The two are unsynchronised, which the 10s threshold absorbs; it is not
-      // precise enough to be worth correcting, and a drifting modem clock
-      // showing as stale is the safe direction to fail.
-      const age = Math.floor(nowMs / 1000) - json.timestamp;
-      setIsStale(age > STALE_THRESHOLD_SECONDS);
+      // Staleness WITHOUT subtracting two clocks.
+      //
+      // The previous code did `Math.floor(nowMs / 1000) - json.timestamp`, i.e.
+      // the browser's wall clock minus the ROUTER's wall clock. Those are
+      // unsynchronised, so a client only 10 s ahead of the router pinned the
+      // "Spectrum in use" card to "Readings paused" permanently while every
+      // poll was succeeding -- and this box's poll cycle legitimately slips to
+      // ~9 s on one core, so the 10 s threshold had no margin in the other
+      // direction either.
+      //
+      // What the card actually means by "paused" is "the readings stopped
+      // moving". That needs no shared clock: remember WHEN the modem's own
+      // timestamp last changed, measured on this browser's clock, and compare
+      // that against the browser's clock again. Same clock on both sides of
+      // the subtraction, so any skew cancels exactly.
+      if (json.timestamp !== lastSampleTsRef.current) {
+        lastSampleTsRef.current = json.timestamp;
+        lastSampleChangeAtRef.current = nowMs;
+      }
+      const sampleAgeSeconds = (nowMs - lastSampleChangeAtRef.current) / 1000;
+      setIsStale(sampleAgeSeconds > STALE_THRESHOLD_SECONDS);
 
       // Clear loading state after first successful fetch
       setIsLoading(false);
