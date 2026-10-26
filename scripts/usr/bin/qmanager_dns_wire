@@ -1,0 +1,354 @@
+#!/bin/sh
+# =============================================================================
+# qmanager_dns_wire — make dnsmasq actually forward to the QManager resolver
+# =============================================================================
+# USAGE: qmanager_dns_wire {wire|status|unwire}
+#
+# WHY THIS EXISTS
+#   `qmanager-dns.service` binds 127.0.0.1:5353 and QManager reports it running,
+#   but nothing on the LAN uses it until dnsmasq's own config carries
+#   `server=127.0.0.1#5353` with `strict-order` ahead of the carrier resolvers.
+#   That line is the difference between "a resolver is running" and "the LAN
+#   resolves through it" — and the page's cache/hit-rate figures are dnsmasq's,
+#   so without the wiring they describe a path no client takes.
+#
+#   On the O5A Pro the line lives in /etc/data/dnsmasq.conf, written by the
+#   sibling product (`# BEGIN GP smartdns`); QCMAP regenerates only the volatile
+#   bootstrap /var/run/data/dnsmasq.conf.bridge0, which `conf-file=`-includes it.
+#   On a unit where nobody wrote it (the ZLT X16 generates its whole dnsmasq
+#   config per boot), this script is what puts it there — and keeps it there,
+#   because a regenerated config silently removes it while the page stays green.
+#
+# WHERE IT WRITES
+#   Never at a hardcoded path. It asks the RUNNING daemon for its argv, takes
+#   `--conf-file=`/`-C`, and follows ONE `conf-file=` include inside it. That
+#   yields /etc/data/dnsmasq.conf on the O5A (persistent, already wired → this
+#   script is a no-op) and /tmp/dnsmasq.conf on the X16 (volatile → guarded).
+#   If the target already has `server=127.0.0.1#<port>` in ANY form — the sibling
+#   product's block, a hand edit — the file is left byte-for-byte alone.
+#
+# WHY A GUARD AND NOT A ONE-OFF
+#   Measured on the X16 2026-10-26: nothing supervises dnsmasq there (`killall
+#   dnsmasq` left LAN DNS dead indefinitely), and the config is regenerated per
+#   boot. Run from qmanager-dns-wire.timer every minute this costs one `cat` of a
+#   /proc cmdline plus one `cmp` when nothing changed — and it repairs both the
+#   "someone regenerated the config" and the "dnsmasq is gone" failure in under a
+#   minute.
+#
+# TWO BUGS ALREADY PAID FOR (do not reintroduce)
+#   1. THE ASSEMBLY MUST BE CANONICAL. A previous revision stripped its block and
+#      re-appended it with a blank-line separator, so every run grew the file by
+#      one line, `cmp` never matched, and dnsmasq was killed + restarted EVERY
+#      MINUTE — a DNS blip a minute on the LAN. Trailing blank lines are dropped
+#      before the block is appended, so a second run is a no-op.
+#   2. KillMode=process IS LOAD-BEARING on the unit that calls this. With the
+#      systemd default (control-group) the oneshot's cgroup is torn down on exit
+#      and the dnsmasq it just started is SIGTERMed one second later — measured,
+#      and the LAN sat without DNS until the next run.
+#
+# Exit: 0 done/nothing to do · 1 failure (reported on stderr)
+# =============================================================================
+set -u
+
+QM_ROOT=${QM_ROOT:-/usrdata/qmanager}
+PORT=${DNS_PORT:-5353}
+LOG_TARGET=${DNSMASQ_LOG:-/tmp/dnsmasq.log}
+SYSLOG=${SYSLOG_FILE:-/var/log/syslog}
+LOG_MAX_BYTES=${LOG_MAX_BYTES:-262144}
+LOG_KEEP_BYTES=${LOG_KEEP_BYTES:-65536}
+CONF_OVERRIDE=${DNSMASQ_CONF:-}
+
+MARK_B='# BEGIN QMANAGER-WIRE v1'
+MARK_E='# END QMANAGER-WIRE v1'
+
+log() { printf '%s qmanager_dns_wire: %s\n' "$(date '+%F %T')" "$*"; }
+
+# ---------------------------------------------------------------- dnsmasq ----
+# The live daemon's argv, verbatim. Restarting with the argv we read is what makes
+# this portable: the O5A runs `--conf-file=… --user=radio --group=radio`, the X16
+# runs `-C /tmp/dnsmasq.conf -x /tmp/dnsmasq.pid`, and neither needs to be taught
+# to this script.
+dnsmasq_argv() {
+    _p=""
+    for _c in /proc/[0-9]*; do
+        [ "$(cat "$_c/comm" 2>/dev/null)" = "dnsmasq" ] || continue
+        _p=$_c
+        break
+    done
+    [ -n "$_p" ] || return 1
+    tr '\0' ' ' < "$_p/cmdline" 2>/dev/null
+    return 0
+}
+
+conf_from_argv() {
+    _argv=$1
+    for _w in $_argv; do
+        case "$_w" in
+            --conf-file=*) printf '%s' "${_w#*=}"; return 0 ;;
+            -C) continue ;;
+        esac
+    done
+    # `-C <path>` form: walk again, taking the token AFTER -C.
+    _prev=""
+    for _w in $_argv; do
+        if [ "$_prev" = "-C" ]; then printf '%s' "$_w"; return 0; fi
+        _prev=$_w
+    done
+    # `-C<path>` glued form.
+    for _w in $_argv; do
+        case "$_w" in -C?*) printf '%s' "${_w#-C}"; return 0 ;; esac
+    done
+    return 1
+}
+
+# The file that actually holds directives: follow ONE conf-file= include, which is
+# exactly the depth these firmware builds use (bootstrap -> persistent config).
+conf_target() {
+    [ -n "$CONF_OVERRIDE" ] && { printf '%s' "$CONF_OVERRIDE"; return 0; }
+    _argv=$(dnsmasq_argv) || return 1
+    _conf=$(conf_from_argv "$_argv") || return 1
+    [ -f "$_conf" ] || return 1
+    _inc=$(awk -F= '$1 == "conf-file" && $2 ~ /^\// { print $2; exit }' "$_conf" 2>/dev/null)
+    if [ -n "${_inc:-}" ] && [ -f "$_inc" ] && [ "$_inc" != "$_conf" ]; then
+        printf '%s' "$_inc"
+    else
+        printf '%s' "$_conf"
+    fi
+}
+
+port53_up() { netstat -lnu 2>/dev/null | grep -q ':53 '; }
+resolver_up() { netstat -lnu 2>/dev/null | grep -q "127.0.0.1:$PORT"; }
+
+start_dnsmasq() {
+    _argv=${1:-}
+    if [ -z "$_argv" ]; then
+        log "ERROR: no dnsmasq argv to restart from"
+        return 1
+    fi
+    _try=0
+    while [ "$_try" -lt 5 ]; do
+        ( setsid $_argv >/dev/null 2>&1 & )
+        _i=0
+        while [ "$_i" -lt 5 ]; do
+            port53_up && return 0
+            sleep 1
+            _i=$((_i + 1))
+        done
+        _try=$((_try + 1))
+    done
+    return 1
+}
+
+# ------------------------------------------------------- syslog, when absent --
+# QManager's smartdns_stats.sh and qmanager_dns_stats_sample read dnsmasq's
+# SIGUSR1 dump from /var/log/syslog by that exact path. On a firmware where that
+# file exists (the O5A writes one) there is nothing to do. Where it does not (the
+# X16: /var/log -> /var/volatile/log, and the directory is absent), dnsmasq is
+# pointed at a tmpfs log and /var/log/syslog is a symlink to it — a compatibility
+# shim, capped below, not a switch-on of system-wide logging.
+syslog_needs_shim() {
+    [ -e "$SYSLOG" ] || return 0
+    [ -L "$SYSLOG" ] || return 1
+    [ "$(readlink "$SYSLOG" 2>/dev/null)" = "$LOG_TARGET" ] && return 1
+    return 0
+}
+
+ensure_syslog_shim() {
+    syslog_needs_shim || return 0
+    mkdir -p "${SYSLOG%/*}" 2>/dev/null
+    [ -f "$SYSLOG" ] && [ ! -L "$SYSLOG" ] && \
+        mv -f "$SYSLOG" "$SYSLOG.pre-qmanager" 2>/dev/null
+    ln -sfn "$LOG_TARGET" "$SYSLOG" 2>/dev/null && \
+        log "linked $SYSLOG -> $LOG_TARGET (no real syslog file on this firmware)"
+}
+
+cap_log() {
+    [ -f "$LOG_TARGET" ] || return 0
+    _sz=$(wc -c < "$LOG_TARGET" 2>/dev/null)
+    case "$_sz" in ''|*[!0-9]*) return 0 ;; esac
+    [ "$_sz" -le "$LOG_MAX_BYTES" ] && return 0
+    tail -c "$LOG_KEEP_BYTES" "$LOG_TARGET" > "$LOG_TARGET.tmp" 2>/dev/null && \
+        mv -f "$LOG_TARGET.tmp" "$LOG_TARGET" && \
+        log "capped $LOG_TARGET to ${LOG_KEEP_BYTES}B"
+    return 0
+}
+
+# ------------------------------------------------------------------- wire ----
+wire() {
+    ensure_syslog_shim
+
+    _conf=$(conf_target) || {
+        log "no dnsmasq running/config readable yet — nothing to wire"
+        return 1
+    }
+
+    # ANY existing forwarder line is respected. The O5A's sibling-written block is
+    # this case: the answer is then "already wired", not "add a second one".
+    if grep -qE "^server=127\.0\.0\.1#${PORT}([[:space:]]|$)" "$_conf" 2>/dev/null; then
+        log "already wired in $_conf"
+        if ! port53_up; then
+            _argv=$(dnsmasq_argv || true)
+            [ -n "${_argv:-}" ] && start_dnsmasq "$_argv" && log "dnsmasq was not running; started" \
+                || log "ERROR: dnsmasq is not running and could not be started"
+        fi
+        cap_log
+        return 0
+    fi
+
+    _blk=/tmp/.qm-wire-block.$$
+    _want=/tmp/.qm-wire-want.$$
+    {
+        printf '%s\n' "$MARK_B"
+        cat <<'TXT'
+# Added by qmanager_dns_wire. strict-order keeps dnsmasq's servers in the order
+# they appear, so the QManager resolver below is tried first and the carrier
+# resolvers stay as the fallback tier — that is what makes the SmartDNS toggle
+# safe: a stopped resolver degrades DNS instead of breaking it.
+strict-order
+TXT
+        printf 'server=127.0.0.1#%s\n' "$PORT"
+        cat <<'TXT'
+# dnsmasq's front cache. The default is 150; 2000 is what the O5A measured for the
+# warm path and costs roughly 200 kB of RAM.
+cache-size=2000
+TXT
+        # Only on a firmware with no syslog file: send the dump where the symlink
+        # points, or the page's cache figures read null forever.
+        syslog_needs_shim && printf 'log-facility=%s\n' "$LOG_TARGET"
+        printf '%s\n' "$MARK_E"
+    } > "$_blk" || { rm -f "$_blk"; log "ERROR: could not build the block"; return 1; }
+
+    # Assert our OWN output before it can reach the daemon. `dnsmasq --test`
+    # cannot catch this: a block that lost its directives is still valid config —
+    # that is exactly how a mangled write reached the live daemon once.
+    if ! grep -qx 'strict-order' "$_blk" || ! grep -qx "server=127.0.0.1#$PORT" "$_blk"; then
+        log "ERROR: generated block is missing its directives; refusing to write it"
+        sed 's/^/    /' "$_blk"
+        rm -f "$_blk"
+        return 1
+    fi
+
+    # Everything except our block, with trailing blank lines dropped so the
+    # assembly is canonical (bug 1 in the header).
+    awk -v b="$MARK_B" -v e="$MARK_E" '
+        $0 == b { skip = 1; next }
+        $0 == e { skip = 0; next }
+        skip { next }
+        { line[n++] = $0 }
+        END {
+            last = n - 1
+            while (last >= 0 && line[last] == "") last--
+            for (i = 0; i <= last; i++) print line[i]
+        }
+    ' "$_conf" > "$_want.stripped" 2>/dev/null || { rm -f "$_blk" "$_want.stripped"; return 1; }
+
+    # Exactly one blank line before the block: the builder emits the marker first,
+    # so it is printed here and skipped in the block body. With trailing blanks
+    # already dropped from the stripped body this is canonical — a second run
+    # reproduces the same bytes and `cmp` below short-circuits.
+    { cat "$_want.stripped"; printf '\n%s\n' "$MARK_B"; sed '1d' "$_blk"; } > "$_want"
+    rm -f "$_blk" "$_want.stripped"
+
+    if cmp -s "$_want" "$_conf"; then
+        rm -f "$_want"
+        if ! port53_up; then
+            _argv=$(dnsmasq_argv || true)
+            if [ -n "${_argv:-}" ]; then
+                start_dnsmasq "$_argv" && log "config already correct; dnsmasq was not running, started"
+            else
+                log "ERROR: config correct but dnsmasq is gone and its argv is unknown"
+            fi
+        fi
+        cap_log
+        return 0
+    fi
+
+    # Validate the CANDIDATE, never the live file: dnsmasq reads its config at
+    # startup only, so a bad edit is discovered by a dead LAN resolver.
+    if ! dnsmasq --test -C "$_want" >/tmp/.qm-wire-test.$$ 2>&1; then
+        log "ERROR: candidate config rejected; leaving the live one alone:"
+        sed 's/^/    /' /tmp/.qm-wire-test.$$
+        rm -f "$_want" /tmp/.qm-wire-test.$$
+        return 1
+    fi
+    rm -f /tmp/.qm-wire-test.$$
+
+    [ -f "${_conf}.pre-qmanager" ] || cp -f "$_conf" "${_conf}.pre-qmanager" 2>/dev/null || true
+
+    cat "$_want" > "$_conf" || { log "ERROR: could not write $_conf"; rm -f "$_want"; return 1; }
+    rm -f "$_want"
+    log "wired $_conf -> 127.0.0.1#$PORT"
+
+    _argv=$(dnsmasq_argv || true)
+    if [ -z "${_argv:-}" ]; then
+        log "ERROR: dnsmasq is not running and its argv is unknown — start it by hand"
+        return 1
+    fi
+    if port53_up; then
+        killall dnsmasq 2>/dev/null
+        _i=0
+        while [ "$_i" -lt 10 ]; do port53_up || break; sleep 1; _i=$((_i + 1)); done
+    fi
+    if start_dnsmasq "$_argv"; then
+        log "dnsmasq restarted with the new config"
+    else
+        log "ERROR: dnsmasq did not come back up — LAN DNS is DOWN"
+        return 1
+    fi
+    cap_log
+    return 0
+}
+
+# ----------------------------------------------------------------- status ----
+status() {
+    printf '%-22s %s\n' "unit" "$(systemctl is-active qmanager-dns.service 2>/dev/null)/$(systemctl is-enabled qmanager-dns.service 2>/dev/null)"
+    printf '%-22s %s\n' "resolver listener" "$(resolver_up && echo "127.0.0.1:$PORT" || echo down)"
+    printf '%-22s %s\n' "dnsmasq" "$(port53_up && echo running || echo DOWN)"
+    _conf=$(conf_target 2>/dev/null || true)
+    printf '%-22s %s\n' "dnsmasq config" "${_conf:-(unknown - dnsmasq not running)}"
+    if [ -n "${_conf:-}" ]; then
+        if grep -qE "^server=127\.0\.0\.1#${PORT}([[:space:]]|$)" "$_conf" 2>/dev/null; then
+            printf '%-22s %s\n' "wired" "yes ($_conf)"
+        else
+            printf '%-22s %s\n' "wired" "NO — run: $0 wire"
+        fi
+        grep -nE '^strict-order|^cache-size=|^log-facility=|^server=' "$_conf" 2>/dev/null | sed 's/^/  /'
+    fi
+    printf '%-22s %s\n' "syslog" "$(readlink "$SYSLOG" 2>/dev/null || ([ -f "$SYSLOG" ] && echo "$SYSLOG (real file)" || echo MISSING))"
+    # Only meaningful where the syslog shim is in play; a firmware with a real
+    # /var/log/syslog logs there instead and this stays absent by design.
+    printf '%-22s %s\n' "shim log" "$([ -f "$LOG_TARGET" ] && echo "$LOG_TARGET ($(wc -c < "$LOG_TARGET") B)" || echo "unused (real syslog present)")"
+    printf '%-22s %s\n' "stats sampler" "$(systemctl is-active qmanager-dns-stats.timer 2>/dev/null)"
+}
+
+# ----------------------------------------------------------------- unwire ----
+unwire() {
+    _conf=$(conf_target 2>/dev/null || true)
+    [ -n "${_conf:-}" ] || { log "no dnsmasq config readable"; return 0; }
+    grep -qF "$MARK_B" "$_conf" 2>/dev/null || { log "no QManager block in $_conf"; return 0; }
+    if [ -f "${_conf}.pre-qmanager" ] && ! grep -qF "$MARK_B" "${_conf}.pre-qmanager"; then
+        cat "${_conf}.pre-qmanager" > "$_conf" && log "restored $_conf from ${_conf}.pre-qmanager"
+    else
+        awk -v b="$MARK_B" -v e="$MARK_E" '
+            $0 == b { skip = 1; next }
+            $0 == e { skip = 0; next }
+            !skip
+        ' "$_conf" > "$_conf.new" 2>/dev/null && cat "$_conf.new" > "$_conf" && rm -f "$_conf.new" && \
+            log "stripped the QManager block from $_conf"
+    fi
+    _argv=$(dnsmasq_argv || true)
+    if [ -n "${_argv:-}" ]; then
+        port53_up && { killall dnsmasq 2>/dev/null; sleep 1; }
+        start_dnsmasq "$_argv" && log "dnsmasq restarted (vendor behaviour)" || \
+            log "ERROR: dnsmasq did not come back up"
+    fi
+    [ -L "$SYSLOG" ] && rm -f "$SYSLOG" && log "removed the $SYSLOG shim"
+    return 0
+}
+
+case "${1:-wire}" in
+    wire)   wire ;;
+    status) status ;;
+    unwire) unwire ;;
+    *) echo "usage: $0 {wire|status|unwire}" >&2; exit 2 ;;
+esac

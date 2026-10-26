@@ -70,6 +70,7 @@ MODE=${1:-apply}
 UNITS="qmanager-httpd.service qmanager-poller.service qmanager-ping.service
 qmanager-dpi.service qmanager-dpi-ensure.timer qmanager-ippt.service
 qmanager-dns.service qmanager-dns-edge.timer qmanager-dns-stats.timer
+qmanager-dns-wire.timer
 qmanager-traffic.service qmanager-schedule-rearm.service"
 
 [ -f "$TURIN" ] || { echo "ERROR: $TURIN not found" >&2; exit 1; }

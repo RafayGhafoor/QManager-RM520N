@@ -1,0 +1,48 @@
+# /etc/systemd/system/qmanager-dns-wire.service
+#
+# Re-applies the dnsmasq wiring that makes LAN clients actually use the QManager
+# resolver (`server=127.0.0.1#5353` + `strict-order`), and starts dnsmasq if it is
+# gone. One run a minute, from qmanager-dns-wire.timer.
+#
+# WHY A GUARD AND NOT A ONE-OFF INSTALL STEP
+#   The file that carries the line is not ours:
+#     * O5A Pro  — /etc/data/dnsmasq.conf, written by the sibling product; QCMAP
+#                  regenerates the volatile bootstrap that `conf-file=`-includes it.
+#     * ZLT X16  — /tmp/dnsmasq.conf, generated per boot by the vendor.
+#   Either can lose the line, and the failure is invisible on the page: the
+#   resolver still reports `running:true` while every client resolves through the
+#   carrier, and the cache/hit-rate figures (dnsmasq's own) describe a path nobody
+#   takes. Measured on the X16 2026-10-26: nothing supervises dnsmasq there either,
+#   so `killall dnsmasq` left LAN DNS dead indefinitely.
+#
+#   When the wiring is already present (the O5A case) the run is a no-op: one read
+#   of the daemon's /proc cmdline, one grep, no write, no signal, no restart.
+#
+# KillMode=process IS LOAD-BEARING — not tuning. This unit may restart dnsmasq, and
+# the systemd default (control-group) tears the unit's cgroup down on exit, which
+# SIGTERMs the dnsmasq it just started (measured on the X16: `dnsmasq[...]: exiting
+# on receipt of SIGTERM` one second after starting, LAN DNS dead until the next
+# run). docs/reference/custom-dns.md records the same rule:  "KillMode=process is
+# applied to nothing because no QManager unit restarts dnsmasq; the rule is
+# recorded here for when one does". This is that unit.
+#
+# `-` prefix on ExecStart: a non-zero exit is a state to report (dnsmasq config not
+# readable yet, or a refused candidate), not a reason to paint the unit red once a
+# minute. The script's own stderr line is the diagnosis.
+#
+# No journal: journald does not persist on these firmwares and its stdout socket is
+# not up early. The script logs to stderr, captured as the unit's syslog line.
+
+[Unit]
+Description=QManager DNS dnsmasq wiring guard
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+KillMode=process
+Environment=PATH=/usrdata/qmanager/bin:/usr/bin:/bin:/sbin:/usr/sbin
+ExecStart=-/usrdata/qmanager/bin/qmanager_dns_wire wire
+StandardOutput=null
+StandardError=null
+TimeoutStartSec=120
+Nice=15

@@ -40,7 +40,9 @@ a `deploy/qm_boot_hook.sh` line (hard rule 7).
 | Trigger | Where |
 | --- | --- |
 | `qmanager-dns.service`, `qmanager-dns-edge.{service,timer}`, `qmanager-dns-stats.{service,timer}` | `/etc/systemd/system/` |
-| `qmanager_dns_apply`, `qmanager_dns_edge_probe`, `qmanager_dns_test`, `qmanager_dns_stats_sample` | `scripts/usr/bin/` → `/usrdata/qmanager/bin/` |
+| `qmanager-dns-wire.{service,timer}` | `/etc/systemd/system/` — the guard that keeps dnsmasq forwarding here |
+| `qmanager_dns_apply`, `qmanager_dns_edge_probe` (`--carrier`), `qmanager_dns_test`, `qmanager_dns_stats_sample`, `qmanager_dns_wire` | `scripts/usr/bin/` → `/usrdata/qmanager/bin/` |
+| `# BEGIN QMANAGER-WIRE v1` … `# END QMANAGER-WIRE v1` | the forwarding block `qmanager_dns_wire` owns inside the dnsmasq config |
 | `smartdns.sh`, `smartdns_stats.sh`, `dns_test.sh` | `scripts/www/cgi-bin/quecmanager/network/` |
 | `/usrdata/qmanager/etc/smartdns.conf` (the live config, `root:root 0600`) | written **only** by `qmanager_dns_apply` |
 | `# BEGIN QMANAGER-EDGE v1` … `# END QMANAGER-EDGE v1` | the *generated* block inside the config |
@@ -119,6 +121,70 @@ Tunables (env): `THRESHOLD_MS`, `MIN_MEMBERS`, `MAX_IPS`, `PING_TIMEOUT`,
 | `blacklist-ip 192.178.0.0/16` | filters nothing (8/8 still far); unknown directives are silently ignored on 0.13.1 |
 | IP-range tests | impossible: `142.250.122.101` = 345 ms sits inside the "near" `142.250.0.0/15`; `142.250.203.14` = 62 ms is in the same /15 |
 | `edns-client-subnet` | measured no effect (sibling `dns.md`), and leaks the subnet |
+
+## Keeping the wiring — `qmanager_dns_wire`
+
+Added **2026-10-26**, after the same defect was found twice on two firmwares: the
+resolver runs, the page is green, and **no LAN client uses it** because dnsmasq's
+config has lost `server=127.0.0.1#5353`.
+
+| Device | Where the forwarding line lives | Who can lose it |
+| --- | --- | --- |
+| O5A Pro | `/etc/data/dnsmasq.conf` (`# BEGIN GP smartdns`, sibling product) | anything that rewrites the file; QCMAP regenerates the *bootstrap* that `conf-file=`-includes it, so normally it survives |
+| ZLT X16 | `/tmp/dnsmasq.conf` | the vendor regenerates it per boot, and nothing restarts dnsmasq there either (`killall dnsmasq` left LAN DNS dead until an operator noticed) |
+
+`qmanager_dns_wire` does not hardcode a path: it asks the **running** daemon for its
+argv, takes `--conf-file=`/`-C`, follows ONE `conf-file=` include, and then:
+
+- **already has the line → write nothing.** This is the O5A case, and it is why the
+  guard is safe to run every minute against the sibling product's file. Any form of
+  the line counts, not just our marker.
+- **missing → append** `strict-order`, `server=127.0.0.1#5353`, `cache-size=2000`
+  (and `log-facility=` only on a firmware with no syslog file), between
+  `# BEGIN/END QMANAGER-WIRE v1` markers;
+- validate the **candidate** with `dnsmasq --test` *and* assert our own directives
+  survived assembly, before the live daemon is touched;
+- restart dnsmasq by re-exec'ing the argv it was running with, and verify `:53` is
+  listening again; if it was not running, start it.
+- `status` prints which file it resolved, whether it is wired, and where the syslog
+  shim points; `unwire` restores `<conf>.pre-qmanager` or strips only our block.
+
+### Two bugs already paid for — do not reintroduce
+
+1. **The assembly must be canonical.** Stripping the block and re-appending it with
+   a blank-line separator grew the file by one line per run, so `cmp` never matched
+   and dnsmasq was killed + restarted **every 60 s** — a DNS blip a minute on the
+   LAN (measured on the X16, 2026-10-26). Trailing blank lines are dropped first,
+   so the second run is a no-op.
+2. **`KillMode=process` is load-bearing on the unit that calls it.** With the
+   systemd default (control-group) the oneshot's cgroup is torn down on exit and the
+   dnsmasq it just started is SIGTERMed a second later. This is the "for when one
+   does" case `docs/reference/custom-dns.md` recorded.
+
+X16 note: `deploy-x16/smartdns/zlt-smartdns.sh wire` in the sibling repo carries the
+same algorithm plus the boot/status driver for that device. `qmanager_dns_wire` is
+the canonical copy; fold the X16 one into it when that module is next touched.
+
+## The carrier baseline — the comparison the numbers are worth anything against
+
+Added **2026-10-26**. Every latency figure on this page was a comparison the page did
+not show: "61 ms" answers nothing without "…and the resolver your ISP gave you says
+116 ms". So the domain tester now measures the carrier resolvers as extra rows.
+
+| Rule | Why |
+| --- | --- |
+| **Auto-picked, never hardcoded** | The operator's nameservers change per SIM and per network. They are read from the device's own resolv files — `/tmp/resolv.conf` (dnsmasq's `resolv-file` on the X16) → `/run/resolv.conf` → `/etc/resolv.conf`, first hit wins, duplicates dropped. A hardcoded pair measured a resolver the router does not use. |
+| **Loopback skipped** | A unit whose resolv.conf points at its own cache would otherwise compare the resolver with itself and call it a baseline. |
+| **Never a candidate** | Rows carry `is_carrier: true` and are excluded from `recommendation.good`/`dropped` unconditionally. The edge timer calls the probe **without** `--carrier`, so pool membership can never grow a plain UDP/53 entry. |
+| **Measured the same way** | `dig @<carrier> <domain>` → ping the A records → same median/class code path as a DoH provider, so the two columns are comparable. A carrier that blocks or hijacks a name shows up as a different IP, not as a different measurement. |
+
+Live example (X16, 2026-10-26, `youtube.com`): `dns.quad9.net 93 ms` · `carrier
+182.176.100.89 93 ms` · `carrier 39.39.39.39 142 ms` · `dns.google 112 ms` ·
+`cloudflare-dns.com 398 ms`. That is the whole point of the page in one line: the
+carrier is *not* the problem on this network, and two pool members are worse than it.
+
+`carrier.measured: false` (no resolver found, or `dig` missing) carries a `reason` and
+renders as **no carrier rows** — never as a 0 ms baseliner.
 
 ## Corpora / state
 

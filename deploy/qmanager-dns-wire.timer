@@ -1,0 +1,30 @@
+# /etc/systemd/system/qmanager-dns-wire.timer
+#
+# 1-minute cadence for the dnsmasq wiring guard (qmanager-dns-wire.service).
+#
+# Why 1 minute and not 5: the failure it covers is "the vendor regenerated the
+# dnsmasq config" or "dnsmasq is gone", and every minute in that state is a minute
+# where the resolver is installed but unused — the page green, the LAN on the
+# carrier path. A healthy run costs one read of /proc/<dnsmasq>/cmdline, one grep
+# and (only when something changed) one cmp; measured on the X16 as a handful of
+# forks per run, against a device already running a 5 s poller and a 5 s ping loop.
+#
+# OnBootSec=2min, not earlier: the vendor's LAN bring-up creates the dnsmasq config
+# this guard edits. The QManager boot hook starts this timer explicitly (see
+# deploy/qm_boot_hook.sh) because units under /etc/systemd/system get no boot job
+# on these firmwares — OnBootSec only matters if systemd ever starts it itself.
+#
+# RandomizedDelaySec is deliberately absent: a minute of jitter buys nothing here
+# and would make "repair within a minute" untrue.
+
+[Unit]
+Description=Timer for the QManager DNS dnsmasq wiring guard
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+AccuracySec=10s
+Unit=qmanager-dns-wire.service
+
+[Install]
+WantedBy=timers.target

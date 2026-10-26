@@ -55,6 +55,30 @@ Services (both `enabled` + `active` under `multi-user.target`):
   CPU per 1 Hz read (~0.5 % of one core) and nothing when switched off.
   `docs/reference/live-traffic.md`.
 
+### Temporary diagnostic state — netmgrd allocation trace (2026-10-26)
+
+The owner authorized controlled `netmgrd.service` restarts and a temporary LD_PRELOAD
+trace. The tracer targets only `calloc(0xaf98,1)` / 44,952-byte objects. PID 17518 ran
+with it for 22.7 min and produced no matching events. The owner's router reboot changed
+the boot ID to `6e980870-a3dd-4932-9a5d-9c2f0eb8ebf4`, but the one-shot boot wrapper did
+**not** preload the tracer: new PID 433 had no `LD_PRELOAD`, and the arm marker remained.
+The reason is unproven; do not claim the tracer covered boot.
+
+A current-boot-ID wrapper then attached the tracer to netmgrd. Across PIDs 17518 and
+14209 there were **no matching allocations in 40.9 min**. The one-shot boot attempt did
+not preload and its cause remains unproven. The trace has now been stopped and cleaned:
+PID **16889** is active under OEM `ExecStart=/usr/bin/netmgrd`, with no `LD_PRELOAD`; the
+systemd drop-in, marker, scratch directory, tracer DSO and smoke-test binary are removed.
+Vendor UI/QManager both return HTTP 200 and WAN ping succeeds. The O5A install is back to
+its normal state.
+
+Restart samples on low-footprint processes: first, 5,656 kB → 4,192 kB at +2 s (**1,464
+kB lower**, 0.48 s to active); after reboot, 3,220 kB → 4,192 kB (**972 kB higher**,
+0.50 s to active); final OEM cleanup restart, 3,904 kB → 3,496 kB at +2 s (**408 kB
+lower**, 0.53 s to active), then 4,276 kB RSS at +43 s. These do not measure the earlier
+38 MB high-water case and are not measurements of physical RAM reclaimed. Full evidence
+and limitations: `docs/plans/2026-10-23-netmgrd-memory-growth.md`.
+
 ## Scheduled-feature units (added 2026-10-25)
 
 The scheduled features each fire into a oneshot `.service` that the arm helper
@@ -862,3 +886,35 @@ called valid). dnsmasq restart count still **5**, PID still **17398**. Vendor `:
 dnsmasq; the rule is recorded in `docs/reference/custom-dns.md` for when one does.
 Backups: `/usrdata/qmanager/backup/custom_dns-<ts>.sh`,
 `qmanager_dns_apply.<ts>.sh`, `dnsmasq.conf.<ts>`.
+
+## 2026-10-26 — the resolver's dnsmasq wiring, guarded (and the carrier baseline)
+
+**Symptom class, found on two firmwares the same day:** `qmanager-dns` active, the
+page green, and no LAN client using it — dnsmasq's config had lost
+`server=127.0.0.1#5353`. On the ZLT X16 the config is generated per boot *and*
+nothing supervises dnsmasq (`killall dnsmasq` → LAN DNS dead indefinitely), so the
+wiring needs a guard, not an install step.
+
+**Deployed:** `scripts/usr/bin/qmanager_dns_wire` (`wire|status|unwire`) +
+`deploy/qmanager-dns-wire.{service,timer}` (1 min, `KillMode=process`), started from
+`deploy/qm_boot_hook.sh`; `qmanager_dns_wire` added to `deploy/qm_pathfix.sh`'s
+`QM_BINS`. It resolves the config from the running daemon's argv (`--conf-file=`,
+then one `conf-file=` include) instead of hardcoding a path, so on this device it
+targets `/etc/data/dnsmasq.conf` and finds the sibling product's block → **writes
+nothing**. Missing → appends `strict-order` + `server=127.0.0.1#5353` +
+`cache-size=2000`, validates the candidate with `dnsmasq --test` *and* asserts its own
+directives, then restarts from the captured argv and re-checks `:53`.
+
+**Two bugs paid for (both recorded in the script header and the reference doc):**
+non-canonical assembly → one blank line per run → `cmp` never matched → dnsmasq
+killed + restarted every 60 s; and the systemd default `KillMode=control-group` on
+the oneshot that restarts dnsmasq → the fresh daemon SIGTERMed on unit exit. This is
+the "for when one does" case `docs/reference/custom-dns.md` left open.
+
+**Also in this change:** `qmanager_dns_test` now passes `--carrier`, so the domain
+tester compares the pool against the operator's own resolvers, auto-picked from
+`/tmp/resolv.conf` → `/run/resolv.conf` → `/etc/resolv.conf`. They carry
+`is_carrier:true`, are excluded from `recommendation` unconditionally, and the edge
+timer never asks for them. Live on the X16, `youtube.com`: carrier 91/116 ms (near),
+dns.google 99, quad9 92, cloudflare 386, 1.1.1.1 372 — i.e. the carrier is *not* the
+slow path here and two pool members are worse than it.
