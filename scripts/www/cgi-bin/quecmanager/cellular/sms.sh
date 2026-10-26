@@ -77,6 +77,21 @@ LOCK_FILE="/tmp/qmanager_at.lock"
 # missing simply means "no store on this device" and the modem path answers.
 STORE_DB="/data/turin/mifi_config.sqlite"
 SQLITE3_BIN="/usr/bin/sqlite3"
+# Second store backend: the sunsea firmware's SMS manager (/bin/sms_mgr) writes
+# one plain-text file per received message and keeps the modem's slots EMPTY --
+# AT+CPMS? reports 0 used while 17 messages sit on disk. So on this hardware the
+# modem path can never show an inbox, and AT+CMGR/CMGL are refused outright
+# (bare ERROR, not +CMS ERROR). Reading the files costs one awk pass, no AT lock
+# and no AT round-trip: the page went from 6-15 s to well under a second.
+#
+# Row grammar, verbatim from the files:
+#   <slot> <flag> <sender> <YYYY-MM-DD> <HH:MM:SS> <body...>
+# with `$` standing for a space inside the sender, and flag 0 = UNREAD.
+# Three of the 17 rows on the reference unit carry no sender at all and join
+# date and time with `$` -- they are internal diagnostic dumps, so the parser
+# treats them as sender-less rather than misreading the date as a sender.
+SMS_FILE_STORE="/data/sms/sms_read"
+SMS_FILE_INDEX="/data/sms/read_index"
 STORE_BACKUP_DIR="/usrdata/qmanager/data/sms-store-backups"
 # Last sqlite error text, set by store_delete_ids for the caller's envelope.
 # Never interpolated into SQL.
@@ -182,6 +197,67 @@ store_inbox_json() {
     _si_out=$(printf '%s' "$_si_raw" | jq -c "$STORE_JQ" 2>/dev/null) || return 1
     [ -n "$_si_out" ] || return 1
     printf '%s' "$_si_out"
+    return 0
+}
+
+# The file-store parser. One JSON object per message on its own line, which
+# `jq -s` then collects. Escaping happens here because the body is free text:
+# backslashes FIRST, then the quote, then the control characters.
+SMS_FILE_AWK='
+function esc(s) {
+    gsub(/\\/, "\\\\", s)
+    gsub(/"/, "\\\"", s)
+    gsub(/\n/, "\\n", s)
+    # Remaining C0 control characters become a space. Three of the rows on the
+    # reference unit are internal diagnostic dumps carrying 0x19/0x01, and a raw
+    # control character is not legal JSON -- jq rejects the WHOLE array for it,
+    # which would have emptied the inbox rather than one odd row.
+    gsub(/[\001-\037]/, " ", s)
+    return s
+}
+function qm_ts(d, t) {
+    if (d ~ /^[0-9][0-9]-[0-9][0-9]-[0-9][0-9][0-9][0-9]$/ && t ~ /^[0-9][0-9]:[0-9][0-9]:[0-9][0-9]$/)
+        return substr(d,1,2) "/" substr(d,4,2) "/" substr(d,7,4) " " t
+    if (t == "") return d
+    return d " " t
+}
+function emit() {
+    if (text == "") return
+    s = text
+    idx = s; sub(/ .*/, "", idx); ram = substr(s, length(idx) + 2)
+    flag = ram; sub(/ .*/, "", flag); ram = substr(ram, length(flag) + 2)
+    sp = index(ram, " "); tok = substr(ram, 1, sp - 1)
+    if (tok ~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]\$[0-9][0-9]:[0-9][0-9]:[0-9][0-9]$/) {
+        dts = tok; gsub(/\$/, " ", dts); split(dts, dp, " ")
+        sender = ""; d = dp[1]; t = dp[2]; body = substr(ram, sp + 1)
+    } else {
+        sender = tok; gsub(/\$/, " ", sender); rest = substr(ram, sp + 1)
+        sp2 = index(rest, " "); d = substr(rest, 1, sp2 - 1); rest2 = substr(rest, sp2 + 1)
+        sp3 = index(rest2, " ")
+        if (sp3 > 0) { t = substr(rest2, 1, sp3 - 1); body = substr(rest2, sp3 + 1) }
+        else { t = rest2; body = "" }
+    }
+    # flag 0 = UNREAD, so `read` is the inverse. Same inversion as STORE_JQ,
+    # which reads the vendor convention where readed=1 means unread.
+    r = (flag == "0") ? "false" : "true"
+    printf "{\"indexes\":[%s],\"sender\":\"%s\",\"content\":\"%s\",\"timestamp\":\"%s\",\"storage\":\"STORE\",\"read\":%s}\n", idx, esc(sender), esc(body), esc(qm_ts(d, t)), r
+}
+FNR == 1 { emit(); text = "" }
+{ if (text == "") text = $0; else text = text "\n" $0 }
+END { emit() }
+'
+
+# Print the FILE store's inbox. Same contract as store_inbox_json: 0 when the
+# store answered (including empty, which prints []), 1 when it cannot answer at
+# all. Only the file store's own absence is a fallback trigger.
+file_store_inbox_json() {
+    [ -d "$SMS_FILE_STORE" ] || return 1
+    _fs_out=$(set +f; awk "$SMS_FILE_AWK" "$SMS_FILE_STORE"/* 2>/dev/null)
+    [ -n "$_fs_out" ] || { printf '[]'; return 0; }
+    # Newest first. The glob is lexicographic (1, 10, 11, 2 ...), so ordering
+    # must come from the parsed timestamp, never from the file name.
+    printf '%s\n' "$_fs_out" \
+        | jq -s -c 'sort_by(.timestamp) | reverse' 2>/dev/null || return 1
     return 0
 }
 
@@ -477,6 +553,24 @@ if [ "$REQUEST_METHOD" = "GET" ]; then
     #    store that cannot be READ falls through to the modem — an empty store is
     #    a legitimately empty inbox, and re-reading the modem there would
     #    resurrect the very fragments the user just deleted.
+    if messages=$(file_store_inbox_json); then
+        store_used=$(printf '%s' "$messages" | jq 'length' 2>/dev/null)
+        [ -z "$store_used" ] && store_used=0
+        qlog_info "SMS inbox served from the file store ($store_used messages)"
+        jq -n --argjson messages "$messages" --argjson used "$store_used" \
+            '{
+                success: true,
+                source: "store",
+                messages: $messages,
+                storage: {
+                    used: $used,
+                    total: 0,
+                    store: {used: $used}
+                }
+            }'
+        exit 0
+    fi
+
     if messages=$(store_inbox_json); then
         store_used=$(printf '%s' "$messages" | jq 'length' 2>/dev/null)
         [ -z "$store_used" ] && store_used=0
