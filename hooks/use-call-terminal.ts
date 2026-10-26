@@ -1,0 +1,649 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+
+import type {
+  CallActionResponse,
+  CallLogResponse,
+  CallRecord,
+  CallTerminalState,
+  Contact,
+  GainResponse,
+  RecordingInfo,
+  VcfImportResult,
+} from "@/types/calls";
+
+// =============================================================================
+// useCallTerminal — call state, the WebRTC link, and the two level meters
+// =============================================================================
+// Three independent things live here and they are deliberately kept apart:
+//
+//   CALL   modem state, owned by the device. Read with a 1 s poll; the page never
+//          infers it from anything else.
+//   LINK   a WebRTC peer between this browser and the bridge. Lifetime is the
+//          user's: Connect / Disconnect.
+//   MIC    whether this origin may capture audio at all.
+//
+// -----------------------------------------------------------------------------
+// MIC IS A PROPERTY OF THE ORIGIN, NOT A PERMISSION THE USER CAN GRANT
+// -----------------------------------------------------------------------------
+// `getUserMedia` does not exist outside a secure context, so on
+// http://192.168.3.1:8080 no prompt is ever shown and no setting changes that —
+// the API itself is absent. Two consequences shape this hook:
+//
+//   * the link is still opened there, as a RECEIVE-ONLY peer, so the dashboard
+//     can dial and you can *listen* to the far end over plain HTTP;
+//   * `speak` reports false and the UI says to reopen the page on
+//     https://<host>:8444, which the bridge serves with a local-CA certificate
+//     (install /ca.crt once) — same export, same origin as /callapi, and a real
+//     microphone.
+//
+// -----------------------------------------------------------------------------
+// WHY THE API HAS TWO BASES
+// -----------------------------------------------------------------------------
+// On the HTTPS front (:8444) `/callapi` is same-origin. On QManager's own
+// listener (:8080) that prefix does not exist — it belongs to the bridge — so the
+// hook falls back to `https://<host>:8443/api`, which the bridge answers with
+// permissive CORS. Dialling and listening therefore work from either origin;
+// only the microphone needs the secure one.
+//
+// -----------------------------------------------------------------------------
+// WHY THE CODE IS PCMU AND NOT OPUS
+// -----------------------------------------------------------------------------
+// The device's call audio is 8 kHz mono, and G.711 is mandatory in every WebRTC
+// client, so the browser can be asked to speak it directly: no resampling, no
+// transcoding. `setCodecPreferences` is belt and braces — the bridge registers
+// only PCMU, so its answer already removes Opus.
+// =============================================================================
+
+const SAME_ORIGIN = "/callapi";
+const FALLBACK_BASE = (host: string) => `https://${host}:8443/api`;
+
+export type LinkPhase = "idle" | "connecting" | "live" | "failed";
+
+export interface CallTerminal {
+  state: CallTerminalState | null;
+  /** True once the API has answered at least once. */
+  available: boolean;
+  /** True when this origin can capture audio (a secure context). */
+  speak: boolean;
+  /** Which API base answered, for the UI's own honesty. */
+  apiBase: string;
+  phase: LinkPhase;
+  ice: string;
+  error: string | null;
+  micError: string | null;
+  levels: { up: number; down: number };
+  /** True when the live microphone is muted; silent, but the call continues. */
+  muted: boolean;
+  /** False when there is no microphone to mute (listen-only origin or no mic). */
+  canMute: boolean;
+  toggleMute: () => void;
+  calls: CallRecord[];
+  callsTotal: number;
+  reloadCalls: () => Promise<void>;
+  clearCalls: () => Promise<void>;
+  connect: () => Promise<void>;
+  disconnect: () => void;
+  /** Answer an incoming call (ATA) / reject it. */
+  answer: () => Promise<CallActionResponse>;
+  reject: () => Promise<CallActionResponse>;
+  recordings: RecordingInfo[];
+  recordingsEnabled: boolean;
+  deleteRecording: (name: string) => Promise<void>;
+  setRecording: (on: boolean) => Promise<void>;
+  contacts: Contact[];
+  saveContact: (c: Omit<Contact, "id" | "source"> & { id?: number }) => Promise<void>;
+  deleteContact: (id: number) => Promise<void>;
+  importVcf: (text: string) => Promise<VcfImportResult | null>;
+  dial: (number: string) => Promise<CallActionResponse>;
+  hangup: () => Promise<CallActionResponse>;
+  sendDtmf: (digit: string) => Promise<CallActionResponse>;
+  setGain: (gain: { up?: number; down?: number }) => Promise<void>;
+}
+
+const IDLE_LEVELS = { up: 0, down: 0 };
+
+export function useCallTerminal(): CallTerminal {
+  const [state, setState] = useState<CallTerminalState | null>(null);
+  const [available, setAvailable] = useState(false);
+  const [speak, setSpeak] = useState(true);
+  const [apiBase, setApiBase] = useState(SAME_ORIGIN);
+  const [phase, setPhase] = useState<LinkPhase>("idle");
+  const [ice, setIce] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [micError, setMicError] = useState<string | null>(null);
+  const [levels, setLevels] = useState(IDLE_LEVELS);
+  const [muted, setMuted] = useState(false);
+  const [hasMic, setHasMic] = useState(false);
+  const [calls, setCalls] = useState<CallRecord[]>([]);
+  const [callsTotal, setCallsTotal] = useState(0);
+  const [recordings, setRecordings] = useState<RecordingInfo[]>([]);
+  const [recordingsEnabled, setRecordingsEnabled] = useState(false);
+  const [contacts, setContacts] = useState<Contact[]>([]);
+
+  const baseRef = useRef(SAME_ORIGIN);
+  const callsTotalRef = useRef(0);
+  const contactsTotalRef = useRef(-1);
+  const recEnabledRef = useRef(false);
+  const reloadCallsRef = useRef<() => Promise<void>>(async () => {});
+  const pcRef = useRef<RTCPeerConnection | null>(null);
+  const micRef = useRef<MediaStream | null>(null);
+  const micTrackRef = useRef<MediaStreamTrack | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const acRef = useRef<AudioContext | null>(null);
+  const upAnalyser = useRef<AnalyserNode | null>(null);
+  const downAnalyser = useRef<AnalyserNode | null>(null);
+  const meterTimer = useRef<number | null>(null);
+
+  const postJson = useCallback(async <T,>(path: string, body?: unknown): Promise<T> => {
+    const res = await fetch(`${baseRef.current}${path}`, {
+      method: "POST",
+      headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    if (!res.ok) {
+      throw new Error(`${path}: HTTP ${res.status}`);
+    }
+    return (await res.json()) as T;
+  }, []);
+
+  // ----------------------------------------------------------------- polling --
+  useEffect(() => {
+    let cancelled = false;
+    let timer: number | undefined;
+
+    setSpeak(window.isSecureContext);
+
+    const read = async () => {
+      const candidates = [SAME_ORIGIN, FALLBACK_BASE(window.location.hostname)];
+      let landed = false;
+      for (const base of candidates) {
+        try {
+          const res = await fetch(`${base}/state`, { cache: "no-store" });
+          if (!res.ok) {
+            continue;
+          }
+          const next = (await res.json()) as CallTerminalState;
+          if (cancelled) {
+            return;
+          }
+          baseRef.current = base;
+          setApiBase(base);
+          setState(next);
+          setAvailable(true);
+          landed = true;
+          // The bridge records a call when it ends, so a changed count is the
+          // signal to pull the history again — no timer of its own.
+          if (next.calls_total !== callsTotalRef.current) {
+            callsTotalRef.current = next.calls_total;
+            void reloadCallsRef.current();
+            void reloadRecordings();
+          }
+          if (next.contacts_total !== contactsTotalRef.current) {
+            contactsTotalRef.current = next.contacts_total;
+            void reloadContacts();
+          }
+          recEnabledRef.current = next.record_enabled;
+          if (next.record_enabled !== undefined) {
+            setRecordingsEnabled(next.record_enabled);
+          }
+          break;
+        } catch {
+          // try the next base; the fallback is cross-origin and fails while the
+          // certificate has not been trusted yet.
+        }
+      }
+      if (!cancelled) {
+        if (!landed) {
+          setAvailable(false);
+        }
+        timer = window.setTimeout(read, 1000);
+      }
+    };
+
+    void read();
+
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) {
+        window.clearTimeout(timer);
+      }
+    };
+  }, []);
+
+  // ------------------------------------------------------------------ meters --
+  const stopMeters = useCallback(() => {
+    if (meterTimer.current !== null) {
+      window.clearInterval(meterTimer.current);
+      meterTimer.current = null;
+    }
+    upAnalyser.current = null;
+    downAnalyser.current = null;
+    if (acRef.current) {
+      void acRef.current.close();
+      acRef.current = null;
+    }
+    setLevels(IDLE_LEVELS);
+  }, []);
+
+  const startMeters = useCallback((remote: MediaStream | null) => {
+    const mic = micRef.current;
+    const ac = new AudioContext();
+    acRef.current = ac;
+    if (ac.state === "suspended") {
+      void ac.resume();
+    }
+    if (mic) {
+      upAnalyser.current = ac.createAnalyser();
+      upAnalyser.current.fftSize = 512;
+      ac.createMediaStreamSource(mic).connect(upAnalyser.current);
+    }
+    if (remote) {
+      downAnalyser.current = ac.createAnalyser();
+      downAnalyser.current.fftSize = 512;
+      ac.createMediaStreamSource(remote).connect(downAnalyser.current);
+    }
+
+    const peak = (analyser: AnalyserNode | null): number => {
+      if (!analyser) {
+        return 0;
+      }
+      const buf = new Uint8Array(analyser.fftSize);
+      analyser.getByteTimeDomainData(buf);
+      let max = 0;
+      for (let i = 0; i < buf.length; i += 1) {
+        const v = Math.abs(buf[i] - 128) / 128;
+        if (v > max) {
+          max = v;
+        }
+      }
+      return max;
+    };
+
+    meterTimer.current = window.setInterval(() => {
+      setLevels({ up: peak(upAnalyser.current), down: peak(downAnalyser.current) });
+    }, 120);
+  }, []);
+
+  // ------------------------------------------------------------------ mute --
+  // Muting is the TRACK, not the connection: `enabled = false` turns the outgoing
+  // audio into silence while the peer, the call and the downlink all continue.
+  // Anything else (closing the peer, stopping the track) would drop the call back
+  // to one-way or drop it entirely, which is not what a mute button means.
+  const toggleMute = useCallback(() => {
+    const track = micTrackRef.current;
+    if (!track) {
+      return;
+    }
+    track.enabled = !track.enabled;
+    setMuted(!track.enabled);
+  }, []);
+
+  // -------------------------------------------------------------- shortcut --
+  // "M" mutes. It is ignored while a text field has focus (the dialler's number
+  // input is the obvious case — typing a name or number must never silence the
+  // microphone) and while a modifier is held, so ⌘M/ctrl-M keep their browser
+  // meaning. The handler lives here so both surfaces get it from one place.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey) {
+        return;
+      }
+      if (event.key !== "m" && event.key !== "M") {
+        return;
+      }
+      const el = event.target as HTMLElement | null;
+      const tag = el?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el?.isContentEditable) {
+        return;
+      }
+      event.preventDefault();
+      toggleMute();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [toggleMute]);
+
+  // --------------------------------------------------------------- history --
+  const reloadCalls = useCallback(async () => {
+    try {
+      const res = await fetch(`${baseRef.current}/calls?limit=50`, { cache: "no-store" });
+      if (!res.ok) {
+        return;
+      }
+      const data = (await res.json()) as CallLogResponse;
+      setCalls(data.calls ?? []);
+      setCallsTotal(data.total ?? 0);
+      callsTotalRef.current = data.total ?? 0;
+    } catch {
+      // A failed read keeps the rows already on screen.
+    }
+  }, []);
+  reloadCallsRef.current = reloadCalls;
+
+  const reloadRecordings = useCallback(async () => {
+    try {
+      const res = await fetch(`${baseRef.current}/recordings`, { cache: "no-store" });
+      if (!res.ok) {
+        return;
+      }
+      const data = (await res.json()) as { recordings: RecordingInfo[]; enabled: boolean };
+      setRecordings(data.recordings ?? []);
+      setRecordingsEnabled(Boolean(data.enabled));
+    } catch {
+      // keep what is on screen
+    }
+  }, []);
+
+  const reloadContacts = useCallback(async () => {
+    try {
+      const res = await fetch(`${baseRef.current}/contacts`, { cache: "no-store" });
+      if (!res.ok) {
+        return;
+      }
+      const data = (await res.json()) as { contacts: Contact[] };
+      setContacts(data.contacts ?? []);
+    } catch {
+      // keep what is on screen
+    }
+  }, []);
+
+  const deleteRecording = useCallback(
+    async (name: string) => {
+      try {
+        await fetch(`${baseRef.current}/recordings/${encodeURIComponent(name)}`, {
+          method: "DELETE",
+        });
+        await reloadRecordings();
+      } catch {
+        // ignore
+      }
+    },
+    [reloadRecordings]
+  );
+
+  const setRecording = useCallback(async (on: boolean) => {
+    try {
+      const res = await fetch(`${baseRef.current}/record`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ on }),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { on?: boolean };
+        setRecordingsEnabled(Boolean(data.on));
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const saveContact = useCallback(
+    async (c: Omit<Contact, "id" | "source"> & { id?: number }) => {
+      try {
+        await fetch(`${baseRef.current}/contacts`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(c),
+        });
+        await reloadContacts();
+      } catch {
+        // ignore
+      }
+    },
+    [reloadContacts]
+  );
+
+  const deleteContact = useCallback(
+    async (id: number) => {
+      try {
+        await fetch(`${baseRef.current}/contacts?id=${id}`, { method: "DELETE" });
+        await reloadContacts();
+      } catch {
+        // ignore
+      }
+    },
+    [reloadContacts]
+  );
+
+  const importVcf = useCallback(
+    async (text: string) => {
+      try {
+        const res = await fetch(`${baseRef.current}/contacts/import`, {
+          method: "POST",
+          headers: { "Content-Type": "text/vcard" },
+          body: text,
+        });
+        if (!res.ok) {
+          return null;
+        }
+        const data = (await res.json()) as VcfImportResult;
+        await reloadContacts();
+        return data;
+      } catch {
+        return null;
+      }
+    },
+    [reloadContacts]
+  );
+
+  const clearCalls = useCallback(async () => {
+    try {
+      const res = await fetch(`${baseRef.current}/calls`, { method: "DELETE" });
+      if (res.ok) {
+        setCalls([]);
+        setCallsTotal(0);
+        callsTotalRef.current = 0;
+      }
+    } catch {
+      // ignore: the list simply stays
+    }
+  }, []);
+
+  // -------------------------------------------------------------------- link --
+  const disconnect = useCallback(() => {
+    stopMeters();
+    if (pcRef.current) {
+      pcRef.current.close();
+      pcRef.current = null;
+    }
+    if (micRef.current) {
+      micRef.current.getTracks().forEach((t) => t.stop());
+      micRef.current = null;
+    }
+    micTrackRef.current = null;
+    setMuted(false);
+    setHasMic(false);
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.srcObject = null;
+      audioRef.current = null;
+    }
+    setPhase("idle");
+    setIce("");
+  }, [stopMeters]);
+
+  const connect = useCallback(async () => {
+    setError(null);
+    setMicError(null);
+    setPhase("connecting");
+
+    // Microphone only where the browser will give one; otherwise the peer is
+    // still opened, receive-only, so the call can be listened to.
+    if (window.isSecureContext) {
+      try {
+        micRef.current = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            channelCount: 1,
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+        });
+        micTrackRef.current = micRef.current.getAudioTracks()[0] ?? null;
+        setHasMic(micTrackRef.current !== null);
+      } catch (err) {
+        setMicError(err instanceof Error ? err.message : String(err));
+        setHasMic(false);
+      }
+    }
+
+    try {
+      const pc = new RTCPeerConnection({ iceServers: [], bundlePolicy: "max-bundle" });
+      pcRef.current = pc;
+
+      const mic = micRef.current;
+      const transceiver = mic
+        ? pc.addTransceiver(mic.getAudioTracks()[0], { direction: "sendrecv" })
+        : pc.addTransceiver("audio", { direction: "recvonly" });
+
+      try {
+        const caps = RTCRtpReceiver.getCapabilities("audio");
+        const pcmu = (caps?.codecs ?? []).filter((c) => c.mimeType === "audio/PCMU");
+        if (pcmu.length > 0) {
+          transceiver.setCodecPreferences(pcmu);
+        }
+      } catch {
+        // Older Safari: the bridge's answer is PCMU-only anyway.
+      }
+
+      pc.ontrack = (event) => {
+        const stream = event.streams[0] ?? new MediaStream([event.track]);
+        const audio = new Audio();
+        audio.autoplay = true;
+        audio.srcObject = stream;
+        audioRef.current = audio;
+        void audio.play().catch(() => {
+          // Autoplay refusal shows up as a silent downlink meter.
+        });
+        startMeters(stream);
+      };
+
+      pc.oniceconnectionstatechange = () => {
+        setIce(pc.iceConnectionState);
+        if (pc.iceConnectionState === "failed") {
+          setPhase("failed");
+          setError("ICE could not find a path — check UDP 50000-50100 and the certificate");
+        }
+      };
+
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      const answer = await postJson<RTCSessionDescriptionInit>("/offer", pc.localDescription);
+      await pc.setRemoteDescription(answer);
+      setPhase("live");
+      if (!downAnalyser.current) {
+        startMeters(null);
+      }
+    } catch (err) {
+      setPhase("failed");
+      setError(err instanceof Error ? err.message : String(err));
+      disconnect();
+    }
+  }, [disconnect, postJson, startMeters]);
+
+  // -------------------------------------------------------------------- call --
+  const dial = useCallback(
+    async (number: string) => {
+      try {
+        return await postJson<CallActionResponse>("/call", { number });
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    [postJson]
+  );
+
+  const answer = useCallback(async () => {
+    try {
+      return await postJson<CallActionResponse>("/answer");
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  }, [postJson]);
+
+  const reject = useCallback(async () => {
+    try {
+      return await postJson<CallActionResponse>("/reject");
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  }, [postJson]);
+
+  const hangup = useCallback(async () => {
+    try {
+      return await postJson<CallActionResponse>("/hangup");
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  }, [postJson]);
+
+  const sendDtmf = useCallback(
+    async (digit: string) => {
+      try {
+        return await postJson<CallActionResponse>(
+          `/dtmf?digit=${encodeURIComponent(digit)}`
+        );
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    [postJson]
+  );
+
+  const setGain = useCallback(
+    async (gain: { up?: number; down?: number }) => {
+      try {
+        await postJson<GainResponse>("/gain", gain);
+      } catch {
+        // A failed gain write is not worth a toast: the next poll reports what
+        // the bridge actually holds.
+      }
+    },
+    [postJson]
+  );
+
+  // First load: the book and the recordings are page furniture, not per-call.
+  useEffect(() => {
+    void reloadContacts();
+    void reloadRecordings();
+  }, [reloadContacts, reloadRecordings]);
+
+  useEffect(() => disconnect, [disconnect]);
+
+  return {
+    state,
+    available,
+    speak,
+    apiBase,
+    phase,
+    ice,
+    error,
+    micError,
+    levels,
+    muted,
+    canMute: phase === "live" && hasMic,
+    toggleMute,
+    calls,
+    callsTotal,
+    reloadCalls,
+    clearCalls,
+    connect,
+    disconnect,
+    answer,
+    reject,
+    recordings,
+    recordingsEnabled,
+    deleteRecording,
+    setRecording,
+    contacts,
+    saveContact,
+    deleteContact,
+    importVcf,
+    dial,
+    hangup,
+    sendDtmf,
+    setGain,
+  };
+}

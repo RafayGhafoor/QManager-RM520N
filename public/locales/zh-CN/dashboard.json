@@ -437,5 +437,53 @@
     "empty_action": "打开连接质量",
     "error_title": "无法连接调制解调器",
     "error_description": "无法读取调制解调器状态，因此没有质量读数可显示。"
+  },
+  "calls_card": {
+    "title": "通话",
+    "description": "在此拨号。对端声音从本浏览器的扬声器返回。",
+    "placeholder": "电话号码",
+    "call": "拨号",
+    "hangup": "挂断",
+    "state": {
+      "idle": "无通话",
+      "active": "已接通",
+      "held": "保持",
+      "dialing": "拨号中",
+      "ringing": "振铃",
+      "incoming": "呼入",
+      "waiting": "等待",
+      "ended": "已结束"
+    },
+    "audio": {
+      "connect": "连接音频",
+      "disconnect": "断开",
+      "off": "音频关闭",
+      "two_way": "双向音频",
+      "listen_only": "仅收听"
+    },
+    "meters": {
+      "up": "麦克风",
+      "down": "通话"
+    },
+    "note": {
+      "no_service": "通话服务不可达，无法拨号。待设备在 :8443 响应后刷新页面。",
+      "listen_only": "仅收听：浏览器在 http:// 下不提供麦克风。请打开 {{url}} 并一次性信任设备证书，即可双向通话。",
+      "mic_blocked": "浏览器拒绝了本站点的麦克风。请允许后再次点击连接音频。",
+      "in_call": "{{who}} — 模组状态：{{state}}。",
+      "ready": "拨号前先连接音频，这样第一秒就能听到对端。",
+      "speak_action": "打开安全页面以讲话"
+    },
+    "recording": "录音中",
+    "incoming": "来电",
+    "answer": "接听",
+    "reject": "拒接",
+    "mute": "静音",
+    "unmute": "取消静音",
+    "mute_unavailable": "此连接没有麦克风",
+    "mute_hint": "麦克风静音（M）",
+    "mute_connect_first": "请先连接音频——静音作用于麦克风",
+    "open": "打开拨号盘",
+    "backspace": "删除最后一位",
+    "keys_hint": "直接输入数字 · Enter 拨号 · M 静音 · Esc 关闭"
   }
 }

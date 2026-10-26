@@ -1728,5 +1728,138 @@
       "title": "Dukung proyek ini",
       "body": "QManager adalah proyek sampingan yang dikelola secara gratis. Jika bermanfaat untuk perangkat Anda, sedikit dukungan membuatnya terus berjalan — dan tidak akan ada fitur berbayar apa pun."
     }
+  },
+  "calls": {
+    "page": {
+      "title": "Panggilan",
+      "description": "Lakukan dan jawab panggilan suara milik modem dari peramban ini. Mikrofon Anda dikirim melalui uplink seluler dan suara lawan bicara kembali melalui pengeras suara — tanpa rekaman, tanpa transkode."
+    },
+    "audio": {
+      "title": "Tautan audio",
+      "description": "Tautan WebRTC antara peramban ini dan perangkat, memakai G.711 pada 8 kHz — format yang sama dengan panggilan.",
+      "phase": {
+        "idle": "Belum tersambung",
+        "connecting": "Menyambungkan…",
+        "live": "Aktif",
+        "failed": "Gagal"
+      },
+      "connect": "Sambungkan audio",
+      "disconnect": "Putuskan",
+      "ice": "ICE",
+      "ice_none": "belum ada jalur media",
+      "meter_up": "Mikrofon Anda → panggilan",
+      "meter_down": "Panggilan → pengeras suara",
+      "hint": "Sambungkan sebelum memanggil: perangkat membuka tap audio tepat saat lawan bicara menjawab.",
+      "meter_up_muted": "Mikrofon Anda (diblokir pada http://)"
+    },
+    "blocker": {
+      "insecure": {
+        "title": "Mikrofon memerlukan HTTPS",
+        "body": "Peramban tidak menyediakan mikrofon pada http://, jadi panggilan ini bisa didengar tetapi tidak bisa dibicarakan. Audio tetap berjalan; untuk berbicara, buka halaman ini di HTTPS perangkat — antarmuka yang sama, dan sertifikatnya dapat dipasang sekali dari /ca.crt.",
+        "action": "Buka halaman aman"
+      },
+      "no-service": {
+        "title": "Layanan panggilan tidak berjalan",
+        "body": "/callapi tidak menjawab, jadi jembatan panggilan belum terpasang atau layanannya berhenti. Memanggil tetap bisa di bawah; audio tidak."
+      },
+      "no-mic": {
+        "title": "Tidak ada mikrofon",
+        "body": "Peramban menolak akses mikrofon atau tidak menemukan perangkat tangkap. Izinkan mikrofon untuk situs ini lalu tekan Sambungkan lagi."
+      }
+    },
+    "dialer": {
+      "title": "Penekan nada",
+      "description": "Memanggil melalui modem seperti alat vendor. Chip status adalah laporan modem dari AT+CLCC.",
+      "placeholder": "Nomor telepon",
+      "call": "Panggil",
+      "hangup": "Tutup",
+      "backspace": "Hapus",
+      "dtmf_live": "Nada sentuh — dikirim ke lawan bicara",
+      "dtmf_idle": "Keypad — mengetik nomor",
+      "state": "Modem melaporkan {{state}}",
+      "idle_hint": "Tidak ada panggilan",
+      "mute": "Bisukan",
+      "unmute": "Bunyikan",
+      "mute_unavailable": "Tidak ada mikrofon pada koneksi ini",
+      "mute_hint": "Bisukan mikrofon (M)",
+      "mute_connect_first": "Sambungkan audio dahulu — bisu berlaku pada mikrofon"
+    },
+    "call_state": {
+      "idle": "Tidak ada panggilan",
+      "active": "Dijawab",
+      "held": "Ditahan",
+      "dialing": "Memanggil",
+      "ringing": "Berdering",
+      "incoming": "Masuk",
+      "waiting": "Menunggu",
+      "ended": "Berakhir"
+    },
+    "session": {
+      "title": "Jalur audio perangkat",
+      "description": "Apa yang dilakukan perangkat di balik panggilan. Bingkai di sini dihitung oleh perangkat, bukan peramban.",
+      "no_read_title": "Belum ada pembacaan",
+      "no_read_body": "Layanan panggilan belum menjawab sejak halaman ini dibuka. Muat ulang setelah perangkat terjangkau.",
+      "call": "Panggilan",
+      "number": "Nomor",
+      "tap": "Tap audio",
+      "tap_open": "Terbuka",
+      "tap_closed": "Tertutup",
+      "restarts": "Restart tap",
+      "downlink": "Bingkai downlink",
+      "uplink": "Bingkai uplink",
+      "last_at": "Respons modem terakhir",
+      "footnote": "Tap terbuka saat panggilan dijawab dan tertutup saat berakhir. Jumlah restart yang terus naik menandakan audio terputus-putus."
+    },
+    "history": {
+      "title": "Riwayat panggilan",
+      "description": "Dicatat oleh perangkat saat setiap panggilan berakhir — termasuk panggilan yang tidak dilakukan peramban ini.",
+      "clear": "Bersihkan",
+      "col_who": "Siapa",
+      "col_when": "Kapan",
+      "col_length": "Durasi",
+      "col_outcome": "Hasil",
+      "outcome": {
+        "answered": "Dijawab",
+        "no_answer": "Tidak dijawab",
+        "missed": "Terlewat",
+        "failed": "Gagal"
+      },
+      "empty_title": "Belum ada panggilan",
+      "empty_body": "Panggilan pertama — dibuat di sini atau diterima — akan muncul saat berakhir.",
+      "footnote": "Durasi dihitung sejak lawan bicara menjawab, sehingga panggilan yang tidak dijawab menampilkan tanda —."
+    },
+    "recordings": {
+      "title": "Rekaman",
+      "description": "Satu WAV stereo per panggilan yang dijawab: kiri suara lawan bicara, kanan mikrofon peramban ini.",
+      "on": "Merekam",
+      "off": "Tidak merekam",
+      "enable": "Mulai merekam",
+      "disable": "Hentikan rekaman",
+      "download": "Unduh",
+      "delete": "Hapus",
+      "incoming": "masuk",
+      "outgoing": "keluar",
+      "empty_title": "Belum ada rekaman",
+      "empty_body": "Panggilan yang dijawab disimpan di sini selama perekaman aktif. Perangkat menyimpan yang terbaru dan membuang sisanya.",
+      "footnote": "Berkas berada di perangkat, jadi menutup tab tidak menghilangkan apa pun. Perekaman adalah pengaturan perangkat, bukan peramban."
+    },
+    "contacts": {
+      "title": "Kontak",
+      "description": "Diimpor dari ekspor .vcf, atau ditambahkan manual. Nama muncul di riwayat dan pada panggilan masuk.",
+      "count": "{{n}} tersimpan",
+      "import": "Impor .vcf",
+      "import_hint": "iOS, Android, Google Contacts, atau Thunderbird",
+      "imported": "Mengimpor {{imported}} baru, memperbarui {{updated}}, melewati {{skipped}} tanpa nomor.",
+      "import_failed": "Berkas itu tidak dapat dibaca sebagai ekspor vCard.",
+      "name_placeholder": "Nama",
+      "phone_placeholder": "Nomor telepon",
+      "add": "Tambah",
+      "call": "Panggil",
+      "delete": "Hapus",
+      "need_number": "Kontak memerlukan nomor telepon — hanya itu yang dapat dipanggil halaman ini.",
+      "empty_title": "Belum ada kontak",
+      "empty_body": "Impor .vcf atau tambahkan nomor di atas. Kontak dicocokkan pada sembilan digit terakhir, sehingga format lokal dan internasional dianggap orang yang sama.",
+      "footnote": "Buku disimpan di perangkat, jadi sama di setiap peramban."
+    }
   }
 }

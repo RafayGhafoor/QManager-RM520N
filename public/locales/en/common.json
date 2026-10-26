@@ -1728,5 +1728,138 @@
       "title": "Support the project",
       "body": "QManager is a side project, maintained for free. If it has been useful on your setup, a tip keeps it going — and there is no paywall coming either way."
     }
+  },
+  "calls": {
+    "page": {
+      "title": "Calls",
+      "description": "Make and answer the modem's own voice calls from this browser. Your microphone goes out on the cellular uplink and the far end comes back in your speakers — no recording, no transcoding."
+    },
+    "audio": {
+      "title": "Audio link",
+      "description": "A WebRTC link between this browser and the device, speaking G.711 at 8 kHz — the exact format the call already uses.",
+      "phase": {
+        "idle": "Not connected",
+        "connecting": "Connecting…",
+        "live": "Live",
+        "failed": "Failed"
+      },
+      "connect": "Connect audio",
+      "disconnect": "Disconnect",
+      "ice": "ICE",
+      "ice_none": "no media path yet",
+      "meter_up": "Your microphone → call",
+      "meter_down": "Call → your speakers",
+      "hint": "Connect before dialling: the device opens its audio tap the moment the far end answers.",
+      "meter_up_muted": "Your microphone (blocked on http://)"
+    },
+    "blocker": {
+      "insecure": {
+        "title": "Microphone needs HTTPS",
+        "body": "Browsers do not expose a microphone on http://, so this call can be listened to but not spoken into. Audio still plays; to speak, open this page on the device's HTTPS front — it serves this same UI, and the certificate can be installed once from /ca.crt.",
+        "action": "Open the secure page"
+      },
+      "no-service": {
+        "title": "Call service is not running",
+        "body": "Nothing answered on /callapi, so the call bridge is not installed on this device or its service is stopped. Dialling still works below; audio will not."
+      },
+      "no-mic": {
+        "title": "No microphone",
+        "body": "The browser refused microphone access, or found no capture device. Allow the microphone for this site and press Connect again — without it the call still runs, but the far end hears silence."
+      }
+    },
+    "dialer": {
+      "title": "Dialer",
+      "description": "Dials through the modem exactly as the vendor tool does. The state chip is the modem's own report from AT+CLCC.",
+      "placeholder": "Phone number",
+      "call": "Call",
+      "hangup": "Hang up",
+      "backspace": "Delete",
+      "dtmf_live": "Touch tones — sent to the far end",
+      "dtmf_idle": "Keypad — types the number",
+      "state": "Modem reports {{state}}",
+      "idle_hint": "No call in progress",
+      "mute": "Mute",
+      "unmute": "Unmute",
+      "mute_unavailable": "No microphone on this connection",
+      "mute_hint": "Mute the microphone (M)",
+      "mute_connect_first": "Connect audio first — mute applies to the microphone"
+    },
+    "call_state": {
+      "idle": "No call",
+      "active": "Answered",
+      "held": "Held",
+      "dialing": "Dialing",
+      "ringing": "Ringing",
+      "incoming": "Incoming",
+      "waiting": "Waiting",
+      "ended": "Ended"
+    },
+    "session": {
+      "title": "Device audio path",
+      "description": "What the device is doing underneath the call. Frames here are counted by the device, not by this browser.",
+      "no_read_title": "No reading yet",
+      "no_read_body": "The call service has not answered since this page opened. Reload once the device is reachable.",
+      "call": "Call",
+      "number": "Number",
+      "tap": "Audio tap",
+      "tap_open": "Open",
+      "tap_closed": "Closed",
+      "restarts": "Tap restarts",
+      "downlink": "Downlink frames",
+      "uplink": "Uplink frames",
+      "last_at": "Last modem response",
+      "footnote": "The tap opens when a call is answered and closes when it ends. A restart count that climbs during one call means the audio is gapping."
+    },
+    "history": {
+      "title": "Call history",
+      "description": "Recorded by the device when each call ends — including calls this browser did not place.",
+      "clear": "Clear",
+      "col_who": "Who",
+      "col_when": "When",
+      "col_length": "Talk",
+      "col_outcome": "Outcome",
+      "outcome": {
+        "answered": "Answered",
+        "no_answer": "No answer",
+        "missed": "Missed",
+        "failed": "Failed"
+      },
+      "empty_title": "No calls yet",
+      "empty_body": "The first call — placed here or received — appears here when it ends.",
+      "footnote": "Talk time counts from the moment the far end answered, so a call that rang out shows a length of —."
+    },
+    "recordings": {
+      "title": "Recordings",
+      "description": "One stereo WAV per answered call: left is the far end, right is this browser's microphone.",
+      "on": "Recording",
+      "off": "Not recording",
+      "enable": "Start recording",
+      "disable": "Stop recording",
+      "download": "Download",
+      "delete": "Delete",
+      "incoming": "incoming",
+      "outgoing": "outgoing",
+      "empty_title": "No recordings",
+      "empty_body": "Answered calls are saved here while recording is on. The device keeps the newest ones and drops the rest.",
+      "footnote": "Files live on the device, so a closed tab loses nothing. Recording is a device setting, not a browser one."
+    },
+    "contacts": {
+      "title": "Contacts",
+      "description": "Imported from a .vcf export, or added by hand. Names appear in the history and on incoming calls.",
+      "count": "{{n}} saved",
+      "import": "Import .vcf",
+      "import_hint": "iOS, Android, Google Contacts or Thunderbird",
+      "imported": "Imported {{imported}} new, updated {{updated}}, skipped {{skipped}} without a number.",
+      "import_failed": "That file could not be read as a vCard export.",
+      "name_placeholder": "Name",
+      "phone_placeholder": "Phone number",
+      "add": "Add",
+      "call": "Call",
+      "delete": "Delete",
+      "need_number": "A contact needs a phone number — it is the only thing this page can dial.",
+      "empty_title": "No contacts",
+      "empty_body": "Import a .vcf or add a number above. Contacts are matched on the last nine digits, so a local format and an international one are the same person.",
+      "footnote": "The book is stored on the device, so it is the same on every browser."
+    }
   }
 }

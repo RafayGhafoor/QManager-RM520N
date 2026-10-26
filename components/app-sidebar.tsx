@@ -69,6 +69,15 @@ const navCellular: NavItem[] = [
   // No sub-items: Connection Scenarios merged into the Custom SIM Profiles page
   // and is no longer a destination. `/cellular/custom-profiles/connection-
   // scenarios` still exists as a client-side redirect for old bookmarks.
+  // Calls sits beside SMS Center: both are the modem's own person-to-person
+  // services, driven over AT rather than over the LAN, and a reader looking for
+  // one is usually on the way to the other. `call` is already in the icon
+  // subset — see components/ui/material-symbol-names.ts, no `bun run icons:subset`.
+  {
+    t_key: "calls",
+    url: "/cellular/calls",
+    icon: "call",
+  },
   {
     t_key: "custom_profiles",
     url: "/cellular/custom-profiles",

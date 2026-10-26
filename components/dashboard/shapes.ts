@@ -649,3 +649,60 @@ export const CLOCK_TICK_MS = 30_000;
  * is a property of the SURFACE, and a card is not the right home for one.
  */
 export const ABSENT = "—";
+
+// -----------------------------------------------------------------------------
+// The call card
+// -----------------------------------------------------------------------------
+// Added with the Calls card (docs/27-call-terminal.md in the X16 tree). It is a
+// CONTROL surface rather than a reading, so it borrows the system numbers but
+// sits at a lower height than its neighbours: one row of state, one row of
+// input, one slim meter pair.
+//
+// The number field and the keypad keys are mono/tabular for the same reason the
+// modem pages use them — digits are read back and compared, not skimmed.
+
+/** The card, using the dashboard's own shell so the band reads as one surface. */
+export const CALL_CARD = {
+  SHELL: CARD_SHELL,
+  HEAD: "flex flex-wrap items-start gap-x-4 gap-y-2",
+  TITLES: "flex min-w-0 flex-col gap-1",
+  DESC: CARD_DESC,
+  ACTIONS: "flex flex-none items-center gap-2 @lg/card:ml-auto",
+} as const;
+
+/** The dial row: field takes the slack, the two buttons stay put. */
+export const CALL_DIAL = {
+  ROOT: "flex flex-col gap-2.5 @xl/card:flex-row @xl/card:items-center",
+  FIELD: "h-11 font-mono text-base tracking-[0.05em] tabular-nums @xl/card:flex-1",
+  BUTTONS: "flex flex-none items-center gap-2",
+} as const;
+
+/** A slim level meter: 6px lane, one per direction, labelled with a figure. */
+export const CALL_METER = {
+  ROOT: "flex flex-1 flex-col gap-1 min-w-[9rem]",
+  LABEL: "flex items-baseline justify-between gap-2",
+  NAME: "text-on-surface-variant text-[0.6875rem] font-semibold uppercase tracking-[0.06em]",
+  VALUE: "text-on-surface-variant font-mono text-[0.6875rem] tabular-nums",
+  TRACK: "h-1.5 w-full overflow-hidden rounded-pill bg-surface-container-high",
+  FILL: "h-full rounded-pill transition-[width] duration-100 ease-out",
+} as const;
+
+/** The two directions never take two hues: it is one conversation, two lanes. */
+export const CALL_METER_TONE = {
+  up: "bg-primary",
+  down: "bg-success",
+} as const;
+
+/** A quiet line under the dial row: the sentence that says what is missing. */
+export const CALL_NOTE = "text-on-surface-variant text-[0.8125rem] leading-relaxed";
+
+/** The dialler popup's keypad and number plate. */
+export const CALL_SHEET = {
+  /** The read-back line: the largest type in the popup, in the machine voice. */
+  DISPLAY:
+    "flex items-center justify-between gap-3 rounded-tile bg-surface-container px-4 py-3",
+  /** A real keypad is three columns of tall keys, not a grid of pills. */
+  KEYPAD: "grid grid-cols-3 gap-2",
+  KEY:
+    "flex h-14 flex-col items-center justify-center gap-0.5 rounded-tile bg-surface-container text-on-surface transition-colors duration-100 hover:bg-surface-container-high active:scale-[0.98]",
+} as const;

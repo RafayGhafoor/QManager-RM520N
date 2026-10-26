@@ -437,5 +437,53 @@
     "empty_action": "Buka Kualitas Koneksi",
     "error_title": "Modem tidak dapat dijangkau",
     "error_description": "Status modem tidak dapat dibaca, jadi belum ada data kualitas yang bisa ditampilkan."
+  },
+  "calls_card": {
+    "title": "Panggilan",
+    "description": "Memanggil dari sini. Suara lawan bicara kembali melalui pengeras suara peramban ini.",
+    "placeholder": "Nomor telepon",
+    "call": "Panggil",
+    "hangup": "Tutup",
+    "state": {
+      "idle": "Tidak ada panggilan",
+      "active": "Dijawab",
+      "held": "Ditahan",
+      "dialing": "Memanggil",
+      "ringing": "Berdering",
+      "incoming": "Masuk",
+      "waiting": "Menunggu",
+      "ended": "Berakhir"
+    },
+    "audio": {
+      "connect": "Sambungkan audio",
+      "disconnect": "Putuskan",
+      "off": "Audio mati",
+      "two_way": "Audio dua arah",
+      "listen_only": "Hanya mendengar"
+    },
+    "meters": {
+      "up": "mic",
+      "down": "panggilan"
+    },
+    "note": {
+      "no_service": "Layanan panggilan tidak terjangkau, jadi panggilan tidak tersedia. Muat ulang saat perangkat menjawab di :8443.",
+      "listen_only": "Hanya mendengar: peramban tidak memberikan mikrofon pada http://. Buka {{url}} dan terima sertifikat perangkat sekali untuk audio dua arah.",
+      "mic_blocked": "Peramban menolak mikrofon untuk situs ini. Izinkan, lalu tekan Sambungkan audio lagi untuk berbicara.",
+      "in_call": "{{who}} — modem melaporkan {{state}}.",
+      "ready": "Sambungkan audio sebelum memanggil agar lawan bicara terdengar sejak detik pertama.",
+      "speak_action": "Buka halaman aman untuk berbicara"
+    },
+    "recording": "Merekam",
+    "incoming": "Panggilan masuk",
+    "answer": "Jawab",
+    "reject": "Tolak",
+    "mute": "Bisukan",
+    "unmute": "Bunyikan",
+    "mute_unavailable": "Tidak ada mikrofon pada koneksi ini",
+    "mute_hint": "Bisukan mikrofon (M)",
+    "mute_connect_first": "Sambungkan audio dahulu — bisu berlaku pada mikrofon",
+    "open": "Buka penekan nada",
+    "backspace": "Hapus digit terakhir",
+    "keys_hint": "Ketik angka · Enter untuk memanggil · M membisukan · Esc menutup"
   }
 }

@@ -1728,5 +1728,138 @@
       "title": "Sostieni il progetto",
       "body": "QManager è un progetto personale, mantenuto gratuitamente. Se ti è stato utile, un contributo lo tiene in vita — e in ogni caso non arriverà alcun paywall."
     }
+  },
+  "calls": {
+    "page": {
+      "title": "Chiamate",
+      "description": "Effettua e ricevi le chiamate vocali del modem da questo browser. Il microfono esce sull'uplink cellulare e l'interlocutore torna nelle casse — nessuna registrazione, nessuna transcodifica."
+    },
+    "audio": {
+      "title": "Collegamento audio",
+      "description": "Un collegamento WebRTC tra questo browser e il dispositivo, in G.711 a 8 kHz — lo stesso formato della chiamata.",
+      "phase": {
+        "idle": "Non collegato",
+        "connecting": "Collegamento…",
+        "live": "Attivo",
+        "failed": "Non riuscito"
+      },
+      "connect": "Collega audio",
+      "disconnect": "Scollega",
+      "ice": "ICE",
+      "ice_none": "nessun percorso media",
+      "meter_up": "Il tuo microfono → chiamata",
+      "meter_down": "Chiamata → le tue casse",
+      "hint": "Collega prima di chiamare: il dispositivo apre il tap audio appena l'interlocutore risponde.",
+      "meter_up_muted": "Il tuo microfono (bloccato su http://)"
+    },
+    "blocker": {
+      "insecure": {
+        "title": "Il microfono richiede HTTPS",
+        "body": "I browser non espongono il microfono su http://, quindi questa chiamata si può ascoltare ma non parlare. L'audio arriva comunque; per parlare apri questa pagina sul front HTTPS del dispositivo: è la stessa interfaccia, e il certificato si installa una volta da /ca.crt.",
+        "action": "Apri la pagina sicura"
+      },
+      "no-service": {
+        "title": "Servizio chiamate non attivo",
+        "body": "Nessuna risposta su /callapi: il bridge delle chiamate non è installato o il servizio è fermo. La chiamata qui sotto funziona lo stesso; l'audio no."
+      },
+      "no-mic": {
+        "title": "Nessun microfono",
+        "body": "Il browser ha rifiutato il microfono o non ha trovato un dispositivo di acquisizione. Consentilo per questo sito e premi di nuovo Collega."
+      }
+    },
+    "dialer": {
+      "title": "Compositore",
+      "description": "Chiama tramite il modem come lo strumento del fornitore. Il chip di stato è il rapporto del modem da AT+CLCC.",
+      "placeholder": "Numero di telefono",
+      "call": "Chiama",
+      "hangup": "Riaggancia",
+      "backspace": "Cancella",
+      "dtmf_live": "Toni — inviati all'interlocutore",
+      "dtmf_idle": "Tastierino — digita il numero",
+      "state": "Il modem riporta {{state}}",
+      "idle_hint": "Nessuna chiamata in corso",
+      "mute": "Muto",
+      "unmute": "Attiva audio",
+      "mute_unavailable": "Nessun microfono su questa connessione",
+      "mute_hint": "Silenzia il microfono (M)",
+      "mute_connect_first": "Collega prima l'audio: il muto agisce sul microfono"
+    },
+    "call_state": {
+      "idle": "Nessuna chiamata",
+      "active": "Risposta",
+      "held": "In attesa",
+      "dialing": "Composizione",
+      "ringing": "Squillo",
+      "incoming": "In arrivo",
+      "waiting": "Attesa",
+      "ended": "Terminata"
+    },
+    "session": {
+      "title": "Percorso audio del dispositivo",
+      "description": "Ciò che il dispositivo fa sotto la chiamata. I frame qui sono contati dal dispositivo, non dal browser.",
+      "no_read_title": "Nessuna lettura",
+      "no_read_body": "Il servizio chiamate non ha risposto da quando la pagina è aperta. Ricarica quando il dispositivo è raggiungibile.",
+      "call": "Chiamata",
+      "number": "Numero",
+      "tap": "Tap audio",
+      "tap_open": "Aperto",
+      "tap_closed": "Chiuso",
+      "restarts": "Riavvii del tap",
+      "downlink": "Frame downlink",
+      "uplink": "Frame uplink",
+      "last_at": "Ultima risposta del modem",
+      "footnote": "Il tap si apre quando la chiamata riceve risposta e si chiude alla fine. Un conteggio di riavvii che cresce durante una chiamata significa audio a singhiozzo."
+    },
+    "history": {
+      "title": "Cronologia chiamate",
+      "description": "Registrata dal dispositivo alla fine di ogni chiamata — anche quelle non fatte da questo browser.",
+      "clear": "Svuota",
+      "col_who": "Chi",
+      "col_when": "Quando",
+      "col_length": "Durata",
+      "col_outcome": "Esito",
+      "outcome": {
+        "answered": "Risposta",
+        "no_answer": "Senza risposta",
+        "missed": "Persa",
+        "failed": "Non riuscita"
+      },
+      "empty_title": "Nessuna chiamata",
+      "empty_body": "La prima chiamata — fatta da qui o ricevuta — compare qui quando termina.",
+      "footnote": "La durata parte dal momento in cui l'interlocutore risponde: una chiamata senza risposta mostra un —."
+    },
+    "recordings": {
+      "title": "Registrazioni",
+      "description": "Un WAV stereo per chiamata risposta: sinistra l'interlocutore, destra il microfono di questo browser.",
+      "on": "Registrazione attiva",
+      "off": "Non registra",
+      "enable": "Avvia registrazione",
+      "disable": "Ferma registrazione",
+      "download": "Scarica",
+      "delete": "Elimina",
+      "incoming": "in entrata",
+      "outgoing": "in uscita",
+      "empty_title": "Nessuna registrazione",
+      "empty_body": "Le chiamate risposte vengono salvate qui mentre la registrazione è attiva. Il dispositivo conserva le più recenti.",
+      "footnote": "I file stanno sul dispositivo: chiudere la scheda non perde nulla. La registrazione è un'impostazione del dispositivo."
+    },
+    "contacts": {
+      "title": "Contatti",
+      "description": "Importati da un export .vcf o aggiunti a mano. I nomi compaiono nella cronologia e sulle chiamate in arrivo.",
+      "count": "{{n}} salvati",
+      "import": "Importa .vcf",
+      "import_hint": "iOS, Android, Google Contatti o Thunderbird",
+      "imported": "Importati {{imported}} nuovi, aggiornati {{updated}}, saltati {{skipped}} senza numero.",
+      "import_failed": "Il file non è leggibile come export vCard.",
+      "name_placeholder": "Nome",
+      "phone_placeholder": "Numero di telefono",
+      "add": "Aggiungi",
+      "call": "Chiama",
+      "delete": "Elimina",
+      "need_number": "Un contatto ha bisogno di un numero: è l'unica cosa che questa pagina può comporre.",
+      "empty_title": "Nessun contatto",
+      "empty_body": "Importa un .vcf o aggiungi un numero qui sopra. I contatti si confrontano sulle ultime nove cifre, quindi formato locale e internazionale sono la stessa persona.",
+      "footnote": "La rubrica è sul dispositivo, quindi è identica in ogni browser."
+    }
   }
 }

@@ -1728,5 +1728,138 @@
       "title": "支持本專案",
       "body": "QManager 是一個業餘維護、完全免費的專案。如果它對你的裝置有幫助，一點小小的支持就能讓它繼續走下去——無論如何都不會有付費牆。"
     }
+  },
+  "calls": {
+    "page": {
+      "title": "通話",
+      "description": "在瀏覽器中撥打與接聽模組本身的語音通話。麥克風音訊經蜂巢上行送出，對端聲音從喇叭返回——不錄音、不轉碼。"
+    },
+    "audio": {
+      "title": "音訊連結",
+      "description": "瀏覽器與裝置之間的 WebRTC 連結，使用 8 kHz 的 G.711——與通話本身相同的格式。",
+      "phase": {
+        "idle": "未連線",
+        "connecting": "正在連線…",
+        "live": "已連線",
+        "failed": "失敗"
+      },
+      "connect": "連接音訊",
+      "disconnect": "中斷",
+      "ice": "ICE",
+      "ice_none": "尚無媒體通道",
+      "meter_up": "麥克風 → 通話",
+      "meter_down": "通話 → 喇叭",
+      "hint": "請先連接音訊再撥號：對端接通瞬間裝置才會開啟音訊擷取。",
+      "meter_up_muted": "麥克風（在 http:// 下被封鎖）"
+    },
+    "blocker": {
+      "insecure": {
+        "title": "麥克風需要 HTTPS",
+        "body": "瀏覽器在 http:// 下不提供麥克風，因此本次通話可以收聽但無法說話。音訊仍會播放；如需說話，請在裝置的 HTTPS 前端開啟本頁——介面相同，憑證可在 /ca.crt 一次性安裝。",
+        "action": "開啟安全頁面"
+      },
+      "no-service": {
+        "title": "通話服務未執行",
+        "body": "/callapi 沒有回應，表示通話橋接服務未安裝或已停止。下方撥號仍可用，但沒有音訊。"
+      },
+      "no-mic": {
+        "title": "沒有麥克風",
+        "body": "瀏覽器拒絕了麥克風權限，或沒有擷取裝置。為此站台允許麥克風後再按一次連接。"
+      }
+    },
+    "dialer": {
+      "title": "撥號",
+      "description": "與廠商工具一樣透過模組撥號。狀態標籤來自模組本身的 AT+CLCC 回報。",
+      "placeholder": "電話號碼",
+      "call": "撥號",
+      "hangup": "掛斷",
+      "backspace": "刪除",
+      "dtmf_live": "雙音多頻——送到對端",
+      "dtmf_idle": "鍵盤——輸入號碼",
+      "state": "模組狀態：{{state}}",
+      "idle_hint": "目前沒有通話",
+      "mute": "靜音",
+      "unmute": "取消靜音",
+      "mute_unavailable": "此連線沒有麥克風",
+      "mute_hint": "麥克風靜音（M）",
+      "mute_connect_first": "請先連接音訊——靜音作用於麥克風"
+    },
+    "call_state": {
+      "idle": "無通話",
+      "active": "已接通",
+      "held": "保留",
+      "dialing": "撥號中",
+      "ringing": "響鈴",
+      "incoming": "來電",
+      "waiting": "等待",
+      "ended": "已結束"
+    },
+    "session": {
+      "title": "裝置音訊通路",
+      "description": "通話背後裝置在做什麼。此處的封包數由裝置統計，而非瀏覽器。",
+      "no_read_title": "尚無讀數",
+      "no_read_body": "自頁面開啟以來通話服務沒有回應。裝置可達後請重新載入。",
+      "call": "通話",
+      "number": "號碼",
+      "tap": "音訊擷取",
+      "tap_open": "已開啟",
+      "tap_closed": "已關閉",
+      "restarts": "擷取重啟次數",
+      "downlink": "下行封包",
+      "uplink": "上行封包",
+      "last_at": "最近模組回應",
+      "footnote": "通話接通時擷取開啟，結束時關閉。同一次通話中重啟次數持續增加代表音訊斷續。"
+    },
+    "history": {
+      "title": "通話記錄",
+      "description": "由裝置在每次通話結束時記錄——包括不是在本瀏覽器發起的通話。",
+      "clear": "清除",
+      "col_who": "對象",
+      "col_when": "時間",
+      "col_length": "時長",
+      "col_outcome": "結果",
+      "outcome": {
+        "answered": "已接通",
+        "no_answer": "未接聽",
+        "missed": "未接來電",
+        "failed": "失敗"
+      },
+      "empty_title": "尚無通話",
+      "empty_body": "第一通電話——無論是從此處撥出或接聽——結束後都會顯示在這裡。",
+      "footnote": "通話時長從對方接聽開始計算，因此未接聽的通話時長顯示為 —。"
+    },
+    "recordings": {
+      "title": "通話錄音",
+      "description": "每通已接通的通話產生一個立體聲 WAV：左聲道為對方，右聲道為本瀏覽器的麥克風。",
+      "on": "錄音中",
+      "off": "未錄音",
+      "enable": "開始錄音",
+      "disable": "停止錄音",
+      "download": "下載",
+      "delete": "刪除",
+      "incoming": "來電",
+      "outgoing": "去電",
+      "empty_title": "尚無錄音",
+      "empty_body": "錄音開啟時，已接通的通話會儲存在這裡。裝置保留最新的數個，其餘自動刪除。",
+      "footnote": "檔案儲存在裝置上，關閉頁面不會遺失。錄音是裝置設定，不是瀏覽器設定。"
+    },
+    "contacts": {
+      "title": "聯絡人",
+      "description": "從 .vcf 匯出檔匯入，或手動新增。姓名會顯示在通話記錄與來電中。",
+      "count": "已儲存 {{n}} 個",
+      "import": "匯入 .vcf",
+      "import_hint": "iOS、Android、Google 聯絡人或 Thunderbird",
+      "imported": "新增 {{imported}} 個，更新 {{updated}} 個，略過 {{skipped}} 個無號碼的聯絡人。",
+      "import_failed": "該檔案無法作為 vCard 匯出檔讀取。",
+      "name_placeholder": "姓名",
+      "phone_placeholder": "電話號碼",
+      "add": "新增",
+      "call": "撥號",
+      "delete": "刪除",
+      "need_number": "聯絡人必須有電話號碼——這是本頁面唯一能撥打的內容。",
+      "empty_title": "尚無聯絡人",
+      "empty_body": "匯入 .vcf 或在上方新增號碼。聯絡人依最後九位數字比對，因此本地格式與國際格式視為同一人。",
+      "footnote": "通訊錄儲存在裝置上，因此在任何瀏覽器中都相同。"
+    }
   }
 }

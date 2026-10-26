@@ -437,5 +437,53 @@
     "empty_action": "Open Connection Quality",
     "error_title": "Can't reach the modem",
     "error_description": "The modem's status couldn't be read, so there is no quality reading to show."
+  },
+  "calls_card": {
+    "title": "Calls",
+    "description": "Dial from here. The far end comes back through this browser's speakers.",
+    "placeholder": "Phone number",
+    "call": "Call",
+    "hangup": "Hang up",
+    "state": {
+      "idle": "No call",
+      "active": "Answered",
+      "held": "Held",
+      "dialing": "Dialing",
+      "ringing": "Ringing",
+      "incoming": "Incoming",
+      "waiting": "Waiting",
+      "ended": "Ended"
+    },
+    "audio": {
+      "connect": "Connect audio",
+      "disconnect": "Disconnect",
+      "off": "Audio off",
+      "two_way": "Two-way audio",
+      "listen_only": "Listening only"
+    },
+    "meters": {
+      "up": "mic",
+      "down": "call"
+    },
+    "note": {
+      "no_service": "The call service is not reachable, so dialling is unavailable. Reload once the device answers on :8443.",
+      "listen_only": "Listening only: browsers do not expose the microphone on http://. Open {{url}} and accept the device certificate once for two-way audio.",
+      "mic_blocked": "The browser refused the microphone for this site. Allow it, then press Connect audio again to speak on the call.",
+      "in_call": "{{who}} — modem reports {{state}}.",
+      "ready": "Connect audio before dialling, so the far side is heard from the first second.",
+      "speak_action": "Open the secure page to speak"
+    },
+    "recording": "Recording",
+    "incoming": "Incoming call",
+    "answer": "Answer",
+    "reject": "Decline",
+    "mute": "Mute",
+    "unmute": "Unmute",
+    "mute_unavailable": "No microphone on this connection",
+    "mute_hint": "Mute the microphone (M)",
+    "mute_connect_first": "Connect audio first — mute applies to the microphone",
+    "open": "Open the dialler",
+    "backspace": "Delete last digit",
+    "keys_hint": "Type digits · Enter to call · M mutes · Esc closes"
   }
 }

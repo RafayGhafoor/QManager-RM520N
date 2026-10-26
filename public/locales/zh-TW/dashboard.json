@@ -437,5 +437,53 @@
     "empty_action": "開啟連線質量",
     "error_title": "無法連線至數據機",
     "error_description": "無法讀取數據機狀態，因此沒有品質讀數可顯示。"
+  },
+  "calls_card": {
+    "title": "通話",
+    "description": "在此撥號。對端聲音從本瀏覽器的喇叭返回。",
+    "placeholder": "電話號碼",
+    "call": "撥號",
+    "hangup": "掛斷",
+    "state": {
+      "idle": "無通話",
+      "active": "已接通",
+      "held": "保留",
+      "dialing": "撥號中",
+      "ringing": "響鈴",
+      "incoming": "來電",
+      "waiting": "等待",
+      "ended": "已結束"
+    },
+    "audio": {
+      "connect": "連接音訊",
+      "disconnect": "中斷",
+      "off": "音訊關閉",
+      "two_way": "雙向音訊",
+      "listen_only": "僅收聽"
+    },
+    "meters": {
+      "up": "麥克風",
+      "down": "通話"
+    },
+    "note": {
+      "no_service": "通話服務不可達，無法撥號。待裝置在 :8443 回應後重新載入。",
+      "listen_only": "僅收聽：瀏覽器在 http:// 下不提供麥克風。請開啟 {{url}} 並一次性信任裝置憑證，即可雙向通話。",
+      "mic_blocked": "瀏覽器拒絕了此站台的麥克風。請允許後再按一次連接音訊。",
+      "in_call": "{{who}} — 模組狀態：{{state}}。",
+      "ready": "撥號前先連接音訊，這樣第一秒就能聽到對端。",
+      "speak_action": "開啟安全頁面以說話"
+    },
+    "recording": "錄音中",
+    "incoming": "來電",
+    "answer": "接聽",
+    "reject": "拒接",
+    "mute": "靜音",
+    "unmute": "取消靜音",
+    "mute_unavailable": "此連線沒有麥克風",
+    "mute_hint": "麥克風靜音（M）",
+    "mute_connect_first": "請先連接音訊——靜音作用於麥克風",
+    "open": "開啟撥號盤",
+    "backspace": "刪除最後一位",
+    "keys_hint": "直接輸入數字 · Enter 撥號 · M 靜音 · Esc 關閉"
   }
 }

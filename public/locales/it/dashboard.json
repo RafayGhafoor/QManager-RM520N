@@ -437,5 +437,53 @@
     "empty_action": "Apri Qualità della connessione",
     "error_title": "Modem non raggiungibile",
     "error_description": "Non è stato possibile leggere lo stato del modem, quindi non c'è alcuna lettura di qualità da mostrare."
+  },
+  "calls_card": {
+    "title": "Chiamate",
+    "description": "Chiama da qui. L'interlocutore torna dalle casse di questo browser.",
+    "placeholder": "Numero di telefono",
+    "call": "Chiama",
+    "hangup": "Riaggancia",
+    "state": {
+      "idle": "Nessuna chiamata",
+      "active": "Risposta",
+      "held": "In attesa",
+      "dialing": "Composizione",
+      "ringing": "Squillo",
+      "incoming": "In arrivo",
+      "waiting": "Attesa",
+      "ended": "Terminata"
+    },
+    "audio": {
+      "connect": "Collega audio",
+      "disconnect": "Scollega",
+      "off": "Audio spento",
+      "two_way": "Audio bidirezionale",
+      "listen_only": "Solo ascolto"
+    },
+    "meters": {
+      "up": "microfono",
+      "down": "chiamata"
+    },
+    "note": {
+      "no_service": "Il servizio chiamate non è raggiungibile, quindi non si può comporre. Ricarica quando il dispositivo risponde su :8443.",
+      "listen_only": "Solo ascolto: i browser non concedono il microfono su http://. Apri {{url}} e accetta una volta il certificato del dispositivo per l'audio bidirezionale.",
+      "mic_blocked": "Il browser ha rifiutato il microfono per questo sito. Consentilo, poi premi di nuovo Collega audio.",
+      "in_call": "{{who}} — il modem riporta {{state}}.",
+      "ready": "Collega l'audio prima di chiamare, così l'interlocutore si sente dal primo secondo.",
+      "speak_action": "Apri la pagina sicura per parlare"
+    },
+    "recording": "Registra",
+    "incoming": "Chiamata in arrivo",
+    "answer": "Rispondi",
+    "reject": "Rifiuta",
+    "mute": "Muto",
+    "unmute": "Attiva audio",
+    "mute_unavailable": "Nessun microfono su questa connessione",
+    "mute_hint": "Silenzia il microfono (M)",
+    "mute_connect_first": "Collega prima l'audio: il muto agisce sul microfono",
+    "open": "Apri il compositore",
+    "backspace": "Cancella l'ultima cifra",
+    "keys_hint": "Digita le cifre · Invio per chiamare · M muto · Esc chiude"
   }
 }

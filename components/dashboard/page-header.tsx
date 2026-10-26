@@ -33,9 +33,15 @@ import { HEADER } from "./shapes";
 export interface DashboardPageHeaderProps {
   /** Status chips, right-aligned on a wide container. */
   rail?: React.ReactNode;
+  /**
+   * A single control on the row's right edge, before the rail. The dialler
+   * trigger lives here: an action, not a reading, so it does not get a band of
+   * its own on a page made of readings.
+   */
+  action?: React.ReactNode;
 }
 
-export function DashboardPageHeader({ rail }: DashboardPageHeaderProps) {
+export function DashboardPageHeader({ rail, action }: DashboardPageHeaderProps) {
   const { t } = useTranslation("dashboard");
 
   return (
@@ -48,7 +54,12 @@ export function DashboardPageHeader({ rail }: DashboardPageHeaderProps) {
         <p className={HEADER.DESC}>{t("page.description")}</p>
       </div>
 
-      {rail ? <div className={HEADER.RAIL}>{rail}</div> : null}
+      {rail || action ? (
+        <div className={HEADER.RAIL}>
+          {action}
+          {rail}
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -20,6 +20,7 @@ import { SignalHistoryComponent } from "./signal-history";
 import RecentActivitiesComponent from "./recent-activities";
 import DeviceMetricsComponent from "./device-metrics";
 import ConnectionQualityComponent from "./connection-quality";
+import CallsDialog from "./calls-dialog";
 
 const DEFAULT_POLL_MS = 2000;
 const POLL_BUFFER_MS = 250; // Small lag past each daemon write to avoid catching a half-written cache
@@ -87,6 +88,7 @@ const HomeComponent = () => {
           nothing. */}
       <motion.div className={BAND.FULL} variants={staggerItem}>
         <DashboardPageHeader
+          action={<CallsDialog />}
           rail={
             <DashboardStatusRail
               data={data?.network ?? null}
