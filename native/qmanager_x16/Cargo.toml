@@ -1,0 +1,22 @@
+[package]
+name = "qmanager_x16"
+version = "0.1.0"
+edition = "2021"
+description = "ZLT X16 AT client: a qcmd-compatible CLI plus the atcli_smd11 dialect, as one armv7 binary"
+publish = false
+
+[dependencies]
+# The only dependency. libc for flock(2), poll(2), pipe2(2) and getifaddrs(3):
+# hand-declared signatures are wrong on 32-bit ARM (see native/qmanager_traffic).
+libc = "0.2"
+
+[dev-dependencies]
+# For the lock test only: it must hold the same flock(2) a shell caller holds.
+libc = "0.2"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
