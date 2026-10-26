@@ -133,6 +133,17 @@ if [ "$LOCK_TYPE" = "lte" ]; then
         fi
 
         case "$result" in
+            # The X16 shim refuses >1 LTE cell by design and says why on its
+            # second line (first line stays "ERROR" so the failure contract
+            # other consumers match on is unchanged). Surface that reason:
+            # "Modem rejected tower lock command" sends the operator looking
+            # at the radio, which is not what went wrong -- they filled a
+            # slot this device cannot use.
+            *"multi-cell lock unsupported"*)
+                qlog_error "LTE tower lock refused: ${num_cells} cell(s) requested, this device supports one"
+                cgi_error "unsupported_cells" "This device supports one LTE cell — clear the extra slots"
+                exit 0
+                ;;
             *ERROR*)
                 qlog_error "LTE tower lock AT ERROR: $result"
                 cgi_error "at_error" "Modem rejected tower lock command"

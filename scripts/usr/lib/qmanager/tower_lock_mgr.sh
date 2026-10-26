@@ -178,6 +178,50 @@ tower_config_update_lte() {
 }
 
 # =============================================================================
+# Reconcile a saved LTE lock against what the modem actually reports
+# =============================================================================
+# The LTE lock is not persistent (persist=false): after a reboot or a modem
+# reset the modem comes up UNLOCKED while the config still says enabled=true.
+# Nothing used to reconcile those two, so the page kept asserting a lock that
+# did not exist — measured on the X16 2026-10-26, which showed a lock on
+# earfcn 250 / PCI 104 while `AT+CCELLCFG?` answered "0,0".
+#
+# Args: $1=lte_read_ok  $2=lte_locked  $3=persist_lte   ("true"/"false")
+# Returns 0 if it cleared a stale entry, 1 if it deliberately did nothing.
+#
+# Every precondition is OBSERVED, never inferred:
+#   - an unreadable modem is not "unlocked"; clearing on a failed read would
+#     erase a lock that is still in force.
+#   - persist=true means something is meant to re-apply the lock, so the saved
+#     entry is intent rather than a lie.
+#   - a tower write in flight blips the modem and looks exactly like a lost
+#     lock; TOWER_WRITE_INFLIGHT is self-expiring (a stored deadline), so a
+#     killed writer cannot wedge this shut — same idiom as
+#     qmanager_tower_failover.
+tower_reconcile_lte_config() {
+    local read_ok="$1" locked="$2" persist="$3"
+    local _enabled _dl _now
+
+    [ "$read_ok" = "true" ] || return 1
+    [ "$locked" = "false" ] || return 1
+    [ "$persist" = "true" ] && return 1
+
+    _enabled=$(tower_config_get '.lte.enabled' 2>/dev/null)
+    [ "$_enabled" = "true" ] || return 1
+
+    if [ -f "$TOWER_WRITE_INFLIGHT" ]; then
+        _dl=$(cat "$TOWER_WRITE_INFLIGHT" 2>/dev/null | tr -d ' \n\r')
+        case "$_dl" in ''|*[!0-9]*) _dl=0 ;; esac
+        _now=$(date +%s 2>/dev/null || echo 0)
+        [ "$_now" -lt "$_dl" ] && return 1
+    fi
+
+    tower_config_update_lte "false" || return 1
+    qlog_info "Cleared stale LTE tower lock: modem reports unlocked, persist is off, no write in flight"
+    return 0
+}
+
+# =============================================================================
 # NR-SA Lock Config Update (uses jq — safe, atomic)
 # =============================================================================
 # Args: $1=enabled (true/false), $2=pci, $3=arfcn, $4=scs, $5=band

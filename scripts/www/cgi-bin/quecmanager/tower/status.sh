@@ -143,6 +143,15 @@ set -- $persist_state
 # --- Read config file (validated by tower_config_read) -----------------------
 config_json=$(tower_config_read)
 
+# --- Reconcile a saved lock the modem no longer honours ----------------------
+# See tower_reconcile_lte_config() in tower_lock_mgr.sh for the preconditions and
+# why each one is required. It clears the saved entry only when the modem was
+# read successfully, reports unlocked, no persistence is configured, and no
+# tower write is in flight; otherwise it does nothing.
+if tower_reconcile_lte_config "$lte_read_ok" "$lte_locked" "$persist_lte"; then
+    config_json=$(jq '.' "$TOWER_CONFIG_FILE" 2>/dev/null) || config_json="$TOWER_DEFAULT_CONFIG"
+fi
+
 # --- Read failover state (no modem contact) ----------------------------------
 failover_enabled="false"
 failover_activated="false"
