@@ -123,8 +123,14 @@ Edge cases exercised at close-out:
 Read-only. Safe to run by hand, by the timer, and by the domain tester.
 
 ```sh
-qmanager_dns_edge_probe [--domain <d>]... [--upstream <url>]... [--json] [--timeout <s>]
+qmanager_dns_edge_probe [--domain <d>]... [--upstream <url>]... [--carrier] [--json] [--timeout <s>]
 ```
+
+`--carrier` adds the operator's own resolvers as extra `providers[]` rows marked
+`is_carrier: true` (see "The carrier baseline" under Contract 2). They are excluded
+from `recommendation` regardless, and the edge timer never passes the flag — so a
+report produced for a config rewrite looks exactly as it did before the flag existed.
+The report also carries the discovery result:
 
 Exit `0` whenever a report could be produced, **even if some upstreams failed** (a
 failed upstream is a *result*, not an error). Exit non-zero only if the config or the
@@ -138,6 +144,7 @@ binary cannot be read.
   "threshold_ms": 150,
   "live_group": ["https://dns.google/dns-query"],
   "probe_domains": ["youtube.com", "google.com"],
+  "carrier": {"detected": [], "source": null, "measured": false, "reason": "not requested"},
   "providers": [
     {
       "upstream": "https://dns.google/dns-query",
@@ -197,14 +204,40 @@ qmanager_dns_test <domain> [--json]
   "fastest_ms": 61,
   "slowest_ms": 338,
   "spread_ms": 277,
+  "carrier": {"detected": ["39.39.39.39", "182.176.100.89"],
+              "source": "/tmp/resolv.conf", "measured": true},
   "results": [
     {"upstream": "https://dns.google/dns-query", "short": "dns.google",
-     "ok": true, "ips": ["142.250.203.174"], "rtt_ms": 61, "class": "near"},
+     "ok": true, "ips": ["142.250.203.174"], "rtt_ms": 61, "class": "near",
+     "is_carrier": false},
+    {"upstream": "carrier:39.39.39.39", "short": "carrier 39.39.39.39",
+     "ok": true, "ips": ["142.250.203.174"], "rtt_ms": 116, "class": "near",
+     "is_carrier": true},
     {"upstream": "https://1.1.1.1/dns-query", "short": "1.1.1.1",
-     "ok": true, "ips": ["192.178.211.136"], "rtt_ms": 338, "class": "far"}
+     "ok": true, "ips": ["192.178.211.136"], "rtt_ms": 338, "class": "far",
+     "is_carrier": false}
   ]
 }
 ```
+
+### The carrier baseline (added 2026-10-26)
+
+The tester appends the operator's **own** resolvers as extra rows, so every figure can
+be read against what the ISP hands out — the question "is the pool actually faster?"
+is unanswerable without that reference. Two rules make it safe:
+
+1. **Auto-picked, never hardcoded.** The addresses come from the device's resolv files
+   (`/tmp/resolv.conf` → `/run/resolv.conf` → `/etc/resolv.conf`, first hit wins), because
+   the operator's resolvers change per SIM and per network. A hardcoded pair measured a
+   resolver this router does not use. Loopback is skipped — that would compare the
+   resolver against itself.
+2. **Never a candidate.** Carrier rows carry `is_carrier: true`, are excluded from
+   `recommendation.good`/`dropped` (Contract 1) unconditionally, and are only produced
+   when a caller passes `--carrier` — which `qmanager_dns_test` does and the edge timer
+   does not. So the pool's membership can never grow a plain UDP/53 entry.
+
+`carrier.measured: false` is a real answer (no resolver found, or `dig` missing) and
+carries a `reason`; the UI must render no carrier rows rather than a 0 ms one.
 
 Invalid domain → exit `2` with `{"error":"invalid_domain"}`. A domain nobody answers →
 exit `0` with every `ok:false` and `fastest:null` (never an error that the UI could
@@ -244,7 +277,8 @@ Route `/local-network/smartdns` (sidebar: Local Network). Four cards:
    "dnsmasq cache stats"), because none of these are smartdns counters.
 4. **Domain tester** — input + button → Contract 2 as a table sorted fastest-first,
    with the near/far class per row and a summary line `fastest X ms · slowest Y ms ·
-   spread Z ms`.
+   spread Z ms`. The carrier baseline rows (`is_carrier`) appear in the same table,
+   labelled `carrier <ip>` — the comparison the page exists to make.
 5. **Config editor** — the config text in a monospace editor, Save disabled while the
    current save is in flight, server error rendered verbatim (that is where the
    throwaway-port validator's message appears), and a confirmation toast on success.

@@ -112,6 +112,30 @@ export interface SmartDnsTestRow {
   ips: string[];
   rtt_ms: number | null;
   class: SmartDnsAnswerClass;
+  /**
+   * TRUE only on the carrier BASELINE rows: the operator's own resolvers, which
+   * `qmanager_dns_test` appends so the pool can be read against what the ISP hands
+   * out. They are discovered from the device's resolv.conf by the probe, never
+   * hardcoded, and they are never candidates — the edge algorithm only ever sees
+   * DoH upstreams.
+   *
+   * Optional because a backend that predates the comparison omits the field
+   * entirely, and a DoH row's `false` is indistinguishable from `undefined` for
+   * every use this UI makes of it (a label, not a decision).
+   */
+  is_carrier?: boolean;
+}
+
+/** Which carrier resolver the comparison used, and whether it could be measured. */
+export interface SmartDnsCarrierBaseline {
+  /** Nameserver addresses discovered on the device, in resolv.conf order. */
+  detected: string[];
+  /** The resolv.conf the addresses came from, or `null` when none were found. */
+  source: string | null;
+  /** False when the carrier rows are absent — never presented as "0 ms". */
+  measured: boolean;
+  /** Human-facing reason when `measured` is false. */
+  reason?: string;
 }
 
 /** A completed measurement (Contract 2). Emitted even when nobody answered. */
@@ -119,6 +143,14 @@ export interface SmartDnsTestResponse {
   domain: string;
   threshold_ms: number;
   tested_at: number;
+  /**
+   * The carrier baseline behind the `is_carrier` rows.
+   *
+   * Optional for the same reason `is_carrier` is: older backends do not emit it,
+   * and the table must still render. `measured:false` is a real answer and must
+   * never be drawn as a zero-latency carrier.
+   */
+  carrier?: SmartDnsCarrierBaseline | null;
   /** The fastest answer's IP, or `null` when no provider answered. */
   fastest: string | null;
   fastest_ms: number | null;

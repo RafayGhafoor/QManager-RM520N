@@ -42,6 +42,22 @@ PING_TIMEOUT=${PING_TIMEOUT:-2}
 DEADLINE_SEC=${DEADLINE_SEC:-110}
 PROBE_DOMAINS=${PROBE_DOMAINS:-"youtube.com redirector.googlevideo.com google.com"}
 
+# --- the carrier resolver, as a BASELINE (opt-in) ---------------------------
+# "Is this actually faster than what my ISP hands me?" is the only question the
+# page's numbers are worth anything against, so the carrier resolver is measured
+# as a peer. It is NOT a candidate: the edge-selection algorithm decides which DoH
+# upstreams serve the Google family, and a plain UDP/53 resolver on the operator's
+# network is neither of those things — so these rows are excluded from
+# `recommendation` unconditionally, and only added when a caller asks (`--carrier`,
+# which the domain tester passes). The edge timer never asks.
+#
+# WHICH resolver, though, is AUTO-PICKED and never hardcoded: the operator's
+# nameservers change per SIM and per network (39.39.39.39 on this Pakistan unit,
+# another pair on the next), so a hardcoded address would silently measure a
+# resolver this router does not use. See carrier_servers().
+CARRIER_MAX=${CARRIER_MAX:-2}
+_want_carrier=0
+
 # --- args ------------------------------------------------------------------
 _want_domains=""
 _want_upstreams=""
@@ -51,7 +67,8 @@ while [ $# -gt 0 ]; do
         --domain)   [ $# -ge 2 ] || break; _want_domains="$_want_domains $2"; shift 2 ;;
         --upstream) [ $# -ge 2 ] || break; _want_upstreams="$_want_upstreams $2"; shift 2 ;;
         --timeout)  [ $# -ge 2 ] || break; PING_TIMEOUT=$2; shift 2 ;;
-        -h|--help)  echo "usage: qmanager_dns_edge_probe [--json] [--domain d]... [--upstream u]... [--timeout s]" >&2; exit 0 ;;
+        --carrier)  _want_carrier=1; shift ;;
+        -h|--help)  echo "usage: qmanager_dns_edge_probe [--json] [--carrier] [--domain d]... [--upstream u]... [--timeout s]" >&2; exit 0 ;;
         *) shift ;;
     esac
 done
@@ -95,6 +112,25 @@ pool() {
             print url "\t" short
         }
     ' "$CONF" 2>/dev/null
+}
+
+# The carrier resolvers, discovered from the device itself.
+#
+# Order is deliberate: /tmp/resolv.conf is dnsmasq's own upstream list on the ZLT
+# X16 (its config carries `resolv-file=/tmp/resolv.conf`), /run/resolv.conf the
+# classic OpenWrt-style location, /etc/resolv.conf the fallback both firmwares also
+# keep. First file that yields an address wins the `source` field, and duplicates
+# across files are dropped so the same resolver is never measured twice.
+#
+# Loopback is skipped: on a unit whose resolv.conf points at its own cache, that
+# would compare the resolver against itself and call it a baseline.
+carrier_servers() {
+    for _f in /tmp/resolv.conf /run/resolv.conf /etc/resolv.conf; do
+        [ -r "$_f" ] || continue
+        awk -v f="$_f" '
+            $1 == "nameserver" && $2 ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ { print $2 "\t" f }
+        ' "$_f"
+    done | awk -F"\t" '$1 !~ /^(127\.|0\.0\.0\.0$)/ && !seen[$1]++' | head -"$CARRIER_MAX"
 }
 
 # Upstreams already in the generated edge block, so the report can say whether the
@@ -218,8 +254,61 @@ done <<EOF
 $(pool)
 EOF
 
+# --- carrier comparison (opt-in; never a candidate) --------------------------
+# Same measurement shape as a provider row so the tester table can render it
+# unchanged, plus `is_carrier` so every consumer can tell them apart. The dig
+# answers are filtered to dotted-quad A records before they are pinged: a blocked
+# or hijacked carrier answer can carry a CNAME or an HTTP block page address, and
+# ping is the only thing that decides the class.
+_carrier_json='{"detected":[],"source":null,"measured":false,"reason":"not requested"}'
+if [ "$_want_carrier" -eq 1 ]; then
+    _cs=$(carrier_servers 2>/dev/null)
+    if [ -z "$_cs" ]; then
+        _carrier_json='{"detected":[],"source":null,"measured":false,"reason":"no carrier nameserver found in /tmp, /run or /etc/resolv.conf"}'
+    elif ! command -v dig >/dev/null 2>&1; then
+        _carrier_json='{"detected":[],"source":null,"measured":false,"reason":"dig is not installed"}'
+    else
+        printf '%s\n' "$_cs" | while IFS="$(printf '\t')" read -r _cip _cfile; do
+            [ -n "$_cip" ] || continue
+            _doms=""
+            _qual=""
+            for _d in $_domains; do
+                _ips=$(dig +short +time=3 +tries=1 "@$_cip" "$_d" 2>/dev/null \
+                       | grep -E '^([0-9]{1,3}\.){3}[0-9]{1,3}$' | head -"$MAX_IPS" | tr '\n' ' ')
+                if [ -z "$_ips" ]; then
+                    _doms="$_doms $(jq -c -n --arg d "$_d" '{domain:$d, ok:false, ips:[], rtt_ms:null, class:"unknown"}')"
+                    continue
+                fi
+                _rtt=$(rtt_of "$_ips")
+                _cls=$(classify "$_rtt")
+                case "$_rtt" in ''|*[!0-9]*) _rtt=null ;; *) _qual="$_qual $_rtt" ;; esac
+                _ipjson=$(printf '%s\n' $_ips | jq -R . | jq -s -c .)
+                _doms="$_doms $(jq -c -n --arg d "$_d" --argjson r "$_rtt" --arg c "$_cls" --argjson ips "$_ipjson" \
+                    '{domain:$d, ok:true, ips:$ips, rtt_ms:$r, class:$c}')"
+            done
+            _qm=$(median "$_qual")
+            case "$_qm" in ''|*[!0-9]*) _qm=null; _ok=false; _verdict="failed" ;; *)
+                _ok=true
+                if [ "$_qm" -le "$THRESHOLD_MS" ]; then _verdict="good"; else _verdict="slow"; fi ;;
+            esac
+            _doms_json=$(printf '%s' "$_doms" | jq -s -c .)
+            jq -n --arg u "carrier:$_cip" --arg s "carrier $_cip" --arg src "$_cfile" \
+                --argjson ok "$_ok" --argjson q "$_qm" --arg v "$_verdict" --argjson doms "$_doms_json" \
+                '{upstream:$u, short:$s, ok:$ok, quality_ms:$q, verdict:$v,
+                  in_live_group:false, is_carrier:true, carrier_source:$src, domains:$doms}' >> "$_rows"
+        done
+        # The `while` above runs in a subshell (pipeline), so the block is built
+        # here rather than inside it — an assignment in there would be lost.
+        _carrier_json=$(jq -n -c \
+            --argjson ips "$(printf '%s\n' "$_cs" | cut -f1 | jq -R . | jq -s -c .)" \
+            --arg src "$(printf '%s\n' "$_cs" | head -1 | cut -f2)" \
+            '{detected:$ips, source:$src, measured:true}')
+    fi
+fi
+
 # --- recommendation ---------------------------------------------------------
-_good=$(jq -r 'select(.verdict == "good") | .upstream' "$_rows" 2>/dev/null)
+# Carrier rows are EXCLUDED here, always: they are a baseline, not pool members.
+_good=$(jq -r 'select(.verdict == "good" and .is_carrier != true) | .upstream' "$_rows" 2>/dev/null)
 _n_good=$(printf '%s\n' "$_good" | grep -c . 2>/dev/null); _n_good=${_n_good:-0}
 
 # Live group as a sorted newline list for comparison.
@@ -235,11 +324,11 @@ elif [ "$_lg_sorted" = "$_good_sorted" ]; then
     _reason="live block already matches the $_n_good measured-good provider(s)"
 else
     _action="rewrite"
-    _reason="$_n_good of $(jq -s 'length' "$_rows") providers within ${THRESHOLD_MS} ms"
+    _reason="$_n_good of $(jq -s '[.[] | select(.is_carrier != true)] | length' "$_rows") providers within ${THRESHOLD_MS} ms"
 fi
 
 _good_json=$(printf '%s\n' "$_good" | grep . | jq -R . | jq -s -c .)
-_dropped=$(jq -s -c '[.[] | select(.verdict != "good") | {
+_dropped=$(jq -s -c '[.[] | select(.verdict != "good" and .is_carrier != true) | {
         upstream: .upstream,
         reason: (if .ok then ("median " + (.quality_ms|tostring) + " ms > " + ($THRESH | tostring) + " ms")
                  else "no answer" end)
@@ -251,7 +340,7 @@ _lg_json=$(printf '%s\n' "$_lg" | grep . | jq -R . | jq -s -c .)
 
 jq -s --argjson now "$(date +%s)" --arg bin "$BIN" --arg conf "$CONF" \
     --argjson thr "$THRESHOLD_MS" --argjson lg "$_lg_json" --argjson doms "$_doms_json" \
-    --argjson good "$_good_json" --argjson dropped "$_dropped" \
+    --argjson good "$_good_json" --argjson dropped "$_dropped" --argjson carrier "$_carrier_json" \
     --arg action "$_action" --arg reason "$_reason" \
     '{
         generated_at: $now,
@@ -261,6 +350,7 @@ jq -s --argjson now "$(date +%s)" --arg bin "$BIN" --arg conf "$CONF" \
         live_group: $lg,
         probe_domains: $doms,
         providers: .,
+        carrier: $carrier,
         recommendation: {good: $good, dropped: $dropped, action: $action, reason: $reason}
      }' "$_rows"
 

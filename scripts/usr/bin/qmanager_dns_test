@@ -8,6 +8,14 @@
 # implementation means the number the page shows and the number the edge-selection
 # algorithm acts on can never disagree — which is the whole point of exposing it.
 #
+# THE CARRIER IS IN THE COMPARISON, AND IT IS AUTO-PICKED
+#   Every row is a DoH upstream except the carrier ones: the operator's own
+#   resolvers, discovered from the device's resolv.conf by the probe
+#   (`--carrier`) rather than hardcoded, because they change per SIM and per
+#   network. They answer the only question the number is good for — "is the pool
+#   actually faster than what the ISP hands me?" — and they are the one row set the
+#   edge algorithm never sees as a candidate.
+#
 # Contract: docs/specs/dns-edge-selection.md → Contract 2.
 # Usage:    qmanager_dns_test <domain> [--json]
 # Exit:     0 with a report (even when nothing answered) · 2 invalid domain
@@ -42,7 +50,9 @@ printf '%s' "$_domain" | grep -qE '^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-
 
 [ -x "$PROBE" ] || { printf '{"error":"probe_missing"}\n'; exit 1; }
 
-_raw=$("$PROBE" --json --domain "$_domain" 2>/dev/null)
+# --carrier: the tester compares the pool against the carrier baseline; the edge
+# timer calls the probe without it, so the recommendation never grows a carrier row.
+_raw=$("$PROBE" --json --carrier --domain "$_domain" 2>/dev/null)
 [ -n "$_raw" ] || { printf '{"error":"probe_failed"}\n'; exit 1; }
 
 # Reshape. Sorting puts answered-and-fast first, unanswered last, so the UI can
@@ -54,7 +64,10 @@ printf '%s' "$_raw" | jq -c --arg d "$_domain" '
           ok: (.domains[0].ok // false),
           ips: (.domains[0].ips // []),
           rtt_ms: (.domains[0].rtt_ms // null),
-          class: (.domains[0].class // "unknown") };
+          class: (.domains[0].class // "unknown"),
+          # true only on carrier baseline rows; absent on DoH rows in older
+          # producers, so the UI must treat it as optional.
+          is_carrier: (.is_carrier // false) };
     [ .providers[] | row ] as $rows
   | [ $rows[] | select(.rtt_ms != null) ] as $answered
   | ($answered | sort_by(.rtt_ms)) as $fast
@@ -67,6 +80,7 @@ printf '%s' "$_raw" | jq -c --arg d "$_domain" '
       fastest_ms: (if ($fast | length) > 0 then $fast[0].rtt_ms else null end),
       slowest_ms: (if ($fast | length) > 0 then $fast[-1].rtt_ms else null end),
       spread_ms:  (if ($fast | length) > 1 then ($fast[-1].rtt_ms - $fast[0].rtt_ms) else 0 end),
+      carrier:    (.carrier // null),
       answered:   ($fast | length),
       tested:     ($sorted | length),
       results:    $sorted }
