@@ -216,8 +216,17 @@ function esc(s) {
     return s
 }
 function qm_ts(d, t) {
+    # MUST match parseSmsTimestamp() (hooks/use-sms-read-state.ts): it accepts
+    # only "MM/DD/YY HH:MM:SS" with a TWO-digit year, and returns 0 for
+    # anything else. This firmware writes ISO dates (2026-10-26) in the store,
+    # so emitting them verbatim made every row sort with key 0 -- the inbox
+    # still looked right because the CGI orders it, but read-state tracking was
+    # silently dead. Caught by tests/unit_cgi_parsers.sh.
+    if (d ~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/ && t ~ /^[0-9][0-9]:[0-9][0-9]:[0-9][0-9]$/)
+        return substr(d,6,2) "/" substr(d,9,2) "/" substr(d,3,2) " " t
+    # The other vendor store (sqlite on the O5A) uses DD-MM-YYYY.
     if (d ~ /^[0-9][0-9]-[0-9][0-9]-[0-9][0-9][0-9][0-9]$/ && t ~ /^[0-9][0-9]:[0-9][0-9]:[0-9][0-9]$/)
-        return substr(d,1,2) "/" substr(d,4,2) "/" substr(d,7,4) " " t
+        return substr(d,1,2) "/" substr(d,4,2) "/" substr(d,9,2) " " t
     if (t == "") return d
     return d " " t
 }
@@ -240,7 +249,12 @@ function emit() {
     # flag 0 = UNREAD, so `read` is the inverse. Same inversion as STORE_JQ,
     # which reads the vendor convention where readed=1 means unread.
     r = (flag == "0") ? "false" : "true"
-    printf "{\"indexes\":[%s],\"sender\":\"%s\",\"content\":\"%s\",\"timestamp\":\"%s\",\"storage\":\"STORE\",\"read\":%s}\n", idx, esc(sender), esc(body), esc(qm_ts(d, t)), r
+    # _sort carries the ISO date so ordering stays chronological. The visible
+    # `timestamp` is MM/DD/YY to satisfy parseSmsTimestamp(), and sorting THAT
+    # string would order by month -- which is how this bug appeared. The key is
+    # stripped by the caller after sorting.
+    _iso = (d ~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/) ? d " " t : qm_ts(d, t)
+    printf "{\"indexes\":[%s],\"sender\":\"%s\",\"content\":\"%s\",\"timestamp\":\"%s\",\"storage\":\"STORE\",\"read\":%s,\"_sort\":\"%s\"}\n", idx, esc(sender), esc(body), esc(qm_ts(d, t)), r, esc(_iso)
 }
 FNR == 1 { emit(); text = "" }
 { if (text == "") text = $0; else text = text "\n" $0 }
@@ -256,8 +270,10 @@ file_store_inbox_json() {
     [ -n "$_fs_out" ] || { printf '[]'; return 0; }
     # Newest first. The glob is lexicographic (1, 10, 11, 2 ...), so ordering
     # must come from the parsed timestamp, never from the file name.
+    # Order by the ISO sort key, then drop it: the visible `timestamp` is
+    # MM/DD/YY for the client, and sorting that would order by month.
     printf '%s\n' "$_fs_out" \
-        | jq -s -c 'sort_by(.timestamp) | reverse' 2>/dev/null || return 1
+        | jq -s -c 'sort_by(._sort) | reverse | map(del(._sort))' 2>/dev/null || return 1
     return 0
 }
 

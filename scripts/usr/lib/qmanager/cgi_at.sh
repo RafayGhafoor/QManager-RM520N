@@ -85,7 +85,16 @@ detect_active_cid() {
             # `|| active_cid="1"` fallback below made this function return 1
             # unconditionally. That is why the APN page claimed "CID 1 in use
             # for Internet" while the real bearer was CID 6.
+            # WHICH FIELD HOLDS THE ADDRESS IS DEVICE-DEPENDENT.
+            # This firmware emits it bare (`+CGPADDR: 6,10.123.14.113`), so it
+            # lands in $2. A firmware that QUOTES it -- `+CGPADDR: 6,"10.1.2.3"`
+            # -- splits to $1="+CGPADDR: 6", $2="", $3="10.1.2.3" because the
+            # split is on the quote as well as the comma, and a $2-only read
+            # would silently fall back to CID 1: exactly the bug this function
+            # was fixed for, reintroduced on the next device. Try both.
+            # Caught by tests/unit_cgi_parsers.sh.
             ip = $2
+            if (ip !~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/) ip = $3
             # A dual-stack line carries "<v4> <mask>"; the mask is not part of
             # the address and would fail the octet count.
             sub(/ .*/, "", ip)
