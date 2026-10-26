@@ -80,11 +80,30 @@ if [ "$REQUEST_METHOD" = "GET" ]; then
     fi
 
     # --- Auto-negotiation ---
-    auto_neg_raw=$(printf '%s\n' "$ethtool_out" | grep -i "Auto-negotiation:" | head -1 | sed 's/.*Auto-negotiation:[[:space:]]*//')
+    # Anchor the match to the key, and strip case-insensitively.
+    #
+    # The obvious `grep -i "Auto-negotiation:" | head -1` is wrong on this PHY:
+    # its ethtool output carries three *capability* lines before the settings
+    # line, and the case-insensitive grep takes the first of them:
+    #     Supports auto-negotiation: Yes
+    #     Advertised auto-negotiation: Yes
+    #     Link partner advertised auto-negotiation: Yes
+    #     Auto-negotiation: on            <- the only one we want
+    # Worse, the old sed here was case-SENSITIVE (`s/.*Auto-negotiation:`), so it
+    # never stripped a lowercase line and the value always fell through to
+    # "Unknown" - which the tile renders as the blank the operator reported.
+    # Anchoring to ^[[:space:]]*auto-negotiation: selects the settings line only.
+    auto_neg_raw=$(printf '%s\n' "$ethtool_out" \
+        | grep -m1 -i '^[[:space:]]*auto-negotiation:' \
+        | sed -n 's/^[^:]*:[[:space:]]*//p' \
+        | tr -d '\r' | tr -d '[:space:]')
     case "$auto_neg_raw" in
-        on|On|ON)   auto_negotiation="on" ;;
-        off|Off|OFF) auto_negotiation="off" ;;
-        *)          auto_negotiation="Unknown" ;;
+        on|On|ON|yes|Yes|YES)    auto_negotiation="on" ;;
+        off|Off|OFF|no|No|NO)    auto_negotiation="off" ;;
+        # "Unknown" is kept deliberately: a driver that answers neither on nor
+        # off, or an absent ethtool, must read as unknown rather than be
+        # silently rounded to "on".
+        *)                       auto_negotiation="Unknown" ;;
     esac
 
     # --- Is there a controller at all? ---
