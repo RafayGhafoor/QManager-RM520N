@@ -44,12 +44,13 @@ a `deploy/qm_boot_hook.sh` line (hard rule 7).
 | `smartdns.sh`, `smartdns_stats.sh`, `dns_test.sh` | `scripts/www/cgi-bin/quecmanager/network/` |
 | `/usrdata/qmanager/etc/smartdns.conf` (the live config, `root:root 0600`) | written **only** by `qmanager_dns_apply` |
 | `# BEGIN QMANAGER-EDGE v1` … `# END QMANAGER-EDGE v1` | the *generated* block inside the config |
+| `{"ok":false,"error":"edge_block_unterminated"}` from `apply-edge` | a `BEGIN QMANAGER-EDGE` with no `END`; the rewrite was **refused** because it would discard the rest of the config (see fact 5) |
 | `/tmp/qmanager_dns_edge.json` | last measured decision (tmpfs) |
 | `/tmp/qmanager_dns_stats_history.json` | the 5-minute counter ring (tmpfs, 288 rows) |
 | `/tmp/smartdns.log` | daemon log, `log-level warn`, capped 128 kB ×2 |
 | the `/local-network/smartdns` route | the page |
 
-## The four load-bearing facts
+## The five load-bearing facts
 
 1. **`smartdns test -c` validates NOTHING on 0.13.1.** Measured: it accepts
    `totally-bogus-directive foo`, `speed-check-mode bogusmode` and `bind not-a-port`,
@@ -69,6 +70,16 @@ a `deploy/qm_boot_hook.sh` line (hard rule 7).
    `tail -1 /tmp/gp-keepalive.log` before trusting any DNS latency figure, and do not
    let a refresh decide provider membership mid-sweep — the timer's
    `RandomizedDelaySec` exists to reduce the collision.
+5. **A marker block is rewritten structurally or not at all.** `build_edge_candidate`
+   strips `BEGIN…END` and exits **4** if it reaches EOF still inside the block; the
+   `apply-edge` dispatch turns that into
+   `{"ok":false,"error":"edge_block_unterminated"}`. A one-way `skip` flag would drop
+   every line after such a `BEGIN` — the rest of `smartdns.conf` — and the
+   throwaway-port validator would accept it, because a truncated config binds and
+   answers fine. Measured 2026-10-26: block-free body + an injected `BEGIN` with no
+   `END` → refuse, 371 lines preserved; the healthy path still exits 0 and is
+   `cmp`-identical on a second run. Same defect class as `custom_dns.sh`'s dnsmasq
+   sentinel strip, fixed the same day — see [`custom-dns.md`](./custom-dns.md).
 
 ## Edge selection — why the config is generated, not written
 

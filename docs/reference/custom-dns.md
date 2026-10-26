@@ -21,7 +21,8 @@ The feature ships on the `dev-rm520` mainline. Earlier `CLAUDE.md` listed Custom
 | Staging file | `/etc/data/qmanager/dnsmasq.conf.new` (in a www-data-owned subdir, same UBI volume as dest) |
 | Staging dir | `/etc/data/qmanager/` (mode `0700`, owner `www-data:www-data`, created by installer) |
 | Sentinel | `# QMANAGER-CUSTOM-DNS-BEGIN v1` ... `# QMANAGER-CUSTOM-DNS-END v1` |
-| Reload | `killall -HUP dnsmasq` (no process restart) |
+| Reload | `killall -HUP dnsmasq` (no process restart) — and **only when the file actually changed** |
+| Canonical form | own block stripped **with its trailing blank lines**, block re-appended once, so two consecutive identical saves are byte-identical and `cmp` is a valid change test |
 | Mode gate (XML) | `<DNSMode>` in `/etc/data/mobileap_cfg.xml` must read `PROXY` — **or be absent from the file entirely**, which is the SDX55 case. See [the tri-state](#dnsmode-is-a-tri-state--and-absent-means-available) |
 | Frontend types | `types/custom-dns.ts` |
 | Frontend hook | `hooks/use-custom-dns.ts` |
@@ -29,7 +30,7 @@ The feature ships on the `dev-rm520` mainline. Earlier `CLAUDE.md` listed Custom
 | Frontend components | `components/local-network/custom-dns/` — `shapes.ts`, `dns-strip.tsx`, `custom-dns-card.tsx`, `custom-dns.tsx` (shell) |
 | i18n root | `customDns.*` (57 leaves × 5 locales) |
 | Sidebar entry | `components/app-sidebar.tsx` (under Local Network) |
-| Sudoers fragment | `scripts/etc/sudoers.d/qmanager` (last block, three rules) |
+| Sudoers fragment | `scripts/etc/sudoers.d/qmanager` (last block, four rules) |
 | Max servers | 4 |
 | IP support | IPv4 and IPv6 on both devices — measured, not assumed: `dnsmasq --version` prints `IPv6` in the compile-flag line on the RM520N-GL (2.91) and on the RG501Q-EU (2.79, whose full flag line reads `IPv6 GNU-getopt no-DBus no-i18n no-IDN DHCP DHCPv6 no-Lua TFTP no-conntrack ipset auth no-DNSSEC loop-detect inotify`) |
 
@@ -69,7 +70,9 @@ Field semantics:
 | `passthroughBypass` | A **stub**. `get_passthrough_bypass` (`:93-98`) returns the literal `"false"` with a TODO. Banned from rendering — see gotchas |
 | `blockCorrupt` | True when only one of the two sentinel lines is present. Rendered as a **non-blocking** warning; it also false-positives — see gotchas |
 
-> ⚠️ **`currentUpstream` is echoed configuration, not a probe, whenever `enabled` is true.** `custom_dns.sh:216-219` takes the branch `current_upstream_json="$servers_json"` — i.e. it reports the servers *written into the block*, never what dnsmasq is actually resolving against. If `killall -HUP dnsmasq` failed on the last save, the file on disk and the running daemon disagree and the GET still reports the configured servers. The carrier branch is a real read (of a `resolv.conf`), so the two halves of this one field have different provenance.
+> ⚠️ **`currentUpstream` is echoed configuration, not a probe, whenever `enabled` is true.** `custom_dns.sh:216-219` takes the branch `current_upstream_json="$servers_json"` — i.e. it reports the servers *written into the block*, never what dnsmasq is actually resolving against. The carrier branch is a real read (of a `resolv.conf`), so the two halves of this one field have different provenance.
+>
+> **The "file and daemon disagree" case is now prevented rather than merely documented (2026-10-26).** A save that cannot HUP, or that fails its post-apply resolve probe, restores the previous file and re-HUPs it, so a successful-looking GET cannot describe a config the daemon never loaded. The field is still an echo — it says what the *block* contains, not what the resolver is doing — so do not re-derive any health claim from it.
 
 The carrier branch walks `/run/resolv.conf` then `/etc/resolv.conf` and takes the **first candidate that actually yields a `nameserver` line** (`:225-236`); a file that exists but parses to an empty list does not stop the walk. The fallback exists because `/run/resolv.conf` is absent on the SDX55 — see [Upstream DNS path](#upstream-dns-path-modems-own-resolver) below.
 
@@ -167,28 +170,56 @@ The `v1` version tag on each sentinel lets a future schema co-exist with an old 
 ### Apply pipeline
 
 ```
-strip existing sentinel block from /etc/data/dnsmasq.conf
-append new block (if enabled=true)
+canonical_conf_body: strip existing sentinel block AND trailing blank lines
+                     (awk; EXIT 3 if a BEGIN has no matching END -> refuse)
+append new block (if enabled=true)                              exactly once
+assert_own_block: exactly one BEGIN, one END, one server= per upstream,
+                  no-resolv when requested; for enabled=false, ZERO markers
 write candidate to /etc/data/qmanager/dnsmasq.conf.new          (www-data-writable; same UBI volume as dest)
 dnsmasq --test --conf-file=/etc/data/qmanager/dnsmasq.conf.new
+cmp -s candidate live  ->  identical? return {ok:true,changed:false}; NOTHING else happens
+cp live -> /etc/data/qmanager/dnsmasq.conf.prev                 (so a rejected apply can be undone)
 sudo /bin/mv /etc/data/qmanager/dnsmasq.conf.new /etc/data/dnsmasq.conf   (atomic rename within /dev/ubi2_0)
 sudo /bin/chown radio:radio /etc/data/dnsmasq.conf
 sudo /usr/bin/killall -HUP dnsmasq
+verify_dns_live: pidof dnsmasq, then dig @<lan-ip> example.com -> status: NOERROR
+   <lan-ip> = dhcp-option-force=6,<ip> from the runtime config (no `ip`/`ifconfig` here)
+   daemon not running?  sudo /bin/systemctl start dnsmasq_service@0.service, re-check
+   verification failed? rollback_live_conf (backup -> staging -> the SAME mv grant) + HUP
 ```
 
-The staging file lives inside `/etc/data/qmanager/`, a `www-data`-owned directory mode `0700` created by `install_rm520n.sh`. This is required because `/etc/data/` itself is owned by `radio:radio` mode `0755`, so `www-data` cannot create new files there. The staging dir must be on the same UBI volume (`/dev/ubi2_0`) as the destination so `mv` is a real atomic `rename(2)`, not a cross-filesystem copy+unlink that could leave a torn `dnsmasq.conf` if interrupted.
+The staging file lives inside `/etc/data/qmanager/`, a `www-data`-owned directory mode `0700` created by `install_rm520n.sh`. This is required because `/etc/data/` itself is owned by `radio:radio` mode `0755`, so `www-data` cannot create new files there. The staging dir must be on the same UBI volume (`/dev/ubi2_0`) as the destination so `mv` is a real atomic `rename(2)`, not a cross-filesystem copy+unlink that could leave a torn `dnsmasq.conf` if interrupted. The CGI now also recreates the directory if it is missing, because on the O5A install it was absent and **every** save failed with a misleading "failed to write staging config file".
 
-If `dnsmasq --test` rejects the candidate, the staging file is removed and the live config is untouched. If `mv` succeeds but `chown` fails, the save is allowed to proceed (logged as a warning) — the file still works, but QCMAP's future `sed -i` rewrites of `dhcp-option-force` lines may break if it cannot write the file. If `killall -HUP` fails, the new config is on disk but not live; the response reports this so the user can reboot to apply.
+If `dnsmasq --test` rejects the candidate, the staging file is removed and the live config is untouched. If `mv` succeeds but `chown` fails, the save is allowed to proceed (logged as a warning) — the file still works, but QCMAP's future `sed -i` rewrites of `dhcp-option-force` lines may break if it cannot write the file. If `killall -HUP` fails, or the post-apply resolve probe fails, the previous file is restored and re-HUPed, and the response says so.
+
+**Why HUP and never `systemctl restart`:** a HUP re-reads the config while the daemon keeps its PID, so there is no interval in which the LAN has no resolver. A restart is a real outage on a device the operator is reaching over that same LAN.
+
+### The writer is canonical by construction — do not regress this
+
+Two invariants, both enforced in code and both with a recorded failure behind them:
+
+1. **Canonical output.** The block is stripped *together with the file's trailing blank lines* and re-appended exactly once. That is what makes `cmp -s candidate live` a truthful "did anything change" test, and an unchanged save cannot flush dnsmasq's front cache for nothing.
+   - The blank-line test is `$0 == ""`, **not** `/^[[:space:]]*$/`. The first version used the whitespace class and rewrote two whitespace-only lines (`"  "`, `" "`) inside the stock `dnsmasq.conf`'s own comments on every cycle; measured 2026-10-26, `md5` after save→clear did not return to its baseline (`405a2b3f` vs `a3bc7fe6`). Never rewrite a line whose content QManager does not own.
+2. **Refuse, never truncate.** An unterminated block (`BEGIN` with no `END`) makes `canonical_conf_body` exit **3** and the save fail with an explanation, leaving the live file byte-identical. Measured before the fix: injecting a stray `BEGIN` at line 6 of the 331-line live file produced a **5-line** candidate that `dnsmasq --test` called `syntax check OK`, because a truncated config is syntactically valid and merely missing directives. A one-way in-block flag is the bug; do not reintroduce one.
+
+The same one-way-flag defect existed in `qmanager_dns_apply`'s `# BEGIN QMANAGER-EDGE v1` strip and was fixed the same way (exit 4 → `{"ok":false,"error":"edge_block_unterminated"}`). Any new marker-delimited block in this repo must use the structural form.
+
+`assert_own_block` is the second gate and is not redundant with `dnsmasq --test`: the test proves the file *parses*, it cannot know that the block we just wrote is still in it. This is the check that catches "saved successfully, configured nothing".
 
 ### Sudoers fragment
 
-The CGI runs as `www-data`. Three NOPASSWD entries gate the apply pipeline (`scripts/etc/sudoers.d/qmanager`):
+The CGI runs as `www-data`. Four NOPASSWD entries gate the apply pipeline (`scripts/etc/sudoers.d/qmanager`):
 
 ```
 www-data ALL=(root) NOPASSWD: /bin/mv /etc/data/qmanager/dnsmasq.conf.new /etc/data/dnsmasq.conf
 www-data ALL=(root) NOPASSWD: /bin/chown radio\:radio /etc/data/dnsmasq.conf
 www-data ALL=(root) NOPASSWD: /usr/bin/killall -HUP dnsmasq
+www-data ALL=(root) NOPASSWD: /bin/systemctl start dnsmasq_service@0.service
 ```
+
+The fourth is **start-only, one templated unit** — nothing on this firmware supervises dnsmasq, so a failed start leaves LAN DNS dead until someone notices, and the apply path must be able to bring it back. It is deliberately not `restart` and not bare `systemctl`. It is also **unexercised on the O5A**: that install has no `/etc/sudoers.d` at all, `sudo` is the `deploy/sudo` no-op shim, and CGI runs as root — so validate it with `visudo -cf` before relying on it on a real-sudo device.
+
+Rollback deliberately reuses the *same* `mv` grant (backup → staging file → `mv`), so undoing a change never needs a privilege the forward path did not already use.
 
 The `chown` rule has its colon backslash-escaped (`radio\:radio`). See "Sudoers colon-escape gotcha" below.
 
@@ -421,26 +452,37 @@ The post-save file is mode `0644`, not the original `0664`. Reason: the CGI's um
 
 **This is the most important rule in this file.** `hooks/use-custom-dns.ts` exports `clearSettings`, it works, and a tree-wide grep returns the hook and nothing else. That is deliberate. Do not give it a call site.
 
-The obvious feature — a "Repair / Rebuild the block" button offered exactly when `blockCorrupt` is true — **destroys the configuration it would promise not to touch.** The chain:
+The obvious feature — a "Repair / Rebuild the block" button offered exactly when `blockCorrupt` is true — was banned because, in the original writer, it **destroyed the configuration it promised not to touch.** The chain:
 
-1. `custom_dns.sh:300-304` maps `action=clear` onto save-with-`enabled=false`.
-2. That path runs `strip_sentinel_block` (`:153-165`), which sets `in_block=1` on the BEGIN marker and clears it **only** on END.
-3. `blockCorrupt` is *defined* as one sentinel present without the other (`:146-147`).
+1. `action=clear` maps onto save-with-`enabled=false`.
+2. That path ran `strip_sentinel_block`, which set `in_block=1` on the BEGIN marker and cleared it **only** on END.
+3. `blockCorrupt` is *defined* as one sentinel present without the other.
 
-So in the one state where the button would be offered — BEGIN present, END missing — `in_block` never returns to 0 and **every remaining line of `/etc/data/dnsmasq.conf` is dropped**: `listen-address`, `dhcp-authoritative`, `conf-dir`.
+So in the one state where the button would be offered — BEGIN present, END missing — `in_block` never returned to 0 and **every remaining line of `/etc/data/dnsmasq.conf` was dropped**: `listen-address`, `dhcp-authoritative`, `conf-dir`. `dnsmasq --test` passed, because the truncated file is syntactically *valid* and merely missing directives.
 
-Nothing downstream catches it. `dnsmasq --test` (`:425`) passes, because the truncated file is syntactically *valid* and merely missing directives. Then `sudo /bin/mv` (`:437`) installs it and `sudo killall -HUP dnsmasq` (`:447`) makes it live — on a device the operator is reaching over that same LAN.
+**The writer half of that hazard is now closed by construction (2026-10-26).** `strip_sentinel_block` was replaced by `canonical_conf_body`, which **refuses** an unterminated block (exit 3 → the save fails with an explanation and the live file is left byte-identical) instead of truncating. Measured both ways on the O5A: old code turned a 331-line file into 5 lines that `dnsmasq --test` called valid; new code leaves it at 331 and reports the problem. See the apply-pipeline section above.
 
-**And `blockCorrupt` false-positives.** `parse_sentinel_block` (`:125-149`) reads with `while IFS= read -r line`, whose body never runs for a final line with no trailing newline. A perfectly healthy file that ends at the END marker therefore returns 2. That is not a hypothetical: `custom_dns.sh:443` chowns the file back to `radio:radio` precisely so QCMAP can keep rewriting it with its own `sed -i`, and a rewriter is exactly the sort of thing that leaves a file without a final newline.
+**`blockCorrupt` also used to false-positive, and no longer does.** `parse_sentinel_block` read with a bare `while IFS= read -r line`, whose body never runs for a final line with no trailing newline, so a healthy file ending at the END marker returned 2. That was not hypothetical: the CGI chowns the file back to `radio:radio` precisely so QCMAP can keep rewriting it with its own `sed -i`, and a rewriter is exactly the sort of thing that leaves a file without a final newline. The loop is now `while IFS= read -r line || [ -n "$line" ]`, and both directions are verified: END-with-no-newline → 0, BEGIN-with-no-END → 2.
 
-Both facts point the same way, and the shipped design is the intersection of them:
+What remains true, and why the ban stands anyway:
 
 - The corruption notice is a page-level **lucide `Banner`** (`role="degraded"`) in the shell. It informs; it does not block.
 - `formDisabled` is `isSaving || !available` — **`blockCorrupt` is not in it**, so a false positive cannot lock anyone out of their own DNS settings.
 - No in-app repair is offered. The remedy is to edit `/etc/data/dnsmasq.conf` by hand, or to save a normal configuration, which rewrites the block.
-- **No `clearSettings` call site may exist under `components/local-network/custom-dns/`** — and nothing enforces that automatically. It is a review rule a human upholds; the cost of missing it is the truncated `/etc/data/dnsmasq.conf` above, on a device reached over that LAN.
+- **No `clearSettings` call site may exist under `components/local-network/custom-dns/`** — and nothing enforces that automatically. It is a review rule a human upholds.
 
-> ℹ️ NOTE: if a future backend gains a marker-repair verb that is safe by construction — one that parses the file structurally rather than by a one-way in-block flag — **that** verb is what a repair button calls. Not this one.
+> ℹ️ NOTE: the condition this file previously set for a repair verb — *"safe by construction — one that parses the file structurally rather than by a one-way in-block flag"* — **is now met by the backend.** That makes a repair button *buildable*, not built: it is still a new feature needing its own spec, and it would need to report the refusal state rather than pretend to have repaired a file the writer declined to touch. `clearSettings` is still not the verb for it.
+
+### Who restarts dnsmasq, and the `KillMode=process` rule
+
+Measured 2026-10-26 on the O5A (boot `up 1:29`):
+
+- `dnsmasq` is **not** being bounced by QManager or by any timer. Two 2-minute samples of `pid` + `/proc/<pid>/stat` field 22 + `md5sum` of both configs, one with every DNS timer running and one with `gp-dns-health.timer`, `qmanager-dns-edge.timer` and `qmanager-dns-stats.timer` stopped, were **flat and identical** — same PID, same starttime, same hashes, same `dmesg` restart count.
+- The only actor that restarts it is the **vendor** `QCMAP_ConnectionManager`, which owns the `dnsmasq_service@%d.service` template and writes `/var/run/data/dnsmasq.conf.bridge%d` (which `conf-file`s `/etc/data/dnsmasq.conf`). The 5 restarts in that boot clustered at boot (t≈8, 35, 303, 309) and at one WAN bring-up (t≈1548, 1552, alongside a `netmgrd` stop/start). No script in `/etc/init.d` or `/data/gp` mentions dnsmasq at all.
+- The periodic `Stopped/Started QManager DNS Resolver` lines ~31 min apart are **smartdns**, regenerated by `qmanager-dns-edge.timer` — by design, and not dnsmasq.
+- `qmanager-dns-stats` sends **SIGUSR1** (a stats dump into syslog), not a restart.
+
+**If a QManager unit ever does need to restart dnsmasq**, it must be `Type=oneshot` with **`KillMode=process`**. The default `KillMode=control-group` tears down the unit's whole cgroup when the oneshot completes, and a daemon spawned directly by that unit (rather than started as its own unit) is in that cgroup — so the new daemon is SIGTERM'd moments after it starts and the LAN is left with no resolver. Nothing needs this today because our writer only ever HUPs, and `dnsmasq_service@0.service` is `Type=forking` with `RemainAfterExit=yes` in its own cgroup. The rule binds the moment such a unit is added, and the unit must also start the daemon back and verify it (see `verify_dns_live`).
 
 ### `passthroughBypass` is a stub, and rendering it drew a constant
 

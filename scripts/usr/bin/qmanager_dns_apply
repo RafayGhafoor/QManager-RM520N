@@ -208,11 +208,24 @@ build_edge_candidate() {
     [ -n "$_good" ] || return 1
 
     # Everything except an existing generated block, verbatim.
+    #
+    # Exit 4 on an UNTERMINATED block (BEGIN with no END). A one-way `skip` flag
+    # would drop every line after such a BEGIN — the rest of smartdns.conf — and
+    # the throwaway-port validator would accept the result, because a truncated
+    # config is syntactically valid and merely missing directives. Refusing is the
+    # only safe answer; the caller reports it instead of pretending "nothing to do".
+    # Same defect class as custom_dns.sh's sentinel strip (fixed 2026-10-26).
     awk -v b="$EDGE_BEGIN" -v e="$EDGE_END" '
         $0 == b { skip = 1; next }
         $0 == e { skip = 0; next }
         !skip
-    ' "$CONF" > "$NEW" || return 1
+        END { if (skip) exit 4 }
+    ' "$CONF" > "$NEW"
+    case $? in
+        0) : ;;
+        4) return 4 ;;
+        *) return 1 ;;
+    esac
 
     {
         printf '%s\n' "$EDGE_BEGIN"
@@ -257,7 +270,16 @@ apply-edge)
     fi
     [ -n "$_j" ] || { out '{"ok":false,"error":"probe_failed"}'; exit 1; }
 
-    if ! build_edge_candidate "$_j"; then
+    # NOT `if ! build_edge_candidate`: `$?` inside that branch is the status of
+    # the negation, not the function, so the exit-4 case would be lost.
+    build_edge_candidate "$_j"
+    _rc=$?
+    if [ "$_rc" -ne 0 ]; then
+        if [ "$_rc" -eq 4 ]; then
+            rm -f "$NEW"
+            echo '{"ok":false,"error":"edge_block_unterminated","applied":false,"detail":"the generated edge block has a BEGIN marker with no END; rewriting it would discard the rest of the config, so nothing was changed"}'
+            exit 1
+        fi
         _why=$(printf '%s' "$_j" | jq -r '.recommendation.action // "keep"')
         printf '{"ok":true,"applied":false,"action":"%s"}\n' "$_why"
         exit 0

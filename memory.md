@@ -822,3 +822,43 @@ pressure, not a slow disk. Live reading at deploy: **83 MB of 89 MB used
 (93 %)**, memory 124/178 MB — worth watching, and it explains the netmgrd growth
 in `docs/reference/netmgrd-growth.md`. `0/0` means no swap device and the row
 hides rather than drawing an empty meter; a missing cache field renders absent.
+
+## 2026-10-26 — Custom DNS writer is canonical; dnsmasq is *not* being bounced
+
+**Diagnosis first.** dnsmasq was **not** being restarted by QManager or by any timer.
+Two 2-minute samples (pid + `/proc/<pid>/stat` field 22 + `md5sum` of both configs +
+the `dmesg` restart counter), one with all DNS timers running and one with
+`gp-dns-health.timer` / `qmanager-dns-edge.timer` / `qmanager-dns-stats.timer`
+stopped, were flat and identical: PID **17398**, starttime **155285**, md5
+`a3bc7fe6` / `d152208f`, restart count **5** — unchanged across both runs. The only
+actor is the vendor **`QCMAP_ConnectionManager`**, which owns
+`dnsmasq_service@%d.service` and writes `/var/run/data/dnsmasq.conf.bridge%d`; its 5
+restarts in this boot were at boot (t≈8/35/303/309) and one WAN bring-up
+(t≈1548/1552, beside a `netmgrd` stop/start). No script in `/etc/init.d` or `/data/gp`
+mentions dnsmasq outside comments. The ~31-minute `Stopped/Started QManager DNS
+Resolver` lines are **smartdns**, from `qmanager-dns-edge.timer`.
+
+**Deployed** (`scripts/www/cgi-bin/quecmanager/network/custom_dns.sh`, pathfixed):
+`strip_sentinel_block` → `canonical_conf_body`, which strips the block *with* the
+file's trailing blank lines (truly-empty only — `$0 == ""`, never the whitespace
+class) and **refuses** an unterminated block with exit 3 instead of truncating the
+tail. New `assert_own_block`, `cmp`-before-write, backup + `verify_dns_live`
+(`pidof` + `dig @192.168.0.1 example.com` → NOERROR) + `rollback_live_conf` reusing
+the existing `mv` grant. Staging dir `/etc/data/qmanager/` is recreated if missing —
+it was **absent** on this install, so every save had been failing.
+
+**Deployed** (`scripts/usr/bin/qmanager_dns_apply`): same one-way-flag fix for the
+`# BEGIN QMANAGER-EDGE v1` strip (exit 4 → `edge_block_unterminated`).
+
+**Measured after deploy**: identical save → `changed:false`, same PID, no write;
+`save` → `clear` returns the file to **exactly** `a3bc7fe6`; stray `BEGIN` in the
+live config → refused, 330 lines intact (old code: 5 lines that `dnsmasq --test`
+called valid). dnsmasq restart count still **5**, PID still **17398**. Vendor `:80`
+200, QManager `:8080` 200, all `qmanager-*` units active.
+
+**New sudoers grant** (start-only, unexercised here — this install has no
+`/etc/sudoers.d`): `/bin/systemctl start dnsmasq_service@0.service`.
+**`KillMode=process` is applied to nothing** because no QManager unit restarts
+dnsmasq; the rule is recorded in `docs/reference/custom-dns.md` for when one does.
+Backups: `/usrdata/qmanager/backup/custom_dns-<ts>.sh`,
+`qmanager_dns_apply.<ts>.sh`, `dnsmasq.conf.<ts>`.

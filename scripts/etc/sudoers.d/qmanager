@@ -152,6 +152,12 @@ www-data ALL=(root) NOPASSWD: /usr/bin/qmanager_sim_registry_apply
 www-data ALL=(root) NOPASSWD: /bin/mv /etc/data/qmanager/dnsmasq.conf.new /etc/data/dnsmasq.conf
 www-data ALL=(root) NOPASSWD: /bin/chown radio\:radio /etc/data/dnsmasq.conf
 www-data ALL=(root) NOPASSWD: /usr/bin/killall -HUP dnsmasq
+# Start-only, one templated unit. NOTHING on this firmware supervises dnsmasq:
+# if it is not running, LAN DNS is dead until someone notices, so the apply path
+# must be able to bring it back after a reload. Granting `restart` or bare
+# `systemctl` here would hand the CGI the whole service manager; this grants one
+# verb on one unit, which is the minimum that satisfies "always start it back".
+www-data ALL=(root) NOPASSWD: /bin/systemctl start dnsmasq_service@0.service
 
 # SmartDNS management (config edit + toggle + measured edge refresh)
 #
