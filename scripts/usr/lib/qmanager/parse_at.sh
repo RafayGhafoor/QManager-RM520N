@@ -345,9 +345,22 @@ parse_serving_cell() {
                     setcsv(mkcsv(ll, 0))
                     cellparts(stripcr(f(5)), 0)
                     lcid = CD; lenb = CE; lsec = CS
-                    lpci = f(6)
-                    learfcn = f(7)
-                    lband = "B" f(8)
+                    # Band 0 does not exist. A partial line during a service blip
+                    # can carry band 0 (or nothing), and the unconditional "B"
+                    # prefix used to turn that into the literal "B0" -- which
+                    # events.sh then reported as a real band change plus a PCI
+                    # handoff. Every blip therefore produced a phantom
+                    # B3 -> B0 -> B3 handoff pair, which is what the UI showed as
+                    # continuous cell handoffs (measured 2026-10-27: exactly two
+                    # such pairs per outage, at the entry and exit).
+                    # Blank is safe: _ev_settle treats a blank as an absent
+                    # observation and emits nothing. PCI/EARFCN are taken only
+                    # when the band is real, so a partial line cannot anchor a
+                    # handoff either.
+                    lband_ok = (f(8) ~ /^[1-9][0-9]*$/)
+                    lpci = lband_ok ? f(6) : ""
+                    learfcn = lband_ok ? f(7) : ""
+                    lband = lband_ok ? "B" f(8) : ""
                     lbw = f(10)
                     ltac = hex2dec(stripcr(f(11)))
                     lrsrp = f(12)
@@ -406,9 +419,11 @@ parse_serving_cell() {
                 ltest = "connected"
                 cellparts(stripcr(f(7)), 0)
                 lcid = CD; lenb = CE; lsec = CS
-                lpci = f(8)
-                learfcn = f(9)
-                lband = "B" f(10)
+                # Same guard as the EN-DC leg above: never fabricate "B0".
+                lband_ok = (f(10) ~ /^[1-9][0-9]*$/)
+                lpci = lband_ok ? f(8) : ""
+                learfcn = lband_ok ? f(9) : ""
+                lband = lband_ok ? "B" f(10) : ""
                 lbw = f(12)
                 ltac = hex2dec(stripcr(f(13)))
                 lrsrp = f(14)
