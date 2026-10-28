@@ -1895,7 +1895,11 @@
       "answer": "Rispondi",
       "reject": "Rifiuta",
       "at_paused_title": "Broker AT in pausa",
-      "at_paused_body": "Il polling è fermo, quindi questo stato potrebbe essere obsoleto. La chiusura arriva comunque al modem; il bridge riprova ogni 15 s e riprende da solo."
+      "at_paused_body": "Il polling è fermo, quindi questo stato potrebbe essere obsoleto. La chiusura arriva comunque al modem; il bridge riprova ogni 15 s e riprende da solo.",
+      "dialing_title": "Chiamata…",
+      "dialing_body": "Sto chiamando {who}",
+      "held_title": "Chiamata in attesa",
+      "waiting_title": "Chiamata in attesa (seconda linea)"
     },
     "joined_devices": "{{count}} dispositivi collegati",
     "incoming": "Chiamata in arrivo",

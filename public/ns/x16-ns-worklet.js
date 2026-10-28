@@ -62,6 +62,19 @@ class X16NoiseSuppressor extends AudioWorkletProcessor {
       return;
     }
 
+    // Mute is handled HERE, before the model: the far end must hear nothing, and
+    // the model must not spend its noise estimate on a muted room. The output is
+    // zeroed as well, so a graph that is muted at the source cannot leak.
+    this.muted = false;
+    this.port.onmessage = (e) => {
+      const msg = e.data || {};
+      if (msg.type === "mute") {
+        this.muted = true;
+      } else if (msg.type === "unmute") {
+        this.muted = false;
+      }
+    };
+
     // Emscripten's factory is async; process() runs meanwhile and emits silence
     // rather than garbage, so a slow phone never drops call audio at startup.
     createRNNWasmModule({
@@ -97,6 +110,14 @@ class X16NoiseSuppressor extends AudioWorkletProcessor {
     this.inPeak = Math.sqrt(inSum / FRAME);
 
     const out = new Float32Array(FRAME);
+    if (this.muted) {
+      // Feed the model silence so its state tracks "no speech", and emit silence.
+      for (let i = 0; i < FRAME; i += 1) this.inView[i] = 0;
+      this.mod._rnnoise_process_frame(this.state, this.ptrOut, this.ptrIn);
+      this.frames += 1;
+      this.queue.push(out);
+      return;
+    }
     if (this.bypass) {
       out.set(this.inBuf);
     } else {

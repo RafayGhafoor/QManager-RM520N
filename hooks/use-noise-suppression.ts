@@ -46,6 +46,11 @@ export interface NoiseSuppression {
   process: (stream: MediaStream) => Promise<MediaStream>;
   /** Tear down the audio graph. Safe to call twice; the mic stream is not stopped. */
   release: () => void;
+  /**
+   * Tell the graph the caller is muted, so the model sees silence rather than the
+   * room and the output is muted at the source, not only at the track.
+   */
+  setMuted: (muted: boolean) => void;
 }
 
 const STORAGE_KEY = NS_STORAGE_KEY;
@@ -182,9 +187,21 @@ export const useNoiseSuppression = (): NoiseSuppression => {
               window.clearTimeout(timer);
               readyRef.current = true;
               resolve();
-            } else if (msg?.type === "error") {
+              return;
+            }
+            if (msg?.type === "error") {
               window.clearTimeout(timer);
               reject(new Error(msg.reason ?? "worklet error"));
+              return;
+            }
+            // The worklet is alive but its output is silent while the microphone has
+            // signal. This is the failure the far end experiences as "no voice", so
+            // it must reach the page: the caller then puts a working microphone back
+            // on the wire (use-call-terminal.rescueMic).
+            if (msg?.type === "silent") {
+              readyRef.current = false;
+              setState("failed");
+              setDetail(msg.reason ?? "the suppressor went silent");
             }
           };
         });
@@ -246,5 +263,13 @@ export const useNoiseSuppression = (): NoiseSuppression => {
     [enabled, release]
   );
 
-  return { enabled, state, detail, setEnabled, process, release };
+  const setMuted = useCallback((muted: boolean) => {
+    try {
+      nodeRef.current?.port.postMessage({ type: muted ? "mute" : "unmute" });
+    } catch {
+      // A closed port means the graph is gone; the track flag alone still mutes.
+    }
+  }, []);
+
+  return { enabled, state, detail, setEnabled, process, release, setMuted };
 };

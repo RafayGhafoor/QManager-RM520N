@@ -77,6 +77,8 @@ const FALLBACK_BASE = (host: string) => `https://${host}:8443/api`;
 
 // One id for the incoming-call toast so a modem state change can dismiss it.
 const INCOMING_TOAST_ID = "x16-incoming-call";
+/** One id for the ordinary call-progress toasts, so they replace each other. */
+const CALL_TOAST_ID = "x16-call";
 
 export type LinkPhase = "idle" | "connecting" | "live" | "failed";
 export type OutputRoute = "handset" | "speakerphone";
@@ -167,6 +169,8 @@ export function useCallTerminal({ autoConnect = false }: UseCallTerminalOptions 
   const nsRef = useRef(ns);
   nsRef.current = ns;
   const outRef = useRef<MediaStream | null>(null);
+  /** The suppressor's stream, i.e. the one the sender holds after replaceTrack. */
+  const cookedRef = useRef<MediaStream | null>(null);
   const remoteRef = useRef<MediaStream | null>(null);
   const mutedRef = useRef(false);
   const [outputRoute, setOutputRoute] = useState<OutputRoute>("handset");
@@ -347,13 +351,41 @@ export function useCallTerminal({ autoConnect = false }: UseCallTerminalOptions 
     mutedRef.current = muted;
   }, [muted]);
 
-  const toggleMute = useCallback(() => {
-    const track = micTrackRef.current;
-    if (!track) {
+  // The speaker element follows the call, not the peer connection. A peer stays
+  // connected between calls, and the modem's downlink is not digital silence, so
+  // leaving the element playing makes the far end's line hiss audible in an empty
+  // room with nobody on the call.
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) {
       return;
     }
-    track.enabled = !track.enabled;
-    setMuted(!track.enabled);
+    const inCall = (state?.call ?? "") !== "";
+    if (inCall && audio.paused) {
+      void audio.play().catch(() => undefined);
+    } else if (!inCall && !audio.paused) {
+      audio.pause();
+    }
+  }, [state?.call]);
+
+  const toggleMute = useCallback(() => {
+    const next = !mutedRef.current;
+    // Mute is applied to every track we might be sending: the processed one (what
+    // the sender holds after the suppressor swaps in), the raw microphone (which is
+    // still live behind the worklet), and the graph itself. One of them being
+    // missed is exactly how "muted" ends up audible — or how unmuting stays silent
+    // because the track that was disabled is not the track on the wire.
+    micTrackRef.current && (micTrackRef.current.enabled = !next);
+    const raw = micRef.current?.getAudioTracks()[0];
+    if (raw) {
+      raw.enabled = !next;
+    }
+    cookedRef.current?.getAudioTracks().forEach((t) => {
+      t.enabled = !next;
+    });
+    nsRef.current.setMuted(next);
+    mutedRef.current = next;
+    setMuted(next);
   }, []);
 
   // `play-and-record` is the standardized web AudioSession mode for a voice call
@@ -738,7 +770,17 @@ export function useCallTerminal({ autoConnect = false }: UseCallTerminalOptions 
             return;
           }
           if (track !== mic.getAudioTracks()[0]) {
-            await sender.replaceTrack(track);
+            const swap = await sender
+              .replaceTrack(track)
+              .then(() => true)
+              .catch(() => false);
+            if (!swap) {
+              // replaceTrack rejected: the sender still holds the raw microphone,
+              // so the call keeps audio — say why the suppressor is not in use.
+              setError("noise suppression off (the browser refused the processed microphone)");
+              return;
+            }
+            cookedRef.current = outgoing;
             // Mute follows the track that is actually on the wire.
             track.enabled = !mutedRef.current;
             micTrackRef.current = track;
@@ -1030,10 +1072,25 @@ export function useCallTerminal({ autoConnect = false }: UseCallTerminalOptions 
     }
     const who = displayName(contacts, state?.call_number ?? state?.number ?? "");
     switch (next) {
+      case "dialing":
+        // Placing a call used to be the one state with no announcement at all, so
+        // pressing Dial looked like nothing happened until the far end picked up.
+        toast.loading(t("calls.toast.dialing_title"), {
+          id: CALL_TOAST_ID,
+          description: t("calls.toast.dialing_body", { who }),
+        });
+        break;
       case "ringing":
         toast.info(t("calls.toast.ringing_title"), {
+          id: CALL_TOAST_ID,
           description: t("calls.toast.ringing_body", { who }),
         });
+        break;
+      case "held":
+        toast.info(t("calls.toast.held_title"), { id: CALL_TOAST_ID, description: who });
+        break;
+      case "waiting":
+        toast.info(t("calls.toast.waiting_title"), { id: CALL_TOAST_ID, description: who });
         break;
       case "incoming":
         // The toast IS the answer screen for a call nobody is looking at. It
@@ -1057,12 +1114,14 @@ export function useCallTerminal({ autoConnect = false }: UseCallTerminalOptions 
       case "active":
         toast.dismiss(INCOMING_TOAST_ID);
         toast.success(t("calls.toast.active_title"), {
+          id: CALL_TOAST_ID,
           description: t("calls.toast.active_body", { who }),
         });
         break;
       case "ended":
         toast.dismiss(INCOMING_TOAST_ID);
         toast.info(t("calls.toast.ended_title"), {
+          id: CALL_TOAST_ID,
           description: t("calls.toast.ended_body", {
             who,
             outcome: t(`calls.history.outcome.${state?.last_outcome ?? "failed"}`),

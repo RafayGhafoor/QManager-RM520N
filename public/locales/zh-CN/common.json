@@ -1895,7 +1895,11 @@
       "answer": "接听",
       "reject": "拒接",
       "at_paused_title": "AT 代理已暂停",
-      "at_paused_body": "轮询已停止，此通话状态可能已过期。挂断仍会发送到模组；网桥每 15 秒探测一次并自动恢复。"
+      "at_paused_body": "轮询已停止，此通话状态可能已过期。挂断仍会发送到模组；网桥每 15 秒探测一次并自动恢复。",
+      "dialing_title": "正在呼叫…",
+      "dialing_body": "正在拨打 {who}",
+      "held_title": "通话保持中",
+      "waiting_title": "来电等待"
     },
     "joined_devices": "{{count}} 台设备已连接",
     "incoming": "来电",

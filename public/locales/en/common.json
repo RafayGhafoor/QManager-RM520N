@@ -1895,7 +1895,11 @@
       "answer": "Answer",
       "reject": "Reject",
       "at_paused_title": "AT broker paused",
-      "at_paused_body": "Polling stopped, so this call state may be stale. Hang up still reaches the modem; the bridge probes every 15s and resumes on its own."
+      "at_paused_body": "Polling stopped, so this call state may be stale. Hang up still reaches the modem; the bridge probes every 15s and resumes on its own.",
+      "dialing_title": "Calling…",
+      "dialing_body": "Dialling {who}",
+      "held_title": "Call on hold",
+      "waiting_title": "Call waiting"
     },
     "joined_devices": "{{count}} devices connected",
     "incoming": "Incoming call",

@@ -1895,7 +1895,11 @@
       "answer": "Jawab",
       "reject": "Tolak",
       "at_paused_title": "Broker AT dijeda",
-      "at_paused_body": "Polling dihentikan, status panggilan ini mungkin sudah usang. Tombol tutup tetap sampai ke modem; bridge memeriksa tiap 15 detik dan pulih sendiri."
+      "at_paused_body": "Polling dihentikan, status panggilan ini mungkin sudah usang. Tombol tutup tetap sampai ke modem; bridge memeriksa tiap 15 detik dan pulih sendiri.",
+      "dialing_title": "Memanggil…",
+      "dialing_body": "Memanggil {who}",
+      "held_title": "Panggilan ditahan",
+      "waiting_title": "Panggilan menunggu"
     },
     "joined_devices": "{{count}} perangkat terhubung",
     "incoming": "Panggilan masuk",
