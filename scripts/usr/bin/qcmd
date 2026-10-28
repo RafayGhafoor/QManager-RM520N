@@ -180,16 +180,52 @@ else
     LOCK_WAIT="$LOCK_WAIT_SHORT"
 fi
 
-# Execute with flock serialization
-result=$(
-    (
-        if ! flock_wait 9 "$LOCK_WAIT"; then
-            exit 2
-        fi
-        "$AT_CLI" "$COMMAND" 2>/dev/null
-    ) 9<"$LOCK_FILE"
-)
-exit_code=$?
+# --- Fast path: a snapshot-fresh answer needs no lock -------------------------
+#
+# The shim can answer a read entirely from its snapshot (`--peek`), and when it
+# does it never opens the modem — so there is nothing for /bin/atcmd's FIXED
+# reply socket to race, and taking the lock buys nothing.
+#
+# This is not a micro-optimisation. Measured on the X16 2026-11-05, the same
+# cache-fresh `AT+QENG="servingcell"` costs 40 ms p50 with no lock and 980 ms
+# p50 behind the poller's cycle (max 6.2 s), because flock() has no fairness and
+# the poller re-acquires ~22 times per cycle. With the lock removed, 19 of 20
+# samples came in under 110 ms.
+#
+# The discriminator is the exit code plus a text check, not the exit code alone:
+# a shim older than this feature does not know --peek, treats it as a command,
+# answers "ERROR" and exits 0. So an answer of exactly ERROR is refused and the
+# locked path runs instead — which is also why it is safe to deploy the two
+# files in either order. A reply containing ERROR is never written to the
+# snapshot, so the check cannot discard a real reply.
+#
+# QM_AT_NO_PEEK=1 disables the fast path. The poller sets it: it is the lock
+# holder, it forces its own refreshes, and an extra shim start per call would be
+# pure cost for it.
+PEEK_OK=0
+if [ "${QM_AT_NO_PEEK:-0}" != "1" ]; then
+    _peek=$("$AT_CLI" --peek "$COMMAND" 2>/dev/null)
+    _peek_rc=$?
+    if [ "$_peek_rc" -eq 0 ] && [ -n "$_peek" ] && [ "$_peek" != "ERROR" ]; then
+        PEEK_OK=1
+    fi
+fi
+
+if [ "$PEEK_OK" -eq 1 ]; then
+    result=$_peek
+    exit_code=0
+else
+    # Execute with flock serialization
+    result=$(
+        (
+            if ! flock_wait 9 "$LOCK_WAIT"; then
+                exit 2
+            fi
+            "$AT_CLI" "$COMMAND" 2>/dev/null
+        ) 9<"$LOCK_FILE"
+    )
+    exit_code=$?
+fi
 
 # Handle lock failure
 if [ $exit_code -eq 2 ]; then
