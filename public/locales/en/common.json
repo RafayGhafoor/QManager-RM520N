@@ -1750,7 +1750,17 @@
       "meter_up": "Your microphone → call",
       "meter_down": "Call → your speakers",
       "hint": "Connect before dialling: the device opens its audio tap the moment the far end answers.",
-      "meter_up_muted": "Your microphone (blocked on http://)"
+      "meter_up_muted": "Your microphone (blocked on http://)",
+      "ns_on": "Noise suppression: on",
+      "ns_off": "Reduce background noise",
+      "ns_on_hint": "RNNoise runs on this device. The browser's own suppression is off so the two never stack.",
+      "ns_off_hint": "Run RNNoise on this phone before the audio is encoded. Costs ~1% CPU and ~30 ms.",
+      "ns_state_on": "Cleaning the uplink on this device (RNNoise)",
+      "ns_state_off": "The browser's own noise suppression is in use",
+      "ns_state_starting": "Starting the suppressor…",
+      "ns_state_failed": "Suppression unavailable ({reason}) — the call keeps the raw microphone",
+      "ns_needs_https": "Needs the HTTPS page (:8444)",
+      "ns_state_armed": "Applies when the call link connects"
     },
     "blocker": {
       "insecure": {

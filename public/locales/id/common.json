@@ -1750,7 +1750,17 @@
       "meter_up": "Mikrofon Anda → panggilan",
       "meter_down": "Panggilan → pengeras suara",
       "hint": "Sambungkan sebelum memanggil: perangkat membuka tap audio tepat saat lawan bicara menjawab.",
-      "meter_up_muted": "Mikrofon Anda (diblokir pada http://)"
+      "meter_up_muted": "Mikrofon Anda (diblokir pada http://)",
+      "ns_on": "Peredam bising: aktif",
+      "ns_off": "Kurangi bising latar",
+      "ns_on_hint": "RNNoise berjalan di perangkat ini. Peredam bawaan peramban dimatikan agar tidak menumpuk.",
+      "ns_off_hint": "Jalankan RNNoise di ponsel ini sebelum audio dikodekan. Biaya ~1% CPU dan ~30 ms.",
+      "ns_state_on": "Membersihkan uplink di perangkat ini (RNNoise)",
+      "ns_state_off": "Peredam bising bawaan peramban digunakan",
+      "ns_state_starting": "Memulai peredam…",
+      "ns_state_failed": "Peredam tidak tersedia ({reason}) — panggilan memakai mikrofon mentah",
+      "ns_needs_https": "Perlu halaman HTTPS (:8444)",
+      "ns_state_armed": "Berlaku saat tautan panggilan tersambung"
     },
     "blocker": {
       "insecure": {

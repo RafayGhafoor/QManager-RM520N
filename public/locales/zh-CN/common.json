@@ -1750,7 +1750,17 @@
       "meter_up": "麦克风 → 通话",
       "meter_down": "通话 → 扬声器",
       "hint": "请先连接音频再拨号：对端接通瞬间设备才会打开音频抽头。",
-      "meter_up_muted": "麦克风（在 http:// 下被阻止）"
+      "meter_up_muted": "麦克风（在 http:// 下被阻止）",
+      "ns_on": "降噪：开",
+      "ns_off": "降低背景噪声",
+      "ns_on_hint": "RNNoise 在本机运行。浏览器自带降噪已关闭，两者不会叠加。",
+      "ns_off_hint": "在编码前于本机运行 RNNoise。约 1% CPU 与约 30 毫秒。",
+      "ns_state_on": "正在本机清理上行音频（RNNoise）",
+      "ns_state_off": "正在使用浏览器自带降噪",
+      "ns_state_starting": "正在启动降噪…",
+      "ns_state_failed": "降噪不可用（{reason}）— 通话继续使用原始麦克风",
+      "ns_needs_https": "需要 HTTPS 页面（:8444）",
+      "ns_state_armed": "连接通话链路时生效"
     },
     "blocker": {
       "insecure": {

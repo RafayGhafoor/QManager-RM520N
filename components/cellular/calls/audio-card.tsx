@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import {
   CheckCircle2Icon,
   CircleSlashIcon,
+  SparklesIcon,
   MicIcon,
   MicOffIcon,
   PhoneCallIcon,
@@ -61,6 +62,7 @@ interface AudioCardProps {
 const AudioCard = ({ terminal }: AudioCardProps) => {
   const { t } = useTranslation("common");
   const { phase, ice, levels, speak, available, micError } = terminal;
+  const ns = terminal.noiseSuppression;
 
   const LinkGlyph = LINK_GLYPH[phase];
   const upPct = Math.min(100, Math.round(levels.up * 100));
@@ -188,6 +190,43 @@ const AudioCard = ({ terminal }: AudioCardProps) => {
                   style={{ width: `${downPct}%` }}
                 />
               </div>
+            </div>
+
+            {/* Noise suppression sits next to the uplink meter because that is the
+                meter it changes: switching it on should visibly lower this bar in
+                a quiet room, which is the operator's own proof that it works. */}
+            <div className="flex flex-wrap items-center gap-2.5 border-t border-border pt-3">
+              <Button
+                type="button"
+                variant={ns.enabled ? "tonal" : "tonal-neutral"}
+                size="action"
+                onClick={() => terminal.noiseSuppression.setEnabled(!ns.enabled)}
+                aria-pressed={ns.enabled}
+                disabled={!speak}
+                title={
+                  !speak
+                    ? t(`${K}.audio.ns_needs_https`)
+                    : ns.enabled
+                      ? t(`${K}.audio.ns_on_hint`)
+                      : t(`${K}.audio.ns_off_hint`)
+                }
+              >
+                <SparklesIcon className="size-4" />
+                {ns.enabled ? t(`${K}.audio.ns_on`) : t(`${K}.audio.ns_off`)}
+              </Button>
+              <span className={cn(METER.NAME, "text-on-surface-variant")}>
+                {ns.state === "on"
+                  ? t(`${K}.audio.ns_state_on`)
+                  : ns.state === "off" && ns.enabled
+                    ? t(`${K}.audio.ns_state_armed`)
+                  : ns.state === "starting"
+                    ? t(`${K}.audio.ns_state_starting`)
+                    : ns.state === "failed"
+                      ? t(`${K}.audio.ns_state_failed`, { reason: ns.detail ?? "?" })
+                      : ns.state === "unavailable"
+                        ? t(`${K}.audio.ns_needs_https`)
+                        : t(`${K}.audio.ns_state_off`)}
+              </span>
             </div>
 
             {micError ? (

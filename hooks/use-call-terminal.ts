@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { useNoiseSuppression } from "@/hooks/use-noise-suppression";
+import type { NsState } from "@/hooks/use-noise-suppression";
 import {
   RING_BEEPS_MS,
   RING_BEEP_MS,
@@ -105,6 +107,13 @@ export interface CallTerminal {
   /** False when there is no microphone to mute (listen-only origin or no mic). */
   canMute: boolean;
   toggleMute: () => void;
+  /** Client-side RNNoise on the microphone (hooks/use-noise-suppression). */
+  noiseSuppression: {
+    enabled: boolean;
+    state: NsState;
+    detail: string | null;
+    setEnabled: (v: boolean) => void;
+  };
   outputRoute: OutputRoute;
   outputRouteSupported: boolean;
   canRouteOutput: boolean;
@@ -152,6 +161,12 @@ export function useCallTerminal({ autoConnect = false }: UseCallTerminalOptions 
   const [levels, setLevels] = useState(IDLE_LEVELS);
   const [muted, setMuted] = useState(false);
   const [hasMic, setHasMic] = useState(false);
+  const ns = useNoiseSuppression();
+  const nsRef = useRef(ns);
+  nsRef.current = ns;
+  const outRef = useRef<MediaStream | null>(null);
+  const remoteRef = useRef<MediaStream | null>(null);
+  const mutedRef = useRef(false);
   const [outputRoute, setOutputRoute] = useState<OutputRoute>("handset");
   const [outputRouteSupported, setOutputRouteSupported] = useState(false);
   const [outputReady, setOutputReady] = useState(false);
@@ -326,6 +341,10 @@ export function useCallTerminal({ autoConnect = false }: UseCallTerminalOptions 
   // audio into silence while the peer, the call and the downlink all continue.
   // Anything else (closing the peer, stopping the track) would drop the call back
   // to one-way or drop it entirely, which is not what a mute button means.
+  useEffect(() => {
+    mutedRef.current = muted;
+  }, [muted]);
+
   const toggleMute = useCallback(() => {
     const track = micTrackRef.current;
     if (!track) {
@@ -564,6 +583,8 @@ export function useCallTerminal({ autoConnect = false }: UseCallTerminalOptions 
       audioRef.current = null;
     }
     sinkIdRef.current = "";
+    outRef.current = null;
+    remoteRef.current = null;
     setOutputReady(false);
     const audioNav = navigator as AudioSessionNavigator;
     if (audioNav.audioSession) {
@@ -592,7 +613,11 @@ export function useCallTerminal({ autoConnect = false }: UseCallTerminalOptions 
           audio: {
             channelCount: 1,
             echoCancellation: true,
-            noiseSuppression: true,
+            // Never stack two suppressors: ours is a DNN and the browser's own NS
+            // is a spectral gate, and in series they produce musical noise and
+            // clipped consonants. Whichever one the operator asked for, only one
+            // is active.
+            noiseSuppression: !nsRef.current.enabled,
             autoGainControl: true,
           },
         });
@@ -613,6 +638,29 @@ export function useCallTerminal({ autoConnect = false }: UseCallTerminalOptions 
         ? pc.addTransceiver(mic.getAudioTracks()[0], { direction: "sendrecv" })
         : pc.addTransceiver("audio", { direction: "recvonly" });
 
+      // Suppression is swapped in AFTER the peer is up, never before: the raw
+      // microphone is already on the transceiver, so a worklet that is slow to
+      // instantiate costs a few hundred ms of unprocessed audio instead of a few
+      // hundred ms of silence.
+      if (mic && nsRef.current.enabled) {
+        void nsRef.current.process(mic).then(async (outgoing) => {
+          outRef.current = outgoing;
+          const track = outgoing.getAudioTracks()[0];
+          const sender = pc.getSenders().find((s2) => s2.track?.kind === "audio");
+          if (!track || !sender || pc.connectionState === "closed") {
+            return;
+          }
+          if (track !== mic.getAudioTracks()[0]) {
+            await sender.replaceTrack(track);
+            // Mute follows the track that is actually on the wire.
+            track.enabled = !mutedRef.current;
+            micTrackRef.current = track;
+            // Meters must read what the far end hears, not the raw microphone.
+            startMeters(remoteRef.current);
+          }
+        });
+      }
+
       try {
         const caps = RTCRtpReceiver.getCapabilities("audio");
         const pcmu = (caps?.codecs ?? []).filter((c) => c.mimeType === "audio/PCMU");
@@ -625,6 +673,7 @@ export function useCallTerminal({ autoConnect = false }: UseCallTerminalOptions 
 
       pc.ontrack = (event) => {
         const stream = event.streams[0] ?? new MediaStream([event.track]);
+        remoteRef.current = stream;
         const audio = new Audio() as AudioRouteMediaElement;
         audio.autoplay = true;
         audio.srcObject = stream;
@@ -934,6 +983,12 @@ export function useCallTerminal({ autoConnect = false }: UseCallTerminalOptions 
     muted,
     canMute: phase === "live" && hasMic,
     toggleMute,
+    noiseSuppression: {
+      enabled: ns.enabled,
+      state: ns.state,
+      detail: ns.detail,
+      setEnabled: ns.setEnabled,
+    },
     outputRoute,
     outputRouteSupported,
     canRouteOutput: outputRouteSupported && outputReady && phase === "live",

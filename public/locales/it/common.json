@@ -1750,7 +1750,17 @@
       "meter_up": "Il tuo microfono → chiamata",
       "meter_down": "Chiamata → le tue casse",
       "hint": "Collega prima di chiamare: il dispositivo apre il tap audio appena l'interlocutore risponde.",
-      "meter_up_muted": "Il tuo microfono (bloccato su http://)"
+      "meter_up_muted": "Il tuo microfono (bloccato su http://)",
+      "ns_on": "Riduzione rumore: attiva",
+      "ns_off": "Riduci il rumore di fondo",
+      "ns_on_hint": "RNNoise gira su questo dispositivo. La soppressione del browser è spenta per non sovrapporle.",
+      "ns_off_hint": "Esegui RNNoise su questo telefono prima della codifica. Costa ~1% di CPU e ~30 ms.",
+      "ns_state_on": "Pulizia dell'uplink su questo dispositivo (RNNoise)",
+      "ns_state_off": "È in uso la soppressione del browser",
+      "ns_state_starting": "Avvio del soppressore…",
+      "ns_state_failed": "Soppressione non disponibile ({reason}) — la chiamata usa il microfono grezzo",
+      "ns_needs_https": "Serve la pagina HTTPS (:8444)",
+      "ns_state_armed": "Si attiva quando il collegamento si connette"
     },
     "blocker": {
       "insecure": {

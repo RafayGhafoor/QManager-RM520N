@@ -1750,7 +1750,17 @@
       "meter_up": "麥克風 → 通話",
       "meter_down": "通話 → 喇叭",
       "hint": "請先連接音訊再撥號：對端接通瞬間裝置才會開啟音訊擷取。",
-      "meter_up_muted": "麥克風（在 http:// 下被封鎖）"
+      "meter_up_muted": "麥克風（在 http:// 下被封鎖）",
+      "ns_on": "降噪：開",
+      "ns_off": "降低背景雜訊",
+      "ns_on_hint": "RNNoise 在本機執行。瀏覽器內建降噪已關閉，兩者不會疊加。",
+      "ns_off_hint": "在編碼前於本機執行 RNNoise。約 1% CPU 與約 30 毫秒。",
+      "ns_state_on": "正在本機清理上行音訊（RNNoise）",
+      "ns_state_off": "正在使用瀏覽器內建降噪",
+      "ns_state_starting": "正在啟動降噪…",
+      "ns_state_failed": "降噪不可用（{reason}）— 通話繼續使用原始麥克風",
+      "ns_needs_https": "需要 HTTPS 頁面（:8444）",
+      "ns_state_armed": "連接通話鏈路時生效"
     },
     "blocker": {
       "insecure": {
