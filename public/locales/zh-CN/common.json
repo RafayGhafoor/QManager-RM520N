@@ -1760,7 +1760,8 @@
       "ns_state_starting": "正在启动降噪…",
       "ns_state_failed": "降噪不可用（{reason}）— 通话继续使用原始麦克风",
       "ns_needs_https": "需要 HTTPS 页面（:8444）",
-      "ns_state_armed": "连接通话链路时生效"
+      "ns_state_armed": "连接通话链路时生效",
+      "meter_down_gated": "对方安静 — 已静音扬声器"
     },
     "blocker": {
       "insecure": {

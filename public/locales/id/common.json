@@ -1760,7 +1760,8 @@
       "ns_state_starting": "Memulai peredam…",
       "ns_state_failed": "Peredam tidak tersedia ({reason}) — panggilan memakai mikrofon mentah",
       "ns_needs_https": "Perlu halaman HTTPS (:8444)",
-      "ns_state_armed": "Berlaku saat tautan panggilan tersambung"
+      "ns_state_armed": "Berlaku saat tautan panggilan tersambung",
+      "meter_down_gated": "Lawan bicara sepi — pengeras dimatikan"
     },
     "blocker": {
       "insecure": {

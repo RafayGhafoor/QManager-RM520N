@@ -118,6 +118,8 @@ export interface CallTerminal {
     detail: string | null;
     setEnabled: (v: boolean) => void;
   };
+  /** True while the speaker is gated because the far end is only hiss. */
+  squelched: boolean;
   outputRoute: OutputRoute;
   outputRouteSupported: boolean;
   canRouteOutput: boolean;
@@ -290,6 +292,7 @@ export function useCallTerminal({ autoConnect = false }: UseCallTerminalOptions 
 
   // ------------------------------------------------------------------ meters --
   const stopMeters = useCallback(() => {
+    stopSquelch();
     if (meterTimer.current !== null) {
       window.clearInterval(meterTimer.current);
       meterTimer.current = null;
@@ -301,6 +304,65 @@ export function useCallTerminal({ autoConnect = false }: UseCallTerminalOptions 
       acRef.current = null;
     }
     setLevels(IDLE_LEVELS);
+  }, []);
+
+  // ---------------------------------------------------------------- squelch --
+  // What the far end actually sends when nobody is talking is not digital silence:
+  // the modem delivers a constant dither floor (measured -7x dBFS, 310 distinct
+  // sample values, flat across 10 ms frames). On a phone speaker at volume that is
+  // audible hiss on an empty call. A telephone gate — close slowly when the line is
+  // only hiss, open instantly on speech — removes it without touching speech.
+  const squelchRef = useRef<{ timer: number | null }>({ timer: null });
+  const [squelched, setSquelched] = useState(false);
+
+  const stopSquelch = useCallback(() => {
+    if (squelchRef.current.timer !== null) {
+      window.clearInterval(squelchRef.current.timer);
+      squelchRef.current.timer = null;
+    }
+    setSquelched(false);
+  }, []);
+
+  const startSquelch = useCallback(() => {
+    if (squelchRef.current.timer !== null) {
+      return;
+    }
+    let quietFor = 0;
+    squelchRef.current.timer = window.setInterval(() => {
+      const analyser = downAnalyser.current;
+      const audio = audioRef.current;
+      if (!analyser || !audio) {
+        return;
+      }
+      const buf = new Uint8Array(analyser.fftSize);
+      analyser.getByteTimeDomainData(buf);
+      let sum = 0;
+      for (let i = 0; i < buf.length; i += 1) {
+        const v = (buf[i] - 128) / 128;
+        sum += v * v;
+      }
+      const rms = Math.sqrt(sum / buf.length);
+      const dbfs = rms <= 0 ? -120 : 20 * Math.log10(rms);
+      // Open instantly (a word must never be clipped), close only after a pause
+      // longer than a breath and only while the line is down at its own floor.
+      if (dbfs > -55) {
+        quietFor = 0;
+        if (audio.volume < 1) {
+          audio.volume = Math.min(1, audio.volume + 0.34);
+        }
+        setSquelched(false);
+      } else if (dbfs < -62) {
+        quietFor += 100;
+        if (quietFor >= 350) {
+          if (audio.volume > 0.34) {
+            audio.volume = Math.max(0, audio.volume - 0.34);
+          } else {
+            audio.volume = 0;
+            setSquelched(true);
+          }
+        }
+      }
+    }, 100);
   }, []);
 
   const startMeters = useCallback((remote: MediaStream | null) => {
@@ -320,6 +382,8 @@ export function useCallTerminal({ autoConnect = false }: UseCallTerminalOptions 
       downAnalyser.current.fftSize = 512;
       ac.createMediaStreamSource(remote).connect(downAnalyser.current);
     }
+
+    startSquelch();
 
     const peak = (analyser: AnalyserNode | null): number => {
       if (!analyser) {
@@ -1191,6 +1255,7 @@ export function useCallTerminal({ autoConnect = false }: UseCallTerminalOptions 
       detail: ns.detail,
       setEnabled: ns.setEnabled,
     },
+    squelched,
     outputRoute,
     outputRouteSupported,
     canRouteOutput: outputRouteSupported && outputReady && phase === "live",

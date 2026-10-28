@@ -1760,7 +1760,8 @@
       "ns_state_starting": "Avvio del soppressore…",
       "ns_state_failed": "Soppressione non disponibile ({reason}) — la chiamata usa il microfono grezzo",
       "ns_needs_https": "Serve la pagina HTTPS (:8444)",
-      "ns_state_armed": "Si attiva quando il collegamento si connette"
+      "ns_state_armed": "Si attiva quando il collegamento si connette",
+      "meter_down_gated": "Interlocutore silenzioso — altoparlante escluso"
     },
     "blocker": {
       "insecure": {

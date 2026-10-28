@@ -1760,7 +1760,8 @@
       "ns_state_starting": "Starting the suppressor…",
       "ns_state_failed": "Suppression unavailable ({reason}) — the call keeps the raw microphone",
       "ns_needs_https": "Needs the HTTPS page (:8444)",
-      "ns_state_armed": "Applies when the call link connects"
+      "ns_state_armed": "Applies when the call link connects",
+      "meter_down_gated": "Far end quiet — speaker muted"
     },
     "blocker": {
       "insecure": {

@@ -181,7 +181,11 @@ const AudioCard = ({ terminal }: AudioCardProps) => {
 
             <div className={METER.ROW}>
               <div className={METER.LABEL}>
-                <span className={METER.NAME}>{t(`${K}.audio.meter_down`)}</span>
+                <span className={METER.NAME}>
+                  {terminal.squelched
+                    ? t(`${K}.audio.meter_down_gated`)
+                    : t(`${K}.audio.meter_down`)}
+                </span>
                 <span className={METER.VALUE}>{downPct}%</span>
               </div>
               <div className={METER.TRACK}>
