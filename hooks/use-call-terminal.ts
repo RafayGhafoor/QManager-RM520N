@@ -771,7 +771,15 @@ export function useCallTerminal({ autoConnect = false }: UseCallTerminalOptions 
             // clipped consonants. Whichever one the operator asked for, only one
             // is active.
             noiseSuppression: !nsRef.current.enabled,
-            autoGainControl: true,
+            // AGC is OFF with our suppressor on, and this was measured, not
+            // guessed: the recording of 20261028-192436 shows the uplink noise
+            // floor climbing -59 -> -53 -> -21 dBFS in three seconds while nobody
+            // was speaking, then sagging back. That is a slow AGC winding up on a
+            // quiet microphone — and suppression makes it worse, because gating the
+            // pauses to digital silence tells the AGC the input is even quieter.
+            // RNNoise keeps speech level stable on its own (measured -0.3..-2 dB),
+            // so the gain control it would fight is the one we must not have.
+            autoGainControl: !nsRef.current.enabled,
           },
         });
         micTrackRef.current = micRef.current.getAudioTracks()[0] ?? null;

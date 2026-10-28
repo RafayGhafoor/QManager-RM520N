@@ -30,6 +30,9 @@ const FRAME = 480;
 const SCALE = 32768;
 /** Frames of processed audio allowed to wait for the output. Bounded on purpose. */
 const MAX_QUEUE = 4;
+/** Below this the signal is untouched; above it, a tanh knee up to LIMIT_CEILING. */
+const LIMIT_THRESHOLD = 0.7;
+const LIMIT_CEILING = 0.98;
 
 class X16NoiseSuppressor extends AudioWorkletProcessor {
   constructor(options) {
@@ -54,6 +57,7 @@ class X16NoiseSuppressor extends AudioWorkletProcessor {
     // outcome, so a run of silent output while the input carries signal is
     // reported to the page, which then puts the raw microphone back on the wire.
     this.silentRun = 0;
+    this.limited = 0;
     this.inPeak = 0;
     this.reportedSilence = false;
 
@@ -123,6 +127,22 @@ class X16NoiseSuppressor extends AudioWorkletProcessor {
     } else {
       for (let i = 0; i < FRAME; i += 1) out[i] = this.outView[i] / SCALE;
     }
+    // Soft limiter. The recording that exposed the AGC runaway also peaked at
+    // -0.2 dBFS, which an 8-bit mu-law encoder turns into clipping — audible as a
+    // crackle on a cellular call. A fast, gentle ceiling keeps the model's output
+    // inside the codec's range without pumping.
+    for (let i = 0; i < FRAME; i += 1) {
+      const x = out[i];
+      const a = Math.abs(x);
+      if (a > LIMIT_THRESHOLD) {
+        const over = a - LIMIT_THRESHOLD;
+        const room = LIMIT_CEILING - LIMIT_THRESHOLD;
+        const compressed = LIMIT_THRESHOLD + room * Math.tanh(over / room);
+        out[i] = x < 0 ? -compressed : compressed;
+        this.limited += 1;
+      }
+    }
+
     let outSum = 0;
     for (let i = 0; i < FRAME; i += 1) outSum += out[i] * out[i];
     const outRms = Math.sqrt(outSum / FRAME);
@@ -142,6 +162,7 @@ class X16NoiseSuppressor extends AudioWorkletProcessor {
       }
     } else if (outRms >= 0.0005) {
       this.silentRun = 0;
+    this.limited = 0;
       this.reportedSilence = false;
     }
 
