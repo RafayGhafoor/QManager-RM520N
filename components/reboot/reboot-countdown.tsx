@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { BRAND } from "@/branding";
 import { motion, AnimatePresence } from "motion/react";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
@@ -122,7 +123,7 @@ export function RebootCountdown() {
       <div className="flex flex-col items-center gap-6 rounded-xl border bg-card px-12 py-10 shadow-sm max-w-[340px] w-full">
         {/* Logo */}
         <img
-          src="/qmanager-mark.svg"
+          src={BRAND.markSrc}
           alt="QManager"
           className="size-9"
         />

@@ -213,6 +213,26 @@ components:
 
 # Design System: QManager (RM520N-GL)
 
+## Branding — one instance, many faces
+
+The tokens in `app/globals.css` are the canonical face. A build may be badged for the
+OEM whose hardware it runs on, and that badge is a **data file**, never a fork:
+`branding/<slug>.ts` (see [`branding/README.md`](branding/README.md)).
+
+A brand may own the **neutrals**, the hue that **acts** (`--primary`, which is also the
+NR identity), `--info`, `--warning`, `--destructive`, and the **typeface**. It may not
+touch `--lte`, `--uplink`, `--downlink`, `--spatial`, `--success`, the quality scales
+or `--radius`: those are semantics and structure, and two builds that disagree about
+what violet means are a bug. `BrandTokens` in `branding/types.ts` is a closed type, so
+the boundary is enforced by the compiler rather than by this paragraph.
+
+Everything a brand does not override still resolves here, so this file stays the
+single source of truth. Tokens are emitted as
+`:root[data-brand="<id>"]` + `:root[data-brand="<id>"].dark`, which outranks `.dark`
+(0,1,0) regardless of stylesheet order; the brand face is applied to `<body>` and to
+`--font-sans` through `--font-brand-sans`.
+
+
 ## Overview
 
 QManager is an **instrument console**. It reports what a cellular modem is doing, on the modem itself, to someone who understands modems. The design language follows from three facts about that job.

@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Tag } from "@/components/ui/tag";
 import { staggerItem } from "@/lib/motion";
 import packageJson from "@/package.json";
-import QManagerMark from "@/public/qmanager-mark.svg";
+import { BRAND } from "@/branding";
 
 import { PILL_GLYPH, WIDE } from "./shapes";
 
@@ -50,7 +50,7 @@ export function QManagerBand({
       <div className={WIDE.INNER}>
         <div className={WIDE.MARK_DISC}>
           <Image
-            src={QManagerMark}
+            src={BRAND.markSrc}
             alt=""
             aria-hidden="true"
             className={WIDE.MARK}

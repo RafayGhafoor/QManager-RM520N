@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { BRAND } from "@/branding";
 import { motion, type Variants } from "motion/react";
 import { useMotionReduced } from "@/components/motion-preference";
 import { useTranslation } from "react-i18next";
@@ -288,7 +289,7 @@ export default function LoginComponent() {
             name is not what this screen is for. */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src="/qmanager-mark.svg"
+          src={BRAND.markSrc}
           alt=""
           className="size-12 object-contain"
         />

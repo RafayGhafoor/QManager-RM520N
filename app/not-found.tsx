@@ -20,6 +20,7 @@
 // =============================================================================
 
 import { useEffect, useState } from "react";
+import { BRAND } from "@/branding";
 import { motion } from "motion/react";
 import Link from "next/link";
 import {
@@ -131,7 +132,7 @@ export default function NotFound() {
 
       <div className="flex items-center gap-2">
         <img
-          src="/qmanager-mark.svg"
+          src={BRAND.markSrc}
           alt=""
           aria-hidden
           className="size-4 opacity-70"

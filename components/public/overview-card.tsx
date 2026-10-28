@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { BRAND } from "@/branding";
 import { useEffect, useRef, useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { motion } from "motion/react";
@@ -252,7 +253,7 @@ export default function OverviewCard() {
         <div className="grid size-13 flex-none place-items-center p-[0.6875rem]">
           {/* Decorative: the adjacent heading already names the product. */}
           <img
-            src="/qmanager-mark.svg"
+            src={BRAND.markSrc}
             alt=""
             aria-hidden="true"
             width={30}

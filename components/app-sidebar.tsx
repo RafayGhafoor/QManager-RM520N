@@ -5,7 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 
-import QManagerMark from "@/public/qmanager-mark.svg";
+import { BRAND } from "@/branding";
 
 import { NavSection, type NavItem } from "@/components/nav-section";
 import { NavUser } from "@/components/nav-user";
@@ -246,7 +246,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                     colour system, so the shell should show the mark itself, not
                     the horizontal lockup that was standing in for it. */}
                 <Image
-                  src={QManagerMark}
+                  src={BRAND.markSrc}
                   alt=""
                   aria-hidden="true"
                   className="size-[1.875rem] shrink-0"
@@ -254,7 +254,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                 />
                 <div className="grid flex-1 text-left leading-tight">
                   <span className="truncate text-sm font-semibold">
-                    QManager
+                    {BRAND.productName}
                   </span>
                   <span className="text-sidebar-foreground/70 truncate text-xs">
                     {t("header.role")}

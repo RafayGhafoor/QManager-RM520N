@@ -1,6 +1,7 @@
 "use client";
 
 import { motion } from "motion/react";
+import { BRAND } from "@/branding";
 
 import { DUR, EASE_STANDARD, STAGGER_STEP } from "@/lib/motion";
 
@@ -31,7 +32,7 @@ export function StepWelcome() {
       <motion.div {...fadeUp(0)} className="flex items-center gap-3">
         <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 p-1.5">
           <img
-            src="/qmanager-mark.svg"
+            src={BRAND.markSrc}
             alt=""
             aria-hidden="true"
             className="size-full"
