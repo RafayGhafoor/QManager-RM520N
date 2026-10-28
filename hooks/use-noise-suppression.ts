@@ -27,6 +27,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { NS_STORAGE_KEY, nsPrefValue, parseNsPref } from "@/lib/ns-pref";
+
 export type NsState = "off" | "starting" | "on" | "failed" | "unavailable";
 
 export interface NoiseSuppression {
@@ -46,22 +48,31 @@ export interface NoiseSuppression {
   release: () => void;
 }
 
-const STORAGE_KEY = "x16.ns.enabled";
+const STORAGE_KEY = NS_STORAGE_KEY;
 const WORKLET_URL = "/ns/x16-ns-worklet.js";
 const WASM_URL = "/ns/rnnoise.wasm";
 const READY_TIMEOUT_MS = 6000;
+// `AudioContext.resume()` can hang forever in a frame without user activation: the
+// promise simply never settles. Awaiting it unbounded is how a call ends up with a
+// live-looking graph that produces no sound.
+const RESUME_TIMEOUT_MS = 1500;
 const NS_RATE = 48000;
 
+// ON by default (lib/ns-pref.ts): the operator asked for it, and the failure path
+// keeps the call audible rather than the microphone clean.
 const readPref = (): boolean => {
   try {
-    return window.localStorage.getItem(STORAGE_KEY) === "1";
+    return parseNsPref(window.localStorage.getItem(STORAGE_KEY));
   } catch {
-    return false;
+    // Private mode / storage disabled: the default still applies.
+    return parseNsPref(null);
   }
 };
 
 export const useNoiseSuppression = (): NoiseSuppression => {
-  const [enabled, setEnabledState] = useState(false);
+  // Default before localStorage is read (the effect below), so the first paint
+  // agrees with the stored default instead of flashing "off".
+  const [enabled, setEnabledState] = useState(parseNsPref(null));
   const [state, setState] = useState<NsState>("off");
   const [detail, setDetail] = useState<string | null>(null);
 
@@ -101,7 +112,7 @@ export const useNoiseSuppression = (): NoiseSuppression => {
     (v: boolean) => {
       setEnabledState(v);
       try {
-        window.localStorage.setItem(STORAGE_KEY, v ? "1" : "0");
+        window.localStorage.setItem(STORAGE_KEY, nsPrefValue(v));
       } catch {
         // Private mode: the toggle still works for this session.
       }
@@ -185,15 +196,38 @@ export const useNoiseSuppression = (): NoiseSuppression => {
         src.connect(node).connect(dest);
 
         await ready;
+
         // A suspended context produces a silent track that looks alive. Resume it
-        // and refuse if the browser will not let us — silence on the far end is
-        // the worst of all outcomes.
+        // with a DEADLINE, and refuse if the browser will not let us run — silence
+        // on the far end is the worst of all outcomes.
         if (ctx.state === "suspended") {
-          await ctx.resume();
+          await Promise.race([
+            ctx.resume().catch(() => undefined),
+            new Promise((resolve) => window.setTimeout(resolve, RESUME_TIMEOUT_MS)),
+          ]);
         }
         if (ctx.state !== "running") {
-          throw new Error(`audio context is ${ctx.state}`);
+          throw new Error(
+            `audio context is ${ctx.state} — this needs a tap on the page before the call`
+          );
         }
+
+        // Mobile browsers suspend an AudioContext when the tab goes to the
+        // background. Resuming on return is cheap; if it will not come back, say
+        // so and let the caller put the raw microphone on the wire.
+        ctx.addEventListener("statechange", () => {
+          if (ctx.state === "suspended" && ctxRef.current === ctx) {
+            void Promise.race([
+              ctx.resume().catch(() => undefined),
+              new Promise((resolve) => window.setTimeout(resolve, RESUME_TIMEOUT_MS)),
+            ]).then(() => {
+              if (ctx.state !== "running" && ctxRef.current === ctx) {
+                setState("failed");
+                setDetail("the audio context was suspended and would not resume");
+              }
+            });
+          }
+        });
 
         setState("on");
         setDetail(null);
@@ -202,6 +236,8 @@ export const useNoiseSuppression = (): NoiseSuppression => {
         const reason = err instanceof Error ? err.message : String(err);
         setState("failed");
         setDetail(reason);
+        // The caller restores the browser's own suppressor when it sees this, so
+        // the far end is never left with the rawest possible microphone.
         release();
         // The raw microphone, not silence. The call continues.
         return stream;

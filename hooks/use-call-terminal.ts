@@ -6,6 +6,8 @@ import { toast } from "sonner";
 import { useNoiseSuppression } from "@/hooks/use-noise-suppression";
 import type { NsState } from "@/hooks/use-noise-suppression";
 import {
+  ANSWER_BEEP,
+  END_BEEP,
   RING_BEEPS_MS,
   RING_BEEP_MS,
   RING_CYCLE_MS,
@@ -360,6 +362,61 @@ export function useCallTerminal({ autoConnect = false }: UseCallTerminalOptions 
   // can select a distinct, permitted sink; where those are absent, the button is
   // disabled with an explanation rather than pretending AudioSession.type can
   // force a speaker route.
+  /**
+   * Put a working microphone back on the wire when the suppressor cannot deliver.
+   *
+   * This exists because suppression is ON by default: the microphone is captured
+   * with the browser's own suppressor OFF, so if ours fails the far end would hear
+   * the rawest microphone this device can produce — worse than before the feature.
+   * Preference order is the browser's suppressor, then the raw track.
+   */
+  const rescueMic = useCallback(
+    async (reason: string) => {
+      const pc = pcRef.current;
+      const sender = pc?.getSenders().find((s2) => s2.track?.kind === "audio");
+      if (!pc || !sender || pc.connectionState === "closed") {
+        return;
+      }
+      if (window.isSecureContext) {
+        try {
+          const rescued = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              channelCount: 1,
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true,
+            },
+          });
+          const track = rescued.getAudioTracks()[0];
+          if (track) {
+            await sender.replaceTrack(track);
+            track.enabled = !mutedRef.current;
+            outRef.current = rescued;
+            micTrackRef.current = track;
+            startMeters(remoteRef.current);
+            setError(`noise suppression off (${reason}); the browser's own suppressor is in use`);
+            return;
+          }
+        } catch {
+          // Fall through to the raw track below.
+        }
+      }
+      const raw = micRef.current?.getAudioTracks()[0];
+      if (raw) {
+        try {
+          await sender.replaceTrack(raw);
+          raw.enabled = !mutedRef.current;
+          micTrackRef.current = raw;
+          startMeters(remoteRef.current);
+          setError(`noise suppression off (${reason}); the raw microphone is in use`);
+        } catch {
+          setError(`noise suppression failed (${reason}) and the microphone could not be restored`);
+        }
+      }
+    },
+    [startMeters]
+  );
+
   const switchOutputRoute = useCallback(async () => {
     const nav = navigator as AudioSessionNavigator;
     const audio = audioRef.current as AudioRouteMediaElement | null;
@@ -650,6 +707,36 @@ export function useCallTerminal({ autoConnect = false }: UseCallTerminalOptions 
           if (!track || !sender || pc.connectionState === "closed") {
             return;
           }
+          if (track === mic.getAudioTracks()[0] && nsRef.current.state === "failed") {
+            // Suppression is on by default, and the microphone was captured with
+            // the browser's own suppressor OFF so the two could not stack. If our
+            // worklet did not start, that leaves the far end with the rawest mic
+            // this device can produce — worse than the default we shipped before.
+            // Re-capture with the browser's suppressor and put THAT on the wire.
+            try {
+              const rescued = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                  channelCount: 1,
+                  echoCancellation: true,
+                  noiseSuppression: true,
+                  autoGainControl: true,
+                },
+              });
+              const rescuedTrack = rescued.getAudioTracks()[0];
+              // Already past the "closed" guard above, so the peer is still live.
+              if (rescuedTrack) {
+                await sender.replaceTrack(rescuedTrack);
+                rescuedTrack.enabled = !mutedRef.current;
+                outRef.current = rescued;
+                micTrackRef.current = rescuedTrack;
+                startMeters(remoteRef.current);
+              }
+            } catch {
+              // No rescue available: the raw track stays, and the card already
+              // says suppression is unavailable.
+            }
+            return;
+          }
           if (track !== mic.getAudioTracks()[0]) {
             await sender.replaceTrack(track);
             // Mute follows the track that is actually on the wire.
@@ -725,6 +812,62 @@ export function useCallTerminal({ autoConnect = false }: UseCallTerminalOptions 
     autoAttempted.current = true;
     void connect();
   }, [autoConnect, available, connect, phase]);
+
+  // A suppressor that runs and then dies (context suspended, worklet silent) is
+  // worse than one that never started: the sender is already pointing at its
+  // track. Hand the microphone back the moment the hook says so.
+  useEffect(() => {
+    if (ns.state === "failed" && ns.detail && phase === "live") {
+      void rescueMic(ns.detail);
+    }
+  }, [ns.state, ns.detail, phase, rescueMic]);
+
+  // -------------------------------------------------------------- progress --
+  // Phone behaviour, twice: a tone when the call connects, a lower one when it
+  // ends. Generated, not sampled — no asset to ship or fail to load.
+  const beep = useCallback((tone: typeof ANSWER_BEEP | typeof END_BEEP) => {
+    try {
+      const ctx = new AudioContext();
+      const now = ctx.currentTime + 0.02;
+      for (let p = 0; p < tone.pulses; p += 1) {
+        const at = now + (p * (tone.ms + tone.gapMs)) / 1000;
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        const len = tone.ms / 1000;
+        osc.type = "sine";
+        osc.frequency.value = tone.hz;
+        gain.gain.setValueAtTime(0, at);
+        gain.gain.linearRampToValueAtTime(tone.gain, at + 0.008);
+        gain.gain.setValueAtTime(tone.gain, at + len - 0.008);
+        gain.gain.linearRampToValueAtTime(0, at + len);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start(at);
+        osc.stop(at + len + 0.01);
+      }
+      const total = ((tone.pulses * (tone.ms + tone.gapMs)) / 1000 + 0.2) * 1000;
+      window.setTimeout(() => void ctx.close().catch(() => undefined), total);
+    } catch {
+      // No audio context (backgrounded page, autoplay policy): the toast still says
+      // what happened. Never let a courtesy tone break a call.
+    }
+  }, []);
+
+  const lastTone = useRef<string>("");
+  useEffect(() => {
+    const label = state?.call_label;
+    if (!label) {
+      return;
+    }
+    if (label === "active" && lastTone.current !== "active") {
+      lastTone.current = "active";
+      beep(ANSWER_BEEP);
+    } else if ((label === "ended" || label === "idle") && lastTone.current === "active") {
+      lastTone.current = label === "idle" ? "idle" : "ended";
+      beep(END_BEEP);
+    } else if (label === "incoming" || label === "ringing") {
+      lastTone.current = "ringing";
+    }
+  }, [state?.call_label, beep]);
 
   // ------------------------------------------------------------------- ring --
   // An incoming call has to be audible before it is readable. The cadence is

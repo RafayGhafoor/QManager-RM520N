@@ -49,6 +49,13 @@ class X16NoiseSuppressor extends AudioWorkletProcessor {
     this.droppedSamples = 0;
     this.vad = 0;
     this.frames = 0;
+    // Watchdog state: the worklet can be alive, "ready", and still emit nothing
+    // (a suspended context, a starved input). Silence on the far end is the worst
+    // outcome, so a run of silent output while the input carries signal is
+    // reported to the page, which then puts the raw microphone back on the wire.
+    this.silentRun = 0;
+    this.inPeak = 0;
+    this.reportedSilence = false;
 
     if (!bytes) {
       this.fail("no wasm bytes were provided to the worklet");
@@ -84,12 +91,39 @@ class X16NoiseSuppressor extends AudioWorkletProcessor {
     for (let i = 0; i < FRAME; i += 1) this.inView[i] = this.inBuf[i] * SCALE;
     const p = this.mod._rnnoise_process_frame(this.state, this.ptrOut, this.ptrIn);
     if (typeof p === "number") this.vad = p;
+    // Input energy over this frame, before the model touches it.
+    let inSum = 0;
+    for (let i = 0; i < FRAME; i += 1) inSum += this.inBuf[i] * this.inBuf[i];
+    this.inPeak = Math.sqrt(inSum / FRAME);
+
     const out = new Float32Array(FRAME);
     if (this.bypass) {
       out.set(this.inBuf);
     } else {
       for (let i = 0; i < FRAME; i += 1) out[i] = this.outView[i] / SCALE;
     }
+    let outSum = 0;
+    for (let i = 0; i < FRAME; i += 1) outSum += out[i] * out[i];
+    const outRms = Math.sqrt(outSum / FRAME);
+
+    // 1 s of output silence while the microphone carries real signal = the graph
+    // is not delivering audio. Report once; keep bypassing so a later frame can
+    // still recover if the cause was transient.
+    if (!this.bypass && this.inPeak > 0.002 && outRms < 0.0005) {
+      this.silentRun += 1;
+      if (this.silentRun === 100 && !this.reportedSilence) {
+        this.reportedSilence = true;
+        this.port.postMessage({
+          type: "silent",
+          inPeak: Number(this.inPeak.toFixed(4)),
+          reason: "the suppressor is emitting silence while the microphone has signal",
+        });
+      }
+    } else if (outRms >= 0.0005) {
+      this.silentRun = 0;
+      this.reportedSilence = false;
+    }
+
     this.frames += 1;
     this.queue.push(out);
   }
