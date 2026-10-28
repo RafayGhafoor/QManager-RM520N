@@ -58,6 +58,7 @@ class X16NoiseSuppressor extends AudioWorkletProcessor {
     // reported to the page, which then puts the raw microphone back on the wire.
     this.silentRun = 0;
     this.limited = 0;
+    this.gainDb = 0;
     this.inPeak = 0;
     this.reportedSilence = false;
 
@@ -105,10 +106,12 @@ class X16NoiseSuppressor extends AudioWorkletProcessor {
 
   /** Emit one processed frame into the queue. */
   processFrame() {
-    for (let i = 0; i < FRAME; i += 1) this.inView[i] = this.inBuf[i] * SCALE;
+    const gain = Math.pow(10, this.gainDb / 20);
+    for (let i = 0; i < FRAME; i += 1) this.inView[i] = this.inBuf[i] * SCALE * gain;
     const p = this.mod._rnnoise_process_frame(this.state, this.ptrOut, this.ptrIn);
     if (typeof p === "number") this.vad = p;
-    // Input energy over this frame, before the model touches it.
+    // Input energy over this frame, before the model touches it. This is also the
+    // level the AGC aims, so it is measured with the current gain applied.
     let inSum = 0;
     for (let i = 0; i < FRAME; i += 1) inSum += this.inBuf[i] * this.inBuf[i];
     this.inPeak = Math.sqrt(inSum / FRAME);
@@ -143,6 +146,18 @@ class X16NoiseSuppressor extends AudioWorkletProcessor {
       }
     }
 
+    // Adapt the pre-gain on speech frames only (see AGC_* above).
+    if (!this.bypass && !this.muted && typeof this.vad === "number") {
+      const levelDbfs = this.inPeak <= 0 ? -120 : 20 * Math.log10(this.inPeak);
+      if (this.vad >= AGC_VAD_ON && levelDbfs > -80) {
+        const want = AGC_TARGET_DBFS - levelDbfs;
+        const step = Math.max(-AGC_STEP_DB, Math.min(AGC_STEP_DB, want * 0.25));
+        this.gainDb = Math.max(0, Math.min(AGC_MAX_GAIN_DB, this.gainDb + step));
+      }
+      // Silence: gain is FROZEN, not decayed. Nothing to adapt to, and a ramp here
+      // is exactly the noise wind-up this design exists to prevent.
+    }
+
     let outSum = 0;
     for (let i = 0; i < FRAME; i += 1) outSum += out[i] * out[i];
     const outRms = Math.sqrt(outSum / FRAME);
@@ -163,6 +178,7 @@ class X16NoiseSuppressor extends AudioWorkletProcessor {
     } else if (outRms >= 0.0005) {
       this.silentRun = 0;
     this.limited = 0;
+    this.gainDb = 0;
       this.reportedSilence = false;
     }
 
@@ -233,6 +249,7 @@ class X16NoiseSuppressor extends AudioWorkletProcessor {
         type: "stats",
         frames: this.frames,
         vad: Number(this.vad.toFixed(3)),
+        gainDb: Number(this.gainDb.toFixed(1)),
         droppedSamples: this.droppedSamples,
         queueFrames: this.queue.length,
         bypass: this.bypass,
