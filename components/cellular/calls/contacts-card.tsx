@@ -9,10 +9,12 @@ import {
   UserPlusIcon,
 } from "lucide-react";
 
+import MaskedText from "@/components/masked-text";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import type { CallTerminal } from "@/hooks/use-call-terminal";
+import { useReveal } from "@/hooks/use-reveal";
 import { cn } from "@/lib/utils";
 
 import {
@@ -53,6 +55,7 @@ interface ContactsCardProps {
 
 const ContactsCard = ({ terminal }: ContactsCardProps) => {
   const { t } = useTranslation("common");
+  const { revealed } = useReveal();
   const { contacts } = terminal;
 
   const [name, setName] = useState("");
@@ -170,9 +173,14 @@ const ContactsCard = ({ terminal }: ContactsCardProps) => {
             {contacts.map((c) => (
               <div key={c.id} className={CONTACT_ROW.ROOT}>
                 <div className={CONTACT_ROW.TEXT}>
-                  <span className={CONTACT_ROW.NAME}>{c.name || c.phone}</span>
+                  <MaskedText
+                    className={CONTACT_ROW.NAME}
+                    value={c.name || c.phone}
+                    number={!c.name}
+                    revealed={revealed}
+                  />
                   <span className={CONTACT_ROW.META}>
-                    {c.name ? c.phone : ""}
+                    {c.name ? <MaskedText value={c.phone} number revealed={revealed} /> : ""}
                     {c.company ? ` · ${c.company}` : ""}
                   </span>
                 </div>

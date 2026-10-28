@@ -1782,7 +1782,11 @@
       "unmute": "Bunyikan",
       "mute_unavailable": "Tidak ada mikrofon pada koneksi ini",
       "mute_hint": "Bisukan mikrofon (M)",
-      "mute_connect_first": "Sambungkan audio dahulu — bisu berlaku pada mikrofon"
+      "mute_connect_first": "Sambungkan audio dahulu — bisu berlaku pada mikrofon",
+      "handset": "Handset",
+      "speakerphone": "Pengeras suara",
+      "route_hint": "Minta rute handset/pengeras suara. OS mungkin mengaturnya otomatis.",
+      "route_unavailable": "Peramban ini tidak menyediakan pilihan rute handset/pengeras suara."
     },
     "call_state": {
       "idle": "Tidak ada panggilan",
@@ -1792,7 +1796,8 @@
       "ringing": "Berdering",
       "incoming": "Masuk",
       "waiting": "Menunggu",
-      "ended": "Berakhir"
+      "ended": "Berakhir",
+      "unknown": "Modem tidak merespons"
     },
     "session": {
       "title": "Jalur audio perangkat",
@@ -1808,7 +1813,9 @@
       "downlink": "Bingkai downlink",
       "uplink": "Bingkai uplink",
       "last_at": "Respons modem terakhir",
-      "footnote": "Tap terbuka saat panggilan dijawab dan tertutup saat berakhir. Jumlah restart yang terus naik menandakan audio terputus-putus."
+      "footnote": "Tap terbuka saat panggilan dijawab dan tertutup saat berakhir. Jumlah restart yang terus naik menandakan audio terputus-putus.",
+      "joined_devices": "Perangkat bergabung",
+      "at_quarantined_title": "Saluran perintah modem macet"
     },
     "history": {
       "title": "Riwayat panggilan",
@@ -1826,7 +1833,9 @@
       },
       "empty_title": "Belum ada panggilan",
       "empty_body": "Panggilan pertama — dibuat di sini atau diterima — akan muncul saat berakhir.",
-      "footnote": "Durasi dihitung sejak lawan bicara menjawab, sehingga panggilan yang tidak dijawab menampilkan tanda —."
+      "footnote": "Durasi dihitung sejak lawan bicara menjawab, sehingga panggilan yang tidak dijawab menampilkan tanda —.",
+      "redial": "Panggil {{who}} lagi",
+      "col_redial": "Panggil lagi"
     },
     "recordings": {
       "title": "Rekaman",
@@ -1841,7 +1850,8 @@
       "outgoing": "keluar",
       "empty_title": "Belum ada rekaman",
       "empty_body": "Panggilan yang dijawab disimpan di sini selama perekaman aktif. Perangkat menyimpan yang terbaru dan membuang sisanya.",
-      "footnote": "Berkas berada di perangkat, jadi menutup tab tidak menghilangkan apa pun. Perekaman adalah pengaturan perangkat, bukan peramban."
+      "footnote": "Berkas berada di perangkat, jadi menutup tab tidak menghilangkan apa pun. Perekaman adalah pengaturan perangkat, bukan peramban.",
+      "play": "Putar rekaman dengan {{who}}"
     },
     "contacts": {
       "title": "Kontak",
@@ -1860,6 +1870,30 @@
       "empty_title": "Belum ada kontak",
       "empty_body": "Impor .vcf atau tambahkan nomor di atas. Kontak dicocokkan pada sembilan digit terakhir, sehingga format lokal dan internasional dianggap orang yang sama.",
       "footnote": "Buku disimpan di perangkat, jadi sama di setiap peramban."
+    },
+    "toast": {
+      "ringing_title": "Berdering",
+      "ringing_body": "Memanggil {{who}}.",
+      "incoming_title": "Panggilan masuk",
+      "incoming_body": "{{who}} menelepon.",
+      "active_title": "Panggilan tersambung",
+      "active_body": "Anda sedang berbicara dengan {{who}}.",
+      "ended_title": "Panggilan berakhir",
+      "ended_body": "{{who}} · {{outcome}}.",
+      "idle_title": "Tidak ada panggilan",
+      "idle_body": "Saluran tersedia.",
+      "answer": "Jawab",
+      "reject": "Tolak",
+      "at_paused_title": "Broker AT dijeda",
+      "at_paused_body": "Polling dihentikan, status panggilan ini mungkin sudah usang. Tombol tutup tetap sampai ke modem; bridge memeriksa tiap 15 detik dan pulih sendiri."
+    },
+    "joined_devices": "{{count}} perangkat terhubung",
+    "incoming": "Panggilan masuk",
+    "answer": "Jawab",
+    "reject": "Tolak",
+    "reveal": {
+      "show": "Tampilkan nomor",
+      "hide": "Sembunyikan nomor"
     }
   }
 }

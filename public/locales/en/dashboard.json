@@ -452,7 +452,8 @@
       "ringing": "Ringing",
       "incoming": "Incoming",
       "waiting": "Waiting",
-      "ended": "Ended"
+      "ended": "Ended",
+      "unknown": "Modem not answering"
     },
     "audio": {
       "connect": "Connect audio",
@@ -484,6 +485,10 @@
     "mute_connect_first": "Connect audio first — mute applies to the microphone",
     "open": "Open the dialler",
     "backspace": "Delete last digit",
-    "keys_hint": "Type digits · Enter to call · M mutes · Esc closes"
+    "keys_hint": "Type digits · Enter to call · M mutes · Esc closes",
+    "handset": "Handset",
+    "speakerphone": "Speakerphone",
+    "route_hint": "Request the phone's handset/speaker route. The OS may control this automatically.",
+    "route_unavailable": "This browser does not expose a separate handset/speaker route."
   }
 }

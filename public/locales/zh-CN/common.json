@@ -1782,7 +1782,11 @@
       "unmute": "取消静音",
       "mute_unavailable": "此连接没有麦克风",
       "mute_hint": "麦克风静音（M）",
-      "mute_connect_first": "请先连接音频——静音作用于麦克风"
+      "mute_connect_first": "请先连接音频——静音作用于麦克风",
+      "handset": "听筒",
+      "speakerphone": "扬声器",
+      "route_hint": "请求切换听筒/扬声器路由。系统可能会自动管理此设置。",
+      "route_unavailable": "此浏览器未提供单独的听筒/扬声器路由。"
     },
     "call_state": {
       "idle": "无通话",
@@ -1792,7 +1796,8 @@
       "ringing": "振铃",
       "incoming": "呼入",
       "waiting": "等待",
-      "ended": "已结束"
+      "ended": "已结束",
+      "unknown": "模组无响应"
     },
     "session": {
       "title": "设备音频通路",
@@ -1808,7 +1813,9 @@
       "downlink": "下行帧",
       "uplink": "上行帧",
       "last_at": "最近模组响应",
-      "footnote": "通话接通时抽头打开，结束时关闭。同一次通话中重启次数持续增加意味着音频断续。"
+      "footnote": "通话接通时抽头打开，结束时关闭。同一次通话中重启次数持续增加意味着音频断续。",
+      "joined_devices": "已加入设备",
+      "at_quarantined_title": "调制解调器命令通道已卡住"
     },
     "history": {
       "title": "通话记录",
@@ -1826,7 +1833,9 @@
       },
       "empty_title": "暂无通话",
       "empty_body": "第一通电话——无论是从此处拨出还是接听——结束后都会显示在这里。",
-      "footnote": "通话时长从对方接听开始计算，因此未接听的通话时长显示为 —。"
+      "footnote": "通话时长从对方接听开始计算，因此未接听的通话时长显示为 —。",
+      "redial": "再次呼叫 {{who}}",
+      "col_redial": "重拨"
     },
     "recordings": {
       "title": "通话录音",
@@ -1841,7 +1850,8 @@
       "outgoing": "去电",
       "empty_title": "暂无录音",
       "empty_body": "录音开启时，已接通的通话会保存在这里。设备保留最新的若干个，其余自动删除。",
-      "footnote": "文件保存在设备上，关闭页面不会丢失。录音是设备设置，不是浏览器设置。"
+      "footnote": "文件保存在设备上，关闭页面不会丢失。录音是设备设置，不是浏览器设置。",
+      "play": "播放与 {{who}} 的录音"
     },
     "contacts": {
       "title": "联系人",
@@ -1860,6 +1870,30 @@
       "empty_title": "暂无联系人",
       "empty_body": "导入 .vcf 或在上方添加号码。联系人按最后九位数字匹配，因此本地格式与国际格式视为同一人。",
       "footnote": "通讯录保存在设备上，因此在任何浏览器中都相同。"
+    },
+    "toast": {
+      "ringing_title": "正在振铃",
+      "ringing_body": "正在呼叫 {{who}}。",
+      "incoming_title": "来电",
+      "incoming_body": "{{who}} 正在呼叫。",
+      "active_title": "通话已接通",
+      "active_body": "正在与 {{who}} 通话。",
+      "ended_title": "通话已结束",
+      "ended_body": "{{who}} · {{outcome}}。",
+      "idle_title": "当前无通话",
+      "idle_body": "线路空闲。",
+      "answer": "接听",
+      "reject": "拒接",
+      "at_paused_title": "AT 代理已暂停",
+      "at_paused_body": "轮询已停止，此通话状态可能已过期。挂断仍会发送到模组；网桥每 15 秒探测一次并自动恢复。"
+    },
+    "joined_devices": "{{count}} 台设备已连接",
+    "incoming": "来电",
+    "answer": "接听",
+    "reject": "拒接",
+    "reveal": {
+      "show": "显示号码",
+      "hide": "隐藏号码"
     }
   }
 }

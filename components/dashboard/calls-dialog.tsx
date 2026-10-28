@@ -10,6 +10,7 @@ import {
   PhoneIcon,
   PhoneIncomingIcon,
   PhoneOffIcon,
+  Volume2Icon,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -23,7 +24,10 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Kbd } from "@/components/ui/kbd";
+import MaskedText from "@/components/masked-text";
+import RevealToggle from "@/components/reveal-toggle";
 import { useCallTerminal } from "@/hooks/use-call-terminal";
+
 import { useDialKeys } from "@/hooks/use-dial-keys";
 import { displayName } from "@/lib/phone";
 import { cn } from "@/lib/utils";
@@ -71,13 +75,17 @@ const KEYS: { digit: string; letters: string }[] = [
 
 const CallsDialog = () => {
   const { t } = useTranslation("dashboard");
-  const terminal = useCallTerminal();
-
   const [number, setNumber] = useState("");
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
+  // Opening the phone popup is the user's intent to use it: ask for the mic at
+  // that moment, not on dashboard load. Once granted by the browser the saved
+  // site permission is reused on later openings without a second prompt.
+  const terminal = useCallTerminal({ autoConnect: open });
 
+  // The dialog is the other surface that shows numbers, so it owns its own eye.
+  const [revealed, setRevealed] = useState(false);
   const call = terminal.state?.call ?? "";
   const inCall = call !== "";
   const answered = call === "0";
@@ -192,9 +200,21 @@ const CallsDialog = () => {
               )}
               {t(`${K}.state.${label}`)}
             </Badge>
+            {(terminal.state?.peers ?? 0) > 0 ? (
+              <Badge variant="muted">
+                {t(`${K}.joined_devices`, { count: terminal.state?.peers ?? 0 })}
+              </Badge>
+            ) : null}
           </DialogTitle>
           <DialogDescription>{t(`${K}.description`)}</DialogDescription>
         </DialogHeader>
+
+        <div className="flex justify-end">
+          <RevealToggle
+            revealed={revealed}
+            onToggle={() => setRevealed((v) => !v)}
+          />
+        </div>
 
         {incoming ? (
           <div className="flex flex-wrap items-center gap-2.5 rounded-tile bg-primary-container px-4 py-3 text-on-primary-container">
@@ -203,7 +223,12 @@ const CallsDialog = () => {
               <span className="text-[0.6875rem] font-semibold uppercase tracking-[0.06em]">
                 {t(`${K}.incoming`)}
               </span>
-              <span className="truncate text-[0.9375rem] font-semibold">{who}</span>
+              <MaskedText
+                className="truncate text-[0.9375rem] font-semibold"
+                value={who}
+                number={who === activeNumber}
+                revealed={revealed}
+              />
             </div>
             <Button type="button" variant="default" size="action" onClick={() => void terminal.answer()}>
               <PhoneCallIcon className="size-4" />
@@ -230,7 +255,15 @@ const CallsDialog = () => {
               activeNumber === "" && "text-on-surface-variant"
             )}
           >
-            {activeNumber === "" ? t(`${K}.placeholder`) : activeNumber}
+            {activeNumber === "" ? (
+              t(`${K}.placeholder`)
+            ) : (
+              <MaskedText
+                value={activeNumber}
+                number={who === activeNumber}
+                revealed={revealed}
+              />
+            )}
           </span>
           {answered ? (
             <Button
@@ -317,6 +350,28 @@ const CallsDialog = () => {
           >
             <PhoneOffIcon className="size-4" />
             {t(`${K}.hangup`)}
+          </Button>
+          <Button
+            type="button"
+            variant={terminal.outputRoute === "speakerphone" ? "tonal" : "tonal-neutral"}
+            size="action"
+            onClick={() => void terminal.switchOutputRoute()}
+            disabled={!terminal.canRouteOutput}
+            aria-pressed={terminal.outputRoute === "speakerphone"}
+            title={
+              terminal.outputRouteSupported
+                ? t(`${K}.route_hint`)
+                : t(`${K}.route_unavailable`)
+            }
+          >
+            {terminal.outputRoute === "speakerphone" ? (
+              <Volume2Icon className="size-4" />
+            ) : (
+              <PhoneIcon className="size-4" />
+            )}
+            {terminal.outputRoute === "speakerphone"
+              ? t(`${K}.speakerphone`)
+              : t(`${K}.handset`)}
           </Button>
           <Button
             type="button"

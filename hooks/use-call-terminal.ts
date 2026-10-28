@@ -1,7 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 
+import {
+  RING_BEEPS_MS,
+  RING_BEEP_MS,
+  RING_CYCLE_MS,
+  RING_GAIN,
+  RING_RAMP_S,
+  RING_VIBRATE_MS,
+} from "@/lib/ring";
+import { useTranslation } from "react-i18next";
+
+import { displayName } from "@/lib/phone";
 import type {
   CallActionResponse,
   CallLogResponse,
@@ -59,7 +71,21 @@ import type {
 const SAME_ORIGIN = "/callapi";
 const FALLBACK_BASE = (host: string) => `https://${host}:8443/api`;
 
+// One id for the incoming-call toast so a modem state change can dismiss it.
+const INCOMING_TOAST_ID = "x16-incoming-call";
+
 export type LinkPhase = "idle" | "connecting" | "live" | "failed";
+export type OutputRoute = "handset" | "speakerphone";
+
+type AudioRouteMediaElement = HTMLAudioElement & {
+  setSinkId?: (sinkId: string) => Promise<void>;
+};
+type AudioRouteMediaDevices = MediaDevices & {
+  selectAudioOutput?: () => Promise<MediaDeviceInfo>;
+};
+type AudioSessionNavigator = Navigator & {
+  audioSession?: { type: string };
+};
 
 export interface CallTerminal {
   state: CallTerminalState | null;
@@ -79,6 +105,10 @@ export interface CallTerminal {
   /** False when there is no microphone to mute (listen-only origin or no mic). */
   canMute: boolean;
   toggleMute: () => void;
+  outputRoute: OutputRoute;
+  outputRouteSupported: boolean;
+  canRouteOutput: boolean;
+  switchOutputRoute: () => Promise<boolean>;
   calls: CallRecord[];
   callsTotal: number;
   reloadCalls: () => Promise<void>;
@@ -104,7 +134,13 @@ export interface CallTerminal {
 
 const IDLE_LEVELS = { up: 0, down: 0 };
 
-export function useCallTerminal(): CallTerminal {
+export interface UseCallTerminalOptions {
+  /** On the dedicated calls page, ask for mic access on entry and establish audio. */
+  autoConnect?: boolean;
+}
+
+export function useCallTerminal({ autoConnect = false }: UseCallTerminalOptions = {}): CallTerminal {
+  const { t } = useTranslation("common");
   const [state, setState] = useState<CallTerminalState | null>(null);
   const [available, setAvailable] = useState(false);
   const [speak, setSpeak] = useState(true);
@@ -116,6 +152,9 @@ export function useCallTerminal(): CallTerminal {
   const [levels, setLevels] = useState(IDLE_LEVELS);
   const [muted, setMuted] = useState(false);
   const [hasMic, setHasMic] = useState(false);
+  const [outputRoute, setOutputRoute] = useState<OutputRoute>("handset");
+  const [outputRouteSupported, setOutputRouteSupported] = useState(false);
+  const [outputReady, setOutputReady] = useState(false);
   const [calls, setCalls] = useState<CallRecord[]>([]);
   const [callsTotal, setCallsTotal] = useState(0);
   const [recordings, setRecordings] = useState<RecordingInfo[]>([]);
@@ -130,11 +169,16 @@ export function useCallTerminal(): CallTerminal {
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const micRef = useRef<MediaStream | null>(null);
   const micTrackRef = useRef<MediaStreamTrack | null>(null);
+  const sinkIdRef = useRef("");
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const acRef = useRef<AudioContext | null>(null);
   const upAnalyser = useRef<AnalyserNode | null>(null);
   const downAnalyser = useRef<AnalyserNode | null>(null);
   const meterTimer = useRef<number | null>(null);
+  const autoAttempted = useRef(false);
+  const previousLabel = useRef<string | null>(null);
+  const ringRef = useRef<{ stop: () => void } | null>(null);
+  const ringArmed = useRef(false);
 
   const postJson = useCallback(async <T,>(path: string, body?: unknown): Promise<T> => {
     const res = await fetch(`${baseRef.current}${path}`, {
@@ -154,6 +198,17 @@ export function useCallTerminal(): CallTerminal {
     let timer: number | undefined;
 
     setSpeak(window.isSecureContext);
+    const audio = document.createElement("audio") as AudioRouteMediaElement;
+    const mediaDevices = navigator.mediaDevices as AudioRouteMediaDevices | undefined;
+    // AudioSession can request the phone-call mode (play-and-record) but cannot
+    // select receiver vs loudspeaker. The toggle is enabled only when the
+    // browser exposes an actual output picker + sink assignment; otherwise it
+    // stays visible but explains that the OS/browser owns the route. On insecure
+    // LAN HTTP, navigator.mediaDevices itself may be undefined.
+    setOutputRouteSupported(
+      typeof audio.setSinkId === "function" &&
+        typeof mediaDevices?.selectAudioOutput === "function"
+    );
 
     const read = async () => {
       const candidates = [SAME_ORIGIN, FALLBACK_BASE(window.location.hostname)];
@@ -279,6 +334,54 @@ export function useCallTerminal(): CallTerminal {
     track.enabled = !track.enabled;
     setMuted(!track.enabled);
   }, []);
+
+  // `play-and-record` is the standardized web AudioSession mode for a voice call
+  // and lets the platform choose its call route (often the handset receiver on a
+  // phone). It is NOT a speakerphone switch. Only setSinkId + selectAudioOutput
+  // can select a distinct, permitted sink; where those are absent, the button is
+  // disabled with an explanation rather than pretending AudioSession.type can
+  // force a speaker route.
+  const switchOutputRoute = useCallback(async () => {
+    const nav = navigator as AudioSessionNavigator;
+    const audio = audioRef.current as AudioRouteMediaElement | null;
+    const mediaDevices = navigator.mediaDevices as AudioRouteMediaDevices | undefined;
+    if (!mediaDevices) {
+      return false;
+    }
+    const devices = mediaDevices;
+    const hasSinkPicker = Boolean(audio?.setSinkId && devices.selectAudioOutput);
+    if (!hasSinkPicker || !audio?.setSinkId || !devices.selectAudioOutput) {
+      return false;
+    }
+
+    try {
+      if (outputRoute === "speakerphone") {
+        await audio.setSinkId("");
+        sinkIdRef.current = "";
+        if (nav.audioSession) {
+          nav.audioSession.type = "play-and-record";
+        }
+        setOutputRoute("handset");
+        return true;
+      }
+
+      if (hasSinkPicker) {
+        // Must be called from the route button's user gesture. Browser/OS shows
+        // only output devices it actually exposes (the handset may not appear).
+        const output = await devices.selectAudioOutput();
+        await audio.setSinkId(output.deviceId);
+        sinkIdRef.current = output.deviceId;
+        if (nav.audioSession) {
+          nav.audioSession.type = "play-and-record";
+        }
+      }
+      setOutputRoute("speakerphone");
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      return false;
+    }
+  }, [outputRoute]);
 
   // -------------------------------------------------------------- shortcut --
   // "M" mutes. It is ignored while a text field has focus (the dialler's number
@@ -460,6 +563,13 @@ export function useCallTerminal(): CallTerminal {
       audioRef.current.srcObject = null;
       audioRef.current = null;
     }
+    sinkIdRef.current = "";
+    setOutputReady(false);
+    const audioNav = navigator as AudioSessionNavigator;
+    if (audioNav.audioSession) {
+      audioNav.audioSession.type = "auto";
+    }
+    setOutputRoute("handset");
     setPhase("idle");
     setIce("");
   }, [stopMeters]);
@@ -468,6 +578,11 @@ export function useCallTerminal(): CallTerminal {
     setError(null);
     setMicError(null);
     setPhase("connecting");
+
+    const audioNav = navigator as AudioSessionNavigator;
+    if (audioNav.audioSession) {
+      audioNav.audioSession.type = "play-and-record";
+    }
 
     // Microphone only where the browser will give one; otherwise the peer is
     // still opened, receive-only, so the call can be listened to.
@@ -510,10 +625,17 @@ export function useCallTerminal(): CallTerminal {
 
       pc.ontrack = (event) => {
         const stream = event.streams[0] ?? new MediaStream([event.track]);
-        const audio = new Audio();
+        const audio = new Audio() as AudioRouteMediaElement;
         audio.autoplay = true;
         audio.srcObject = stream;
         audioRef.current = audio;
+        setOutputReady(true);
+        if (sinkIdRef.current && audio.setSinkId) {
+          void audio.setSinkId(sinkIdRef.current).catch(() => {
+            sinkIdRef.current = "";
+            setOutputRoute("handset");
+          });
+        }
         void audio.play().catch(() => {
           // Autoplay refusal shows up as a silent downlink meter.
         });
@@ -542,6 +664,129 @@ export function useCallTerminal(): CallTerminal {
       disconnect();
     }
   }, [disconnect, postJson, startMeters]);
+
+  // The standalone calls page opens the mic prompt on entry when this is a
+  // secure origin. The browser remembers an accepted/rejected permission per
+  // origin; we do not persist a second, misleading copy in localStorage. On the
+  // plain-HTTP QManager port the same auto-open creates a receive-only peer.
+  useEffect(() => {
+    if (!autoConnect || !available || autoAttempted.current || phase !== "idle") {
+      return;
+    }
+    autoAttempted.current = true;
+    void connect();
+  }, [autoConnect, available, connect, phase]);
+
+  // ------------------------------------------------------------------- ring --
+  // An incoming call has to be audible before it is readable. The cadence is
+  // generated, not a bundled mp3: one oscillator through a gain envelope costs
+  // nothing on a phone and cannot 404. Browsers block audio until a gesture, so
+  // a page opened but never touched stays silent — `ringArmed` retries on the
+  // first pointer/key event instead of pretending it rang.
+  const stopRing = useCallback(() => {
+    ringRef.current?.stop();
+    ringRef.current = null;
+    navigator.vibrate?.(0);
+  }, []);
+
+  const startRing = useCallback(() => {
+    if (ringRef.current) {
+      return;
+    }
+    let ctx: AudioContext | null = null;
+    let timer: number | undefined;
+    let closed = false;
+    const beep = (at: number) => {
+      if (!ctx) {
+        return;
+      }
+      const hold = RING_BEEP_MS / 1000 - RING_RAMP_S;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = 440;
+      gain.gain.setValueAtTime(0, at);
+      gain.gain.linearRampToValueAtTime(RING_GAIN, at + RING_RAMP_S);
+      gain.gain.setValueAtTime(RING_GAIN, at + hold);
+      gain.gain.linearRampToValueAtTime(0, at + hold + RING_RAMP_S);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(at);
+      osc.stop(at + RING_BEEP_MS / 1000 + RING_RAMP_S);
+    };
+    const cycle = () => {
+      if (closed || !ctx) {
+        return;
+      }
+      const now = ctx.currentTime + 0.02;
+      for (const offset of RING_BEEPS_MS) {
+        beep(now + offset / 1000);
+      }
+      navigator.vibrate?.(RING_VIBRATE_MS as number[]);
+    };
+    const begin = () => {
+      if (closed) {
+        return;
+      }
+      // Reuse the meters' context when the link is already live: that one was
+      // created after a user gesture and is therefore allowed to make sound. A
+      // fresh context on a page nobody has touched is suspended by autoplay
+      // policy, so it is armed and retried on the first interaction rather than
+      // assumed audible.
+      if (!ctx) {
+        const shared = acRef.current;
+        ctx = shared && shared.state === "running" ? shared : new AudioContext();
+      }
+      if (ctx.state === "suspended") {
+        // Autoplay policy: no gesture has happened yet. Ask, and try again on
+        // the first interaction rather than ringing silently forever.
+        void ctx.resume();
+        ringArmed.current = true;
+        return;
+      }
+      ringArmed.current = false;
+      cycle();
+      timer = window.setInterval(cycle, RING_CYCLE_MS);
+    };
+    ringRef.current = {
+      stop: () => {
+        closed = true;
+        if (timer !== undefined) {
+          window.clearInterval(timer);
+        }
+        if (ctx && ctx !== acRef.current) {
+          void ctx.close();
+        }
+        ctx = null;
+      },
+    };
+    begin();
+  }, []);
+
+  useEffect(() => {
+    if (state?.call_label === "incoming") {
+      startRing();
+    } else {
+      stopRing();
+    }
+    return stopRing;
+  }, [state?.call_label, startRing, stopRing]);
+
+  useEffect(() => {
+    if (!ringArmed.current) {
+      return;
+    }
+    const arm = () => {
+      if (state?.call_label === "incoming" && !ringRef.current) {
+        startRing();
+      }
+    };
+    window.addEventListener("pointerdown", arm, { once: true });
+    window.addEventListener("keydown", arm, { once: true });
+    return () => {
+      window.removeEventListener("pointerdown", arm);
+      window.removeEventListener("keydown", arm);
+    };
+  }, [state?.call_label, startRing]);
 
   // -------------------------------------------------------------------- call --
   const dial = useCallback(
@@ -578,6 +823,70 @@ export function useCallTerminal(): CallTerminal {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }
   }, [postJson]);
+
+  // Animated Sonner toasts announce only actual modem state transitions. Initial
+  // page load is quiet; repeated 1s polls of the same state do not duplicate them.
+  useEffect(() => {
+    const next = state?.call_label;
+    if (next === undefined) {
+      return;
+    }
+    const prev = previousLabel.current;
+    previousLabel.current = next;
+    if (prev === null || prev === next) {
+      return;
+    }
+    const who = displayName(contacts, state?.call_number ?? state?.number ?? "");
+    switch (next) {
+      case "ringing":
+        toast.info(t("calls.toast.ringing_title"), {
+          description: t("calls.toast.ringing_body", { who }),
+        });
+        break;
+      case "incoming":
+        // The toast IS the answer screen for a call nobody is looking at. It
+        // persists while the modem rings (`duration: Infinity`) and carries the
+        // two decisions, so answering never requires finding the Calls card
+        // first. A fixed id lets the state change dismiss it below.
+        toast.info(t("calls.toast.incoming_title"), {
+          id: INCOMING_TOAST_ID,
+          description: t("calls.toast.incoming_body", { who }),
+          duration: Infinity,
+          action: {
+            label: t("calls.toast.answer"),
+            onClick: () => void answer(),
+          },
+          cancel: {
+            label: t("calls.toast.reject"),
+            onClick: () => void reject(),
+          },
+        });
+        break;
+      case "active":
+        toast.dismiss(INCOMING_TOAST_ID);
+        toast.success(t("calls.toast.active_title"), {
+          description: t("calls.toast.active_body", { who }),
+        });
+        break;
+      case "ended":
+        toast.dismiss(INCOMING_TOAST_ID);
+        toast.info(t("calls.toast.ended_title"), {
+          description: t("calls.toast.ended_body", {
+            who,
+            outcome: t(`calls.history.outcome.${state?.last_outcome ?? "failed"}`),
+          }),
+        });
+        break;
+      case "idle":
+        toast.dismiss(INCOMING_TOAST_ID);
+        if (prev === "ended") {
+          toast.info(t("calls.toast.idle_title"), {
+            description: t("calls.toast.idle_body"),
+          });
+        }
+        break;
+    }
+  }, [contacts, state, t, answer, reject]);
 
   const sendDtmf = useCallback(
     async (digit: string) => {
@@ -625,6 +934,10 @@ export function useCallTerminal(): CallTerminal {
     muted,
     canMute: phase === "live" && hasMic,
     toggleMute,
+    outputRoute,
+    outputRouteSupported,
+    canRouteOutput: outputRouteSupported && outputReady && phase === "live",
+    switchOutputRoute,
     calls,
     callsTotal,
     reloadCalls,

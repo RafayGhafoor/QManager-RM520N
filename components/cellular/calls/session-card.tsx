@@ -5,7 +5,9 @@ import { CableIcon, CircleSlashIcon, TriangleAlertIcon } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import MaskedText from "@/components/masked-text";
 import type { CallTerminal } from "@/hooks/use-call-terminal";
+import { useReveal } from "@/hooks/use-reveal";
 import { cn } from "@/lib/utils";
 
 import {
@@ -60,6 +62,7 @@ const seconds = (bytes: number): string => (bytes / 16000).toFixed(1);
 
 const SessionCard = ({ terminal }: SessionCardProps) => {
   const { t } = useTranslation("common");
+  const { revealed } = useReveal();
   const state = terminal.state;
 
   if (!state) {
@@ -92,7 +95,9 @@ const SessionCard = ({ terminal }: SessionCardProps) => {
     },
     {
       key: t(`${K}.session.number`),
-      value: state.number === "" ? "—" : state.number,
+      // A live call number is the most sensitive line on the page, so it follows
+      // the same eye as the call log rather than always being legible.
+      value: <MaskedText value={state.number} number revealed={revealed} />,
       mono: true,
     },
     {
@@ -100,6 +105,11 @@ const SessionCard = ({ terminal }: SessionCardProps) => {
       value: state.tap
         ? `${t(`${K}.session.tap_open`)} · ${Math.round(state.tap_age_s)}s`
         : t(`${K}.session.tap_closed`),
+      mono: false,
+    },
+    {
+      key: t(`${K}.session.joined_devices`),
+      value: String(state.peers ?? 0),
       mono: false,
     },
     {
@@ -139,6 +149,18 @@ const SessionCard = ({ terminal }: SessionCardProps) => {
       </CardHeader>
 
       <CardContent className="flex flex-col gap-4 px-0">
+        {state.at_quarantined ? (
+          <div className="flex items-start gap-2.5 rounded-field bg-destructive-container px-4 py-3 text-on-destructive-container">
+            <TriangleAlertIcon className="mt-0.5 size-4 flex-none" aria-hidden="true" />
+            <div className="flex flex-col gap-1">
+              <p className="text-[0.8125rem] font-semibold">{t(`${K}.session.at_quarantined_title`)}</p>
+              <p className="text-[0.8125rem] leading-relaxed text-pretty">
+              {state.at_note || t(`${K}.toast.at_paused_body`)}
+            </p>
+            </div>
+          </div>
+        ) : null}
+
         {state.tap_note ? (
           <div className="flex items-start gap-2.5 rounded-field bg-warning-container px-4 py-3 text-on-warning-container">
             <TriangleAlertIcon className="mt-0.5 size-4 flex-none" aria-hidden="true" />

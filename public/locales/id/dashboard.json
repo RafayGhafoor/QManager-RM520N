@@ -452,7 +452,8 @@
       "ringing": "Berdering",
       "incoming": "Masuk",
       "waiting": "Menunggu",
-      "ended": "Berakhir"
+      "ended": "Berakhir",
+      "unknown": "Modem tidak merespons"
     },
     "audio": {
       "connect": "Sambungkan audio",
@@ -484,6 +485,10 @@
     "mute_connect_first": "Sambungkan audio dahulu — bisu berlaku pada mikrofon",
     "open": "Buka penekan nada",
     "backspace": "Hapus digit terakhir",
-    "keys_hint": "Ketik angka · Enter untuk memanggil · M membisukan · Esc menutup"
+    "keys_hint": "Ketik angka · Enter untuk memanggil · M membisukan · Esc menutup",
+    "handset": "Handset",
+    "speakerphone": "Pengeras suara",
+    "route_hint": "Minta rute handset/pengeras suara. OS mungkin mengaturnya otomatis.",
+    "route_unavailable": "Peramban ini tidak menyediakan pilihan rute handset/pengeras suara."
   }
 }

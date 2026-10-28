@@ -140,6 +140,7 @@ export const CHIP_GLYPH = "size-3";
  * so they are the one warning. State 0 is the only success.
  */
 export const CALL_BADGE: Record<CallStateCode, BadgeVariant> = {
+  unknown: "warning",
   "": "muted",
   "0": "success",
   "1": "info",
@@ -151,6 +152,7 @@ export const CALL_BADGE: Record<CallStateCode, BadgeVariant> = {
 
 export const CALL_GLYPH: Record<CallStateCode, LucideIcon> = {
   "": CircleSlashIcon,
+  unknown: TriangleAlertIcon,
   "0": PhoneCallIcon,
   "1": PhoneCallIcon,
   "2": PhoneCallIcon,
@@ -196,19 +198,34 @@ export const RECORDING_ROW = {
 /** The history table reuses the system's hairline-row density. */
 export const TABLE = { ROOT: "w-full border-collapse text-left" } as const;
 
+/**
+ * The call-log table.
+ *
+ * Alignment rules, because the previous version drifted:
+ *   - every column owns a FIXED width and every cell in it repeats it, so the
+ *     header and the body cannot disagree about where a column ends;
+ *   - the who column starts with a direction glyph, so its header carries the
+ *     same inset (`pl-6` = 1rem glyph + 0.5rem gap) instead of sitting 24px left
+ *     of the names it labels;
+ *   - numbers and durations are right-aligned, chips are left-aligned, and the
+ *     redial column is a fixed 3.5rem that exactly fits the icon button.
+ */
 export const HISTORY = {
-  TABLE: "w-full border-collapse text-left",
-  HEAD: "text-on-surface-variant pb-2 text-[0.6875rem] font-semibold uppercase tracking-[0.06em]",
+  TABLE: "w-full table-fixed border-collapse text-left",
+  HEAD: "text-on-surface-variant pb-2 text-[0.6875rem] font-semibold uppercase tracking-[0.06em] align-bottom",
   ROW: "border-t border-border",
   CELL: "py-2.5 align-middle text-[0.8125rem]",
   NAME: "block truncate font-semibold",
   SUB: "text-on-surface-variant block truncate font-mono text-[0.6875rem] tabular-nums",
   NUM: "whitespace-nowrap text-[0.8125rem] font-semibold tabular-nums",
   COLS: {
-    TIME: "w-[8.5rem] whitespace-nowrap",
+    /** 1.5rem for the direction glyph + its gap, so the header lines up. */
+    WHO_INSET: "pl-6",
+    TIME: "w-[9rem] whitespace-nowrap",
     DIR: "w-[6.5rem] whitespace-nowrap",
-    LEN: "w-[5rem] whitespace-nowrap text-right",
-    OUT: "w-[7.5rem] whitespace-nowrap",
+    LEN: "w-[5.5rem] whitespace-nowrap text-right",
+    OUT: "w-[8.5rem] whitespace-nowrap",
+    ACT: "w-[3.5rem] whitespace-nowrap text-right",
   },
 } as const;
 

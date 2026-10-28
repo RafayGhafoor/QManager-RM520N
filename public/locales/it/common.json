@@ -1782,7 +1782,11 @@
       "unmute": "Attiva audio",
       "mute_unavailable": "Nessun microfono su questa connessione",
       "mute_hint": "Silenzia il microfono (M)",
-      "mute_connect_first": "Collega prima l'audio: il muto agisce sul microfono"
+      "mute_connect_first": "Collega prima l'audio: il muto agisce sul microfono",
+      "handset": "Ricevitore",
+      "speakerphone": "Vivavoce",
+      "route_hint": "Richiedi il percorso ricevitore/vivavoce. Il sistema potrebbe gestirlo automaticamente.",
+      "route_unavailable": "Questo browser non espone un percorso ricevitore/vivavoce separato."
     },
     "call_state": {
       "idle": "Nessuna chiamata",
@@ -1792,7 +1796,8 @@
       "ringing": "Squillo",
       "incoming": "In arrivo",
       "waiting": "Attesa",
-      "ended": "Terminata"
+      "ended": "Terminata",
+      "unknown": "Modem non risponde"
     },
     "session": {
       "title": "Percorso audio del dispositivo",
@@ -1808,7 +1813,9 @@
       "downlink": "Frame downlink",
       "uplink": "Frame uplink",
       "last_at": "Ultima risposta del modem",
-      "footnote": "Il tap si apre quando la chiamata riceve risposta e si chiude alla fine. Un conteggio di riavvii che cresce durante una chiamata significa audio a singhiozzo."
+      "footnote": "Il tap si apre quando la chiamata riceve risposta e si chiude alla fine. Un conteggio di riavvii che cresce durante una chiamata significa audio a singhiozzo.",
+      "joined_devices": "Dispositivi collegati",
+      "at_quarantined_title": "Canale dei comandi del modem bloccato"
     },
     "history": {
       "title": "Cronologia chiamate",
@@ -1826,7 +1833,9 @@
       },
       "empty_title": "Nessuna chiamata",
       "empty_body": "La prima chiamata — fatta da qui o ricevuta — compare qui quando termina.",
-      "footnote": "La durata parte dal momento in cui l'interlocutore risponde: una chiamata senza risposta mostra un —."
+      "footnote": "La durata parte dal momento in cui l'interlocutore risponde: una chiamata senza risposta mostra un —.",
+      "redial": "Richiama {{who}}",
+      "col_redial": "Richiama"
     },
     "recordings": {
       "title": "Registrazioni",
@@ -1841,7 +1850,8 @@
       "outgoing": "in uscita",
       "empty_title": "Nessuna registrazione",
       "empty_body": "Le chiamate risposte vengono salvate qui mentre la registrazione è attiva. Il dispositivo conserva le più recenti.",
-      "footnote": "I file stanno sul dispositivo: chiudere la scheda non perde nulla. La registrazione è un'impostazione del dispositivo."
+      "footnote": "I file stanno sul dispositivo: chiudere la scheda non perde nulla. La registrazione è un'impostazione del dispositivo.",
+      "play": "Riproduci registrazione con {{who}}"
     },
     "contacts": {
       "title": "Contatti",
@@ -1860,6 +1870,30 @@
       "empty_title": "Nessun contatto",
       "empty_body": "Importa un .vcf o aggiungi un numero qui sopra. I contatti si confrontano sulle ultime nove cifre, quindi formato locale e internazionale sono la stessa persona.",
       "footnote": "La rubrica è sul dispositivo, quindi è identica in ogni browser."
+    },
+    "toast": {
+      "ringing_title": "Squilla",
+      "ringing_body": "Chiamata a {{who}}.",
+      "incoming_title": "Chiamata in arrivo",
+      "incoming_body": "{{who}} sta chiamando.",
+      "active_title": "Chiamata connessa",
+      "active_body": "Stai parlando con {{who}}.",
+      "ended_title": "Chiamata terminata",
+      "ended_body": "{{who}} · {{outcome}}.",
+      "idle_title": "Nessuna chiamata in corso",
+      "idle_body": "La linea è libera.",
+      "answer": "Rispondi",
+      "reject": "Rifiuta",
+      "at_paused_title": "Broker AT in pausa",
+      "at_paused_body": "Il polling è fermo, quindi questo stato potrebbe essere obsoleto. La chiusura arriva comunque al modem; il bridge riprova ogni 15 s e riprende da solo."
+    },
+    "joined_devices": "{{count}} dispositivi collegati",
+    "incoming": "Chiamata in arrivo",
+    "answer": "Rispondi",
+    "reject": "Rifiuta",
+    "reveal": {
+      "show": "Mostra numeri",
+      "hide": "Nascondi numeri"
     }
   }
 }

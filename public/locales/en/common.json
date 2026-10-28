@@ -1782,7 +1782,11 @@
       "unmute": "Unmute",
       "mute_unavailable": "No microphone on this connection",
       "mute_hint": "Mute the microphone (M)",
-      "mute_connect_first": "Connect audio first — mute applies to the microphone"
+      "mute_connect_first": "Connect audio first — mute applies to the microphone",
+      "handset": "Handset",
+      "speakerphone": "Speakerphone",
+      "route_hint": "Request the phone's handset/speaker route. The OS may control this automatically.",
+      "route_unavailable": "This browser does not expose a separate handset/speaker route."
     },
     "call_state": {
       "idle": "No call",
@@ -1792,7 +1796,8 @@
       "ringing": "Ringing",
       "incoming": "Incoming",
       "waiting": "Waiting",
-      "ended": "Ended"
+      "ended": "Ended",
+      "unknown": "Modem not answering"
     },
     "session": {
       "title": "Device audio path",
@@ -1808,7 +1813,9 @@
       "downlink": "Downlink frames",
       "uplink": "Uplink frames",
       "last_at": "Last modem response",
-      "footnote": "The tap opens when a call is answered and closes when it ends. A restart count that climbs during one call means the audio is gapping."
+      "footnote": "The tap opens when a call is answered and closes when it ends. A restart count that climbs during one call means the audio is gapping.",
+      "joined_devices": "Joined devices",
+      "at_quarantined_title": "Modem command channel is stalled"
     },
     "history": {
       "title": "Call history",
@@ -1826,7 +1833,9 @@
       },
       "empty_title": "No calls yet",
       "empty_body": "The first call — placed here or received — appears here when it ends.",
-      "footnote": "Talk time counts from the moment the far end answered, so a call that rang out shows a length of —."
+      "footnote": "Talk time counts from the moment the far end answered, so a call that rang out shows a length of —.",
+      "redial": "Call {{who}} again",
+      "col_redial": "Call again"
     },
     "recordings": {
       "title": "Recordings",
@@ -1841,7 +1850,8 @@
       "outgoing": "outgoing",
       "empty_title": "No recordings",
       "empty_body": "Answered calls are saved here while recording is on. The device keeps the newest ones and drops the rest.",
-      "footnote": "Files live on the device, so a closed tab loses nothing. Recording is a device setting, not a browser one."
+      "footnote": "Files live on the device, so a closed tab loses nothing. Recording is a device setting, not a browser one.",
+      "play": "Play recording with {{who}}"
     },
     "contacts": {
       "title": "Contacts",
@@ -1860,6 +1870,30 @@
       "empty_title": "No contacts",
       "empty_body": "Import a .vcf or add a number above. Contacts are matched on the last nine digits, so a local format and an international one are the same person.",
       "footnote": "The book is stored on the device, so it is the same on every browser."
+    },
+    "toast": {
+      "ringing_title": "Ringing",
+      "ringing_body": "Calling {{who}}.",
+      "incoming_title": "Incoming call",
+      "incoming_body": "{{who}} is calling.",
+      "active_title": "Call connected",
+      "active_body": "You're talking to {{who}}.",
+      "ended_title": "Call ended",
+      "ended_body": "{{who}} · {{outcome}}.",
+      "idle_title": "No call in progress",
+      "idle_body": "The line is free.",
+      "answer": "Answer",
+      "reject": "Reject",
+      "at_paused_title": "AT broker paused",
+      "at_paused_body": "Polling stopped, so this call state may be stale. Hang up still reaches the modem; the bridge probes every 15s and resumes on its own."
+    },
+    "joined_devices": "{{count}} devices connected",
+    "incoming": "Incoming call",
+    "answer": "Answer",
+    "reject": "Reject",
+    "reveal": {
+      "show": "Show numbers",
+      "hide": "Hide numbers"
     }
   }
 }

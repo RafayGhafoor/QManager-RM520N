@@ -452,7 +452,8 @@
       "ringing": "Squillo",
       "incoming": "In arrivo",
       "waiting": "Attesa",
-      "ended": "Terminata"
+      "ended": "Terminata",
+      "unknown": "Modem non risponde"
     },
     "audio": {
       "connect": "Collega audio",
@@ -484,6 +485,10 @@
     "mute_connect_first": "Collega prima l'audio: il muto agisce sul microfono",
     "open": "Apri il compositore",
     "backspace": "Cancella l'ultima cifra",
-    "keys_hint": "Digita le cifre · Invio per chiamare · M muto · Esc chiude"
+    "keys_hint": "Digita le cifre · Invio per chiamare · M muto · Esc chiude",
+    "handset": "Ricevitore",
+    "speakerphone": "Vivavoce",
+    "route_hint": "Richiedi il percorso ricevitore/vivavoce. Il sistema potrebbe gestirlo automaticamente.",
+    "route_unavailable": "Questo browser non espone un percorso ricevitore/vivavoce separato."
   }
 }

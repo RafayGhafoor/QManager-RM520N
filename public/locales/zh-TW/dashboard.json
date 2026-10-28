@@ -452,7 +452,8 @@
       "ringing": "響鈴",
       "incoming": "來電",
       "waiting": "等待",
-      "ended": "已結束"
+      "ended": "已結束",
+      "unknown": "模組無回應"
     },
     "audio": {
       "connect": "連接音訊",
@@ -484,6 +485,10 @@
     "mute_connect_first": "請先連接音訊——靜音作用於麥克風",
     "open": "開啟撥號盤",
     "backspace": "刪除最後一位",
-    "keys_hint": "直接輸入數字 · Enter 撥號 · M 靜音 · Esc 關閉"
+    "keys_hint": "直接輸入數字 · Enter 撥號 · M 靜音 · Esc 關閉",
+    "handset": "聽筒",
+    "speakerphone": "擴音器",
+    "route_hint": "要求切換聽筒/擴音器路由。系統可能會自動管理此設定。",
+    "route_unavailable": "此瀏覽器未提供單獨的聽筒/擴音器路由。"
   }
 }

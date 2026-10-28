@@ -15,7 +15,10 @@
 // =============================================================================
 
 /** Modem call state from AT+CLCC, `""` when there is no call. */
-export type CallStateCode = "" | "0" | "1" | "2" | "3" | "4" | "5";
+// "unknown" is the bridge's own answer when the AT broker stops replying: the
+// modem's state is not idle, and pretending it is "active" is what left a
+// finished call on screen with a hang-up button that could not work.
+export type CallStateCode = "" | "0" | "1" | "2" | "3" | "4" | "5" | "unknown";
 
 export interface CallTerminalState {
   call: CallStateCode;
@@ -41,6 +44,11 @@ export interface CallTerminalState {
   /** Unix seconds of the last call end, for the "ended" state. */
   call_ended_at: number;
   last_outcome: string;
+  /** Number of browser devices joined to the current media bridge (max four). */
+  peers: number;
+  /** The bridge stopped issuing AT after a modem request timed out. */
+  at_quarantined: boolean;
+  at_note: string;
   /** True while a recording is being written. */
   recording: boolean;
   /** Whether recording is enabled at all. */

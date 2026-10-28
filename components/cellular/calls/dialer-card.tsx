@@ -8,7 +8,9 @@ import {
   MicIcon,
   MicOffIcon,
   PhoneCallIcon,
+  PhoneIcon,
   PhoneOffIcon,
+  Volume2Icon,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -182,6 +184,28 @@ const DialerCard = ({ terminal }: DialerCardProps) => {
             >
               <PhoneOffIcon className="size-4" />
               {t(`${K}.dialer.hangup`)}
+            </Button>
+            <Button
+              type="button"
+              variant={terminal.outputRoute === "speakerphone" ? "tonal" : "tonal-neutral"}
+              size="action"
+              onClick={() => void terminal.switchOutputRoute()}
+              disabled={!terminal.canRouteOutput}
+              title={
+                terminal.outputRouteSupported
+                  ? t(`${K}.dialer.route_hint`)
+                  : t(`${K}.dialer.route_unavailable`)
+              }
+              aria-pressed={terminal.outputRoute === "speakerphone"}
+            >
+              {terminal.outputRoute === "speakerphone" ? (
+                <Volume2Icon className="size-4" />
+              ) : (
+                <PhoneIcon className="size-4" />
+              )}
+              {terminal.outputRoute === "speakerphone"
+                ? t(`${K}.dialer.speakerphone`)
+                : t(`${K}.dialer.handset`)}
             </Button>
             {/* Mute lives with Call and Hang up because that is where a hand goes
                 mid-sentence, and it is ALWAYS in the row — disabled with the

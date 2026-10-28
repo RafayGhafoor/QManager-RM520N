@@ -134,6 +134,13 @@ const RecordingsCard = ({ terminal }: RecordingsCardProps) => {
                     <DownloadIcon className="size-4" />
                   </Button>
                 </a>
+                <audio
+                  controls
+                  preload="none"
+                  className="h-9 w-36"
+                  src={`${terminal.apiBase}/recordings/${encodeURIComponent(r.name)}`}
+                  aria-label={t(`${K}.recordings.play`, { who: r.label })}
+                />
                 <Button
                   type="button"
                   variant="tonal-destructive"

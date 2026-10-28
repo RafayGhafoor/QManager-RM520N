@@ -452,7 +452,8 @@
       "ringing": "振铃",
       "incoming": "呼入",
       "waiting": "等待",
-      "ended": "已结束"
+      "ended": "已结束",
+      "unknown": "模组无响应"
     },
     "audio": {
       "connect": "连接音频",
@@ -484,6 +485,10 @@
     "mute_connect_first": "请先连接音频——静音作用于麦克风",
     "open": "打开拨号盘",
     "backspace": "删除最后一位",
-    "keys_hint": "直接输入数字 · Enter 拨号 · M 静音 · Esc 关闭"
+    "keys_hint": "直接输入数字 · Enter 拨号 · M 静音 · Esc 关闭",
+    "handset": "听筒",
+    "speakerphone": "扬声器",
+    "route_hint": "请求切换听筒/扬声器路由。系统可能会自动管理此设置。",
+    "route_unavailable": "此浏览器未提供单独的听筒/扬声器路由。"
   }
 }

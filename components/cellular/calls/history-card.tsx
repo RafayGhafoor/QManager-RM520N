@@ -8,6 +8,7 @@ import {
   CheckCircle2Icon,
   ClockIcon,
   PhoneMissedIcon,
+  PhoneIcon,
   Trash2Icon,
   TriangleAlertIcon,
 } from "lucide-react";
@@ -15,7 +16,9 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import MaskedText from "@/components/masked-text";
 import type { CallTerminal } from "@/hooks/use-call-terminal";
+import { useReveal } from "@/hooks/use-reveal";
 import { displayName } from "@/lib/phone";
 import { cn } from "@/lib/utils";
 
@@ -75,16 +78,23 @@ const OUTCOME_GLYPH = {
 
 const HistoryCard = ({ terminal }: HistoryCardProps) => {
   const { t } = useTranslation("common");
+  const { revealed } = useReveal();
   const { calls, contacts } = terminal;
 
   const rows = useMemo(
     () =>
-      calls.map((c) => ({
-        ...c,
-        label: displayName(contacts, c.number),
-        when: clock(c.started_at),
-        length: c.seconds > 0 ? mmss(c.seconds) : "—",
-      })),
+      calls.map((c) => {
+        const label = displayName(contacts, c.number);
+        return {
+          ...c,
+          label,
+          // A resolved contact shows a NAME, so the name is what gets masked; an
+          // unknown caller has no name and shows a masked number instead.
+          labelIsNumber: label === c.number,
+          when: clock(c.started_at),
+          length: c.seconds > 0 ? mmss(c.seconds) : "—",
+        };
+      }),
     [calls, contacts]
   );
 
@@ -121,7 +131,9 @@ const HistoryCard = ({ terminal }: HistoryCardProps) => {
             <table className={HISTORY.TABLE}>
               <thead>
                 <tr>
-                  <th className={HISTORY.HEAD}>{t(`${K}.history.col_who`)}</th>
+                  <th className={cn(HISTORY.HEAD, HISTORY.COLS.WHO_INSET)}>
+                    {t(`${K}.history.col_who`)}
+                  </th>
                   <th className={cn(HISTORY.HEAD, HISTORY.COLS.TIME)}>
                     {t(`${K}.history.col_when`)}
                   </th>
@@ -130,6 +142,9 @@ const HistoryCard = ({ terminal }: HistoryCardProps) => {
                   </th>
                   <th className={cn(HISTORY.HEAD, HISTORY.COLS.OUT)}>
                     {t(`${K}.history.col_outcome`)}
+                  </th>
+                  <th className={cn(HISTORY.HEAD, HISTORY.COLS.ACT)}>
+                    <span className="sr-only">{t(`${K}.history.col_redial`)}</span>
                   </th>
                 </tr>
               </thead>
@@ -152,9 +167,19 @@ const HistoryCard = ({ terminal }: HistoryCardProps) => {
                             aria-hidden="true"
                           />
                           <span className="min-w-0">
-                            <span className={HISTORY.NAME}>{r.label}</span>
-                            {r.label !== r.number && r.number !== "" ? (
-                              <span className={HISTORY.SUB}>{r.number}</span>
+                            <MaskedText
+                              className={HISTORY.NAME}
+                              value={r.label}
+                              number={r.labelIsNumber}
+                              revealed={revealed}
+                            />
+                            {!r.labelIsNumber && r.number !== "" ? (
+                              <MaskedText
+                                className={HISTORY.SUB}
+                                value={r.number}
+                                number
+                                revealed={revealed}
+                              />
                             ) : null}
                           </span>
                         </span>
@@ -166,6 +191,19 @@ const HistoryCard = ({ terminal }: HistoryCardProps) => {
                           {Glyph ? <Glyph className={CHIP_GLYPH} aria-hidden="true" /> : null}
                           {t(`${K}.history.outcome.${r.outcome}`)}
                         </Badge>
+                      </td>
+                      <td className={cn(HISTORY.CELL, HISTORY.COLS.ACT)}>
+                        <Button
+                          type="button"
+                          variant="tonal-neutral"
+                          size="icon-sm"
+                          aria-label={t(`${K}.history.redial`, { who: r.label })}
+                          title={t(`${K}.history.redial`, { who: r.label })}
+                          disabled={!r.number || terminal.state?.call !== ""}
+                          onClick={() => void terminal.dial(r.number)}
+                        >
+                          <PhoneIcon className="size-4" aria-hidden="true" />
+                        </Button>
                       </td>
                     </tr>
                   );
