@@ -957,3 +957,39 @@ Information page had been right.
 - `/usrdata/qmanager/www` — rebuilt frontend: RSRQ is the third member of the
   homepage splash's band-metric toggle (`overview.metrics.rsrq` already existed in
   all five locales).
+
+## 2026-11-05 (later) — RSSI on both legs, and the 5G SNR that was never filled
+
+**Why:** the owner compared QManager against the vendor UI: *"we have both RSSI for
+5G and 4G, but on qmanager we don't have that, add its support on dashboard and
+cellular"*, and *"on /cellular/, 5G SNR is not shown"*.
+
+**Measured:** on this firmware the NR SCC line is PCI-only even with the extended
+toggle on (`+QCAINFO: "SCC",509070,7,"NR5G BAND 41",776`), so an NR carrier built
+from QCAINFO alone has RSRP/RSRQ/SNR/RSSI all null. QENG's NR block agrees with
+PHY/QMI and modemd on RSRP/RSRQ/SINR (17/17/17 on one poll) — so for NR the QENG
+SINR *is* trustworthy, unlike LTE's field 17. **NR RSSI has no AT source at all**;
+modemd's `NR_rssi` is the vendor stack's own source.
+
+**Deployed:**
+- `lib/phy_metrics.sh` — new `qm_phy_nr_rssi` (one `ubus call modemd status`,
+  value taken by walking the reply line by line; jq only as a fallback).
+- `bin/qmanager_poller` — `nr_rssi_read()` once per cycle **only when an NR leg is
+  present**, plus `nr.rssi` in the status cache; also called from the boot-data
+  snapshot so the first cycle is not null.
+- `lib/parse_at.sh` — `parse_ca_info` fills the serving NR carrier's `sinr`
+  (QENG) and `rssi` (modemd), matched on ARFCN.
+- `www` — 5G card RSSI row, RSSI for NR carriers on /cellular (the
+  `filter(m => m.id !== "rssi")` that an earlier request added is gone), `NrStatus.rssi`.
+
+**Performance (measured, this unit):** the first cut stripped the field with
+`${out##*pattern}` on the whole 2.2 KB reply — **80 ms per call, ~2 % of one
+core**, because busybox ash's leading-`*` longest match is O(n²). The shipped
+line-by-line walk is **10.5 ms per call (~0.26 % of one core at the ~4 s cycle)**.
+`qm_phy_modemd` was rejected for this path at 103 ms.
+
+**Deploy trap hit:** shipping `qmanager_poller` *after* `qm_pathfix.sh` left it
+pointing at `/usr/lib/qmanager/parse_at.sh`; the unit exited 1 with no log line,
+and after three restarts systemd's start-rate limiter refused further starts
+(`systemctl reset-failed` + start was the recovery). Order is: ship → pathfix →
+restart.

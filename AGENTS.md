@@ -8,7 +8,7 @@ Scope: this branch is **deployment-only**. The application code (`app/`,
 `components/`, `lib/`, `types/`, `hooks/`) tracks upstream QManager and should
 not be modified here — the product-specific work lives in `deploy/`.
 
-**Ten recorded exceptions.** The criterion is the same in every case: the feature
+**Eleven recorded exceptions.** The criterion is the same in every case: the feature
 needs a control the backend cannot provide, so it could not live in `deploy/` alone.
 Anything that *can* be met by extending the backend must still be.
 
@@ -89,6 +89,15 @@ Anything that *can* be met by extending the backend must still be.
    `types/modem-status.ts` (`LiveTrafficSnapshot`), `public/locales/*/dashboard.json`. Recorded in
    [`docs/specs/live-traffic-row.md`](./docs/specs/live-traffic-row.md) and
    [`docs/reference/live-traffic.md`](./docs/reference/live-traffic.md).
+11. **RSSI on both legs — the dashboard's 5G card and the Cellular Information page** (2026-11-05, owner compared
+    against the vendor UI: *"we have both RSSI for 5G and 4G, but on qmanager we don't have that, add its support on
+    dashboard and cellular"*, plus *"on /cellular/, 5G SNR is not shown"*) — there is **no AT source for NR RSSI** on this
+    firmware, so the backend half was needed and went in first (`qm_phy_nr_rssi`, `nr_rssi_read`, `parse_ca_info`'s NR
+    fill). What could not be done there is the *row*: a metric row is a component and the document it reads is typed.
+    `components/dashboard/signal-rows.ts` (the 5G card's RSSI row), `lib/radio-info.ts` (RSSI for NR carriers),
+    `components/cellular/radio/active-bands-card.tsx` (the cell filter that had removed it), `types/modem-status.ts`
+    (`NrStatus.rssi`). No i18n change: `signal_status.rssi` and `radio_info.bands.metric.rssi` already existed.
+    Recorded in [`docs/plans/2026-11-05-nr-rssi.md`](./docs/plans/2026-11-05-nr-rssi.md).
 10. **RSRQ joins the homepage splash's band metric toggle** (2026-11-05, owner reported *"RSRQ is missing"* on the
     homepage) — `overview.sh` already publishes `carrier_components[].rsrq`, so the backend half needed nothing; what
     could not be done there is the *control*: the toggle is a component and its member list is a typed union.

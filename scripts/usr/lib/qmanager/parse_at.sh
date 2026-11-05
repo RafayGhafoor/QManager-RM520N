@@ -160,7 +160,7 @@ parse_serving_cell() {
     lte_rsrp="" ; lte_rsrq="" ; lte_sinr="" ; lte_rssi=""
     lte_cell_id="" ; lte_enodeb_id="" ; lte_sector_id="" ; lte_tac=""
     nr_band="" ; nr_arfcn="" ; nr_pci=""
-    nr_rsrp="" ; nr_rsrq="" ; nr_sinr="" ; nr_scs=""
+    nr_rsrp="" ; nr_rsrq="" ; nr_sinr="" ; nr_scs="" ; nr_rssi=""
     nr_cell_id="" ; nr_enodeb_id="" ; nr_sector_id="" ; nr_tac=""
 
     # ONE awk pass emits ONE pipe-delimited record; the walk below is pure bash.
@@ -835,14 +835,25 @@ _nr_bw_to_mhz() {
 # A port must re-measure this (QSINR vs QCAINFO field 10 vs QENG field 17) before
 # assuming the same mapping; see docs/reference/platform-matrix.md.
 #
-# `rsrp`/`rsrq` of the NR serving carrier fall back to the QENG NR block when the
-# QCAINFO line omits them. Without the `=1` toggle the NR SCC line stops after
-# its PCI (`"NR5G BAND 41",47`), which left the Cellular Information page
-# showing an NR carrier with no readings while the dashboard's 5G card (QENG)
-# was fully populated. RSRP and RSRQ are the two fields every source agrees on
-# (measured: QCAINFO -82/-19 vs QENG -83/-19 on the same poll); the SINR slot is
-# deliberately NOT filled from QENG, because the LTE finding above is exactly
-# what happens when a differently-defined field is borrowed to fill it.
+# `rsrp`/`rsrq`/`sinr` of the NR serving carrier fall back to the QENG NR block
+# when the QCAINFO line omits them — and on this firmware it ALWAYS omits them.
+# Measured 2026-11-05 with the extended-reporting toggle ON:
+#
+#   +QCAINFO: "SCC",509070,7,"NR5G BAND 41",776         <- PCI and nothing else
+#   +QENG: "NR5G-NSA",410,01,776,-77,17,-11,509070,41,7,1
+#
+# Without the fill the Cellular Information page showed an NR carrier with three
+# dashes while the dashboard's 5G card was full.
+#
+# For NR the QENG SINR is the RIGHT one, unlike LTE. Cross-checked on one poll of
+# n41: QENG `NR5G-NSA` field 6 = 17, the PHY/QMI read = 17, modemd's `NR_sinr` =
+# 17. Three sources, one number — which is why `sinr` is filled for NR here and
+# deliberately NOT for an LTE SCC, where QENG field 17 disagrees with AT+QSINR by
+# ~10 dB (see the LTE section above).
+#
+# `rssi` of the NR serving carrier comes from modemd (`nr_rssi`, passed in by the
+# poller): AT carries no NR RSSI at all on this firmware. See phy_metrics.sh >
+# qm_phy_nr_rssi.
 # -----------------------------------------------------------------------------
 parse_ca_info() {
     local raw="$1"
@@ -874,7 +885,9 @@ parse_ca_info() {
     _pc=$(printf '%s\n' "$raw" | awk -v ccf="$cc_tmpfile" \
         -v q_narfcn="${nr_arfcn:-}" \
         -v q_nrsrp="${nr_rsrp:-}" \
-        -v q_nrsrq="${nr_rsrq:-}" '
+        -v q_nrsrq="${nr_rsrq:-}" \
+        -v q_nrsinr="${nr_sinr:-}" \
+        -v q_nrrssi="${nr_rssi:-}" '
         function delfirst(s, t,   i) {
             i = index(s, t)
             if (i == 0) return s
@@ -959,13 +972,15 @@ parse_ca_info() {
                     else sinr = "null"
                 }
                 # The serving NR cell is the one QENG describes, so when this
-                # line omits its RSRP/RSRQ (the short form without `=1`) they are
-                # filled from there — matched on ARFCN, never assumed. The SINR
-                # slot is left alone: it is the NR SNR and has no equivalent in
-                # the QENG NR block.
+                # line omits its readings — which on this firmware is always, the
+                # NR SCC line being PCI-only — they are filled from there, matched
+                # on ARFCN and never assumed. RSSI has no AT source at all, so it
+                # comes from the modemd NR_rssi value instead.
                 if (q_narfcn != "" && f[2] == q_narfcn) {
                     if (sane(rsrp) == "null") rsrp = qval(q_nrsrp)
                     if (sane(rsrq) == "null") rsrq = qval(q_nrsrq)
+                    if (sane(sinr) == "null") sinr = qval(q_nrsinr)
+                    rssi = qval(q_nrrssi)
                 }
             } else return
 

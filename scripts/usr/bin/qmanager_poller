@@ -314,6 +314,9 @@ nr_rsrp=""
 nr_rsrq=""
 nr_sinr=""
 nr_scs=""
+# NR RSSI: no AT source on this firmware, so it is read from modemd once per
+# cycle and ONLY when an NR leg is present (see nr_rssi_read below).
+nr_rssi=""
 
 lte_ta=""
 nr_ta=""
@@ -1556,6 +1559,11 @@ collect_boot_data() {
     # QCAINFO goes through ca_info_read, which owns its own =1/read/=0. ---
     result=$(ca_info_read)
     if [ -n "$result" ]; then
+        # nr_rssi_read FIRST: the NR carrier's RSSI has no AT source, so without
+        # this the boot snapshot's NR component carries nulls until the first
+        # poll cycle overwrites it (observed 2026-11-05: `nr.rssi` null for the
+        # first ~4 s after every restart, then correct).
+        nr_rssi_read
         parse_ca_info "$result"
         serving_sinr_apply
     fi
@@ -1699,18 +1707,43 @@ poll_serving_cell() {
 # If the serving cell alone also fails the modem is unreachable and the CA read
 # is skipped, so an outage costs the same number of AT calls as before.
 T1_COMBINED='AT+QENG="servingcell";+QCAINFO=1;+QCAINFO;+QCAINFO=0'
+
+# The NR leg's RSSI, from the vendor modem daemon.
+#
+# AT cannot answer this: AT+QCAINFO's NR SCC line stops at the PCI (measured on
+# this unit 2026-11-05 with the extended toggle ON) and AT+QENG="NR5G-NSA"
+# carries RSRP/SINR/RSRQ only. modemd's `NR_rssi` is what the vendor's own
+# metrics daemon publishes (greenpacket deploy/gp-metricsd.awk:407), so it is the
+# only source here. LTE RSSI needs none of this — AT+QCAINFO field 9 has it.
+#
+# Gated on an NR leg being present, so an LTE-only link pays nothing: the read is
+# one `ubus call` plus one `jq -r` (~16 ms measured; raw ubus 5 ms, jq 11 ms).
+# That is ~0.4 % of one core at the ~4 s cycle, and it buys a per-cycle RSSI
+# instead of one that lags the Tier-3 modemd read by up to a minute.
+#
+# An empty value is a null, never the previous cycle's figure.
+nr_rssi_read() {
+    case "$network_type" in
+        5G-NSA|5G-SA) nr_rssi=$(qm_phy_nr_rssi 2>/dev/null) || nr_rssi="" ;;
+        *)            nr_rssi="" ;;
+    esac
+}
+
 poll_tier1_at() {
     local _t1 _rc
     _t1=$(qcmd_exec "$T1_COMBINED")
     _rc=$?
     if [ "$_rc" -eq 0 ] && [ -n "$_t1" ]; then
         serving_cell_apply 0 "$_t1"
+        # After the serving cell, so the gate sees THIS cycle's network_type.
+        nr_rssi_read
         parse_ca_info "$_t1"
         serving_sinr_apply
         return 0
     fi
     qcmd "$CA_INFO_OFF" >/dev/null 2>&1
     poll_serving_cell
+    nr_rssi_read
     if [ "$modem_reachable" = "true" ]; then
         sleep "$SIP_DELAY"
         _t1=$(ca_info_read)
@@ -2796,6 +2829,7 @@ write_cache() {
         --argjson nr_rsrp "${nr_rsrp:-null}" \
         --argjson nr_rsrq "${nr_rsrq:-null}" \
         --argjson nr_sinr "${nr_sinr:-null}" \
+        --argjson nr_rssi "${nr_rssi:-null}" \
         --argjson nr_scs "${nr_scs:-null}" \
         --argjson nr_ta "${nr_ta:-null}" \
         --argjson slr "$sig_lte_rsrp" \
@@ -2935,7 +2969,7 @@ write_cache() {
                 cell_id: $nr_cid, enodeb_id: $nr_enb,
                 sector_id: $nr_sec, tac: $nr_tac,
                 rsrp: $nr_rsrp, rsrq: $nr_rsrq,
-                sinr: $nr_sinr, scs: $nr_scs, ta: $nr_ta
+                sinr: $nr_sinr, rssi: $nr_rssi, scs: $nr_scs, ta: $nr_ta
             },
             signal_per_antenna: {
                 lte_rsrp: $slr, lte_rsrq: $slq, lte_sinr: $sls,

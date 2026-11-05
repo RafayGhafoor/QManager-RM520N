@@ -81,6 +81,7 @@
 #   . /usr/lib/qmanager/phy_metrics.sh
 #   qm_phy_available                      # 0 = usable right now (real call, TTL-cached)
 #   qm_phy_modemd                         # -> {"cqi":..,"nr_cqi":..,"registered":b,..}
+#   qm_phy_nr_rssi                        # -> the NR leg's RSSI in dBm (modemd; no AT source)
 #   qm_phy_at [network_type]              # -> {"lte":{..},"nr":{..},"rrc":{..},"beams":[..]}
 #   qm_phy_snapshot <modemd> <at> <ctx>   # -> the API snapshot object
 #   qm_phy_archive_row <snapshot> <temp> <total_cells> [ctx]
@@ -246,6 +247,69 @@ qm_phy_modemd() {
     [ "$rc" -eq 0 ] || return 4
     [ -n "$out" ] || return 4
     printf '%s\n' "$out"
+    return 0
+}
+
+# qm_phy_nr_rssi — the NR leg's RSSI in dBm, or nothing.
+#
+# THERE IS NO AT SOURCE FOR NR RSSI ON THIS FIRMWARE. Measured on the RG520N-EB
+# 2026-11-05 with the extended-reporting toggle ON:
+#
+#   +QCAINFO: "SCC",509070,7,"NR5G BAND 41",776        <- stops at the PCI
+#   +QENG: "NR5G-NSA",410,01,776,-77,17,-11,509070,41,7,1 <- RSRP/SINR/RSRQ only
+#
+# so modemd's `NR_rssi` is the only source, and it is the vendor stack's own
+# (greenpacket deploy/gp-metricsd.awk:407, whose comment is literally "no QMI
+# source for NR RSSI on this fw"). LTE RSSI needs none of this: AT+QCAINFO's
+# field 9 carries it every cycle.
+#
+# Deliberately NOT qm_phy_modemd. That helper costs 103 ms per call on this unit
+# (measured 2026-11-05: capture file, timeout wrapper and a full jq projection),
+# which is too much for one field on the ~4 s hot path.
+#
+# AND NOT ONE LONGEST-MATCH STRIP EITHER. The first cut did
+# `v=${out##*'"NR_rssi": "'}` on the whole 2.2 KB reply and measured **80 ms per
+# call** — busybox ash implements a leading-`*` longest match by retrying the
+# pattern at every position, so it is O(n²) in the reply length. Two cheaper
+# shapes were measured against it on this unit: one `printf | jq -r` (~15 ms, the
+# pipe forks twice) and this one, which walks the reply LINE BY LINE — the daemon
+# prints one key per line, so each match runs against ~30 bytes instead of 2.2 KB
+# and needs no process at all. A here-doc under 4 KB does not fork on this ash.
+#
+# Status: 0 ok (value printed), 2 no ubus, 3 call failed/empty, 4 unparseable.
+qm_phy_nr_rssi() {
+    local bin out v line
+    bin=$(_qm_phy_ubus) || return 2
+    [ -n "$bin" ] || return 2
+    out=$("$bin" call modemd status 2>/dev/null)
+    [ -n "$out" ] || return 3
+
+    v=""
+    while IFS= read -r line; do
+        case "$line" in
+            *'"NR_rssi":'*)
+                v=${line#*'"NR_rssi":'}
+                v=${v# }            # the space after the colon
+                v=${v#\"}           # the opening quote
+                v=${v%%\"*}          # up to the closing quote
+                break
+                ;;
+        esac
+    done <<EOF
+$out
+EOF
+
+    # Fallback: the same field through jq, for a reply whose shape differs from
+    # the one measured above. Only reached when the line walk found nothing.
+    if [ -z "$v" ]; then
+        v=$(printf '%s' "$out" | "$(_qm_phy_jq)" -r '.NR_rssi // empty' 2>/dev/null) || v=""
+    fi
+
+    # A non-numeric answer is not a reading ("-64" passes, "n/a" does not).
+    case "$v" in
+        ''|*[!0-9-]*) return 4 ;;
+    esac
+    printf '%s' "$v"
     return 0
 }
 

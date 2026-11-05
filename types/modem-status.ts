@@ -270,6 +270,17 @@ export interface NrStatus {
   rsrq: number | null;
   /** Signal to Interference plus Noise Ratio (dB) */
   sinr: number | null;
+  /**
+   * Received Signal Strength Indication (dBm) — wideband received power.
+   *
+   * There is no AT source for this on the RG520N-EB: AT+QCAINFO's NR SCC line
+   * stops at the PCI and AT+QENG="NR5G-NSA" carries RSRP/SINR/RSRQ only. The
+   * poller reads modemd's `NR_rssi` once per cycle while an NR leg is present
+   * (`qmanager_poller` > `nr_rssi_read`, `phy_metrics.sh` > `qm_phy_nr_rssi`),
+   * which is the same source the vendor stack publishes it from. Null when the
+   * leg is down or the daemon did not answer.
+   */
+  rssi: number | null;
   /** Subcarrier Spacing in kHz (15, 30, 60, 120) */
   scs: number | null;
   /** NR Timing Advance (NTA value). Used for cell distance estimation. */

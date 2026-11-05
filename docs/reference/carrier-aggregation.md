@@ -151,9 +151,20 @@ QENG describes, and matching on ARFCN means the fill can never land on a
 different carrier. Those are the two fields every source agrees on (measured:
 QCAINFO `-82/-19` vs QENG `-83/-19` on one poll).
 
-The **SINR slot is deliberately not filled** from the QENG NR block. It is the NR
-SNR, and the LTE section above is a worked example of what borrowing a
-differently-defined field to fill a slot costs.
+For **NR** the QENG SINR is the right one, which is why `sinr` *is* filled here —
+measured on one poll of n41, 2026-11-05: QENG `NR5G-NSA` field 6 = 17, the
+PHY/QMI read = 17, modemd `NR_sinr` = 17. Three sources, one number. That is the
+opposite of LTE, where QENG field 17 disagrees with `AT+QSINR` by ~10 dB and is
+therefore never used.
+
+`rssi` of the serving NR carrier comes from **modemd** (`NR_rssi`), not from AT:
+neither `AT+QCAINFO`'s NR line (PCI only) nor `AT+QENG="NR5G-NSA"`
+(`MCC,MNC,PCI,RSRP,SINR,RSRQ,ARFCN,band,bw,scs`) carries an RSSI field. The
+vendor stack reads it from the same place (`greenpacket`
+`deploy/gp-metricsd.awk:407`, comment *"no QMI source for NR RSSI on this fw"*).
+The poller reads it once per cycle **only while an NR leg is present**
+(`nr_rssi_read` → `qm_phy_nr_rssi`), so an LTE-only link pays nothing. It is a
+single serving-cell figure: a second NR carrier shows null rather than a copy.
 
 ## Empty array on any failed AT read
 

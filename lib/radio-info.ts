@@ -173,15 +173,19 @@ function buildMetrics(carrier: ResolvedCarrier): RadioMetric[] {
     },
   ];
 
-  // RSSI is per-carrier AND LTE-only: AT+QCAINFO's NR lines carry no RSSI field
-  // at all, so every NR component reports null. Emitting the row anyway would
-  // invent a permanently-empty metric. It is also barless — RSSI has no
-  // meaningful 0-100 scale to plot against.
-  // RSSI takes the same range guard even though it has no quality verdict to
-  // corrupt: an out-of-range RSSI would still PRINT, and a printed number is a
+  // RSSI is per-carrier and now BOTH legs report one, from different sources.
+  // LTE: AT+QCAINFO field 9, every cycle. NR: modemd's `NR_rssi`, which the
+  // poller reads once per cycle while an NR leg is present — there is no AT
+  // source for it on this firmware (AT+QCAINFO's NR line stops at the PCI).
+  // Before 2026-11-05 this row was LTE-only and its comment said NR lines carry
+  // no RSSI at all, which was true of the line and false of the modem.
+  //
+  // It stays barless: RSSI has no meaningful 0-100 scale to plot against, and
+  // the same range guard applies even though it has no quality verdict to
+  // corrupt — an out-of-range RSSI would still PRINT, and a printed number is a
   // claim regardless of whether a chip sits next to it.
   const rssi = normalizeMetricValue(carrier.rssi, "rssi");
-  if (carrier.technology === "LTE" && rssi !== null) {
+  if (rssi !== null) {
     metrics.push({
       id: "rssi",
       labelKey: "rssi",

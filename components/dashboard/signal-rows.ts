@@ -154,6 +154,17 @@ export function buildSignalRows(
           isIdentifier: true,
         },
         ...trio,
+        // RSSI is a measurement and joins the measurements, but it is appended
+        // rather than slotted between RSRQ and SINR the way the LTE leg does it.
+        // The two legs are NOT made symmetrical on purpose (see the header): the
+        // trio above is shared by construction, and RSSI is per-leg, so each leg
+        // puts it where its own block already ends. SCS stays last because it is
+        // an identifier.
+        //
+        // Carries NO threshold set, exactly like the LTE leg: total received
+        // power including noise and interference has no good-or-bad reading on
+        // its own. Untinted, ungauged, announced with no quality word.
+        { label: t("signal_status.rssi"), value: fmt(nr?.rssi, "dBm") },
         // Subcarrier spacing is a configuration of the carrier, not a reading
         // off it — 30 kHz is not better or worse than 15. Identifier, last.
         {

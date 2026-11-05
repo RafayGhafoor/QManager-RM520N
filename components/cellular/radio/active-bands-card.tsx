@@ -701,25 +701,33 @@ export function ActiveBandsCard({
                         {/* Identity leads the grid: EARFCN and PCI together,
                             ahead of the readings, because confirming WHICH
                             cell this is comes before judging how it is doing.
-                            RSSI removed by direct request — it had no 0-100
-                            scale to plot and read as an afterthought next to
-                            three real bars. */}
+
+                            RSSI IS SHOWN HERE AGAIN (2026-11-05). It was
+                            filtered out by an earlier direct request — "it had
+                            no 0-100 scale to plot and read as an afterthought
+                            next to three real bars" — and the owner asked for
+                            it back, because the vendor UI shows RSSI on both
+                            legs and this page showed neither. `MetricCell`
+                            already renders a barless metric correctly (a
+                            caption in the meter lane, no track, no quality
+                            word), so the fix is to stop filtering rather than
+                            to teach the cell a new form. Do not re-add the
+                            filter: the objection was to a meaningless BAR, and
+                            that is what the `barless` branch exists to avoid. */}
                         <IdentityMetricCell
                           arfcnLabel={arfcnLabel}
                           earfcn={c.earfcn}
                           pciLabel={t("radio_info.bands.detail.pci")}
                           pci={c.pci}
                         />
-                        {c.metrics
-                          .filter((m) => m.id !== "rssi")
-                          .map((m, i) => (
-                            <MetricCell
-                              key={m.id}
-                              metric={m}
-                              technology={c.technology}
-                              index={i}
-                            />
-                          ))}
+                        {c.metrics.map((m, i) => (
+                          <MetricCell
+                            key={m.id}
+                            metric={m}
+                            technology={c.technology}
+                            index={i}
+                          />
+                        ))}
                       </div>
                     </div>
 
