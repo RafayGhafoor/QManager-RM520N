@@ -184,34 +184,58 @@ that cover this tree's parsers:
 The commit was therefore made with `--no-verify`, on that evidence rather than on
 the assumption that the failures were unrelated.
 
-## Syncing `dr-dolomite/QManager` `development-home`
+## Syncing upstream — corrected 2026-11-05 (the first measurement named the wrong repo)
 
-The owner asked for new changes from that branch. It was fetched and measured
-before anything was applied:
+The first version of this section reported "1,426 conflicting files" for
+`dr-dolomite/QManager` `development-home`. That number was real but it was
+measured against **the wrong repository**, and the owner caught it. The topology,
+measured:
 
-- merge-base with this branch: `63523d53` (2026-04-04, v0.1.13)
-- upstream since then: **1,585 commits**; this branch: 1,434 (108 of them
-  deployment work on top of the fork's `development`)
-- `git merge-tree --write-tree` dry run: **1,426 conflicting files** —
-  `components/cellular` 73, `scripts/www` 58, `components/monitoring` 45,
-  `scripts/usr` 37, `components/system-settings` 33, `public/locales` 25 …
+| | fork parent — `dr-dolomite/QManager-RM520N` | the URL that was asked for — `dr-dolomite/QManager` |
+| --- | --- | --- |
+| Branch | `development` | `development-home` |
+| Tip | `938ae22f`, 2026-11-04, **v0.1.19-draft** | `c45ff134`, 2026-11-04, **v0.1.35** |
+| Is our base (`a05c4e92`, v0.1.18-draft) an ancestor? | **yes** | **no** (merge-base is `63523d53`, 2026-04-04) |
+| Commits since our base | **505** | 1,585 |
+| Files upstream changed | 832 | 2,322 |
+| **Merge conflicts against `greenpacket`** | **52 files** | 1,426 files |
 
-A wholesale merge is not a sync, it is a rewrite of both lines, and it cannot be
-verified on one device in one session. What was done instead: the upstream commit
-that addresses a defect reported here was **ported** (`0133014e`, glued QCAINFO
-records) with its fixture, and the rest is left for a scoped decision.
+`AGENTS.md` states the fork's parent is `RafayGhafoor/QManager-RM520N` → the
+fork of `dr-dolomite/QManager-RM520N`, and that is what the ancestry confirms:
+our base is a *direct ancestor* of `QManager-RM520N/development`, so that branch
+is the continuation of this line. `dr-dolomite/QManager` is a **parallel product
+line** — it also started from v0.1.13 in April and reached v0.1.35 by its own
+path, adding a `tools/` tree (768 files) and a different `native/` set, and it
+does not contain a single commit of ours. The repo *names* differ by a suffix,
+which is exactly how this gets misjudged.
 
-**Recommendation for the owner:** treat `development-home` as a *source of fixes*,
-not as a merge target. Candidate ports, in value order — each one small, each one
-verifiable on this unit:
+**So the owner was right: the routine sync touches tens of files, not thousands.**
 
-1. `ca14acbb` / `066ae70c` — upstream's live-signal lane (1 Hz SINR overlay). It
-   exists because of the same field-17 problem this plan fixes; ours is solved
-   more cheaply, so port only if the 1 Hz cadence is wanted.
-2. The QMI per-carrier signal source (`d9dc635b`, `edf9b0db`) — per-SCC RSRP/RSRQ
-   without the `=1` toggle, which would retire the NR fallback added here.
-3. Anything under `scripts/www` the owner actually wants: those 58 files conflict
-   because both lines changed the same endpoints.
+### The 52 conflicts against `QManager-RM520N/development`
+
+| Group | Files | Nature |
+| --- | --- | --- |
+| `public/locales/*` | 15 | mechanical — union of keys, both sides added strings |
+| `scripts/usr`, `scripts/www` | 14 | the 10 recorded app-layer exceptions plus `qcmd`, `qmanager_dns_apply`, `sudoers.d` |
+| app layer (`app/`, `components/`, `hooks/`, `lib/`, `types/`) | 13 | SMS cards, `device-metrics.tsx`, IP Passthrough card, `app-sidebar.tsx`, `use-modem-status.ts`, `use-sms.ts` |
+| `docs/reference/*` | 5 | both sides documented the same subsystems |
+| `native/qmanager_atd/*` | 4 | upstream is on broker 0.6.2, this branch ships the scaffold |
+| `dependencies/NOTICE`, onboarding step | 2 | attribution + one screen |
+
+That is a normal merge with a bounded, enumerable conflict set — not the rewrite
+the 1,426 figure implied. It is **not done yet**: 505 upstream commits change 832
+files and need a build + a device verification pass afterwards, so it wants an
+explicit go-ahead rather than being folded into a signal-metric fix.
+
+### What `development-home` is still useful for
+
+It is a source of *fixes* to read, not a merge target. Two commits in it address
+defects of the same shape as this plan's (a value published under the wrong
+name), and one was already ported here:
+
+- `0133014e` — QCAINFO records glued onto one line (**ported**, see above).
+- `ca14acbb` / `066ae70c` — a 1 Hz live-SINR overlay, built because that line hit
+  the same QENG-field-17 problem this plan fixed more cheaply.
 
 ## Still open
 
@@ -225,3 +249,7 @@ verifiable on this unit:
   If the owner reads it as too harsh, that is a threshold decision, not a bug.
 - **`lte.sinr` in the archive steps by ~10 dB at this deploy.** Recorded above;
   the History and Detailed Metrics charts will show it.
+- **The upstream sync is measured but not performed.** 505 commits / 832 files /
+  52 conflicts from `dr-dolomite/QManager-RM520N` `development` (v0.1.19-draft).
+  It needs its own run: merge, resolve the 52, `bun run build`, deploy, then the
+  full verification list. Do not fold it into a metric fix.
