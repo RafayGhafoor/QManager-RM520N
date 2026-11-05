@@ -18,7 +18,7 @@ import { cn } from "@/lib/utils";
 
 import { AvailabilityCard } from "./availability-card";
 import { BandsCard } from "./bands-card";
-import { AggregationCard } from "./aggregation-card";
+import { BandSignalCard } from "./band-signal-card";
 import { ChartCard } from "./chart-card";
 import {
   formatMoment,
@@ -271,8 +271,8 @@ export function CellHistory() {
             ) : null}
 
             {panels.agg ? (
-              <AggregationCard
-                runs={data.cells.bands ?? []}
+              <BandSignalCard
+                bandSeries={data.cells.band_series ?? {}}
                 longSpan={longSpan}
               />
             ) : null}

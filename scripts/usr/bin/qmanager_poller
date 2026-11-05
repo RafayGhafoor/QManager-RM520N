@@ -1977,12 +1977,38 @@ poll_tier3() {
     # source named one (never "+", never "B").
     cells=""
     bands=""
+    # THREE facts from ONE jq: the component count, the band combo, and the
+    # per-carrier signal signature.
+    #
+    # `cc_sig` is new (archive schema v4). Until now the archive recorded the
+    # SERVING cell's RSRP/RSRQ/SINR only, so a history chart could not show one
+    # line per band — which is what the owner actually wanted from "aggregation
+    # graph" ("multiple bars for each rsrp of bands"). It is one encoded column
+    # rather than a slot per carrier:
+    #
+    #   B3:-70:-12:4|N41:-77:-11:18      band:rsrp:rsrq:sinr, carriers by "|"
+    #
+    # One column, no slot ceiling and no overflow count to explain, and no comma
+    # (a CSV field cannot carry one). A carrier whose reading is absent keeps an
+    # empty position, so "we did not read it" stays distinguishable from 0.
     _cc=$(printf '%s' "${t2_carrier_components:-[]}" | jq -r '
         if type == "array" and length > 0 then length else "" end,
-        ([.[]? | .band // empty | tostring | select(length > 0)] | join("+"))' 2>/dev/null)
-    { IFS= read -r cells; IFS= read -r bands; } <<EOF
+        ([.[]? | .band // empty | tostring | select(length > 0)] | join("+")),
+        ([.[]? | select((.band // "") != "")
+          | [(.band | tostring),
+             (if .rsrp == null then "" else (.rsrp | tostring) end),
+             (if .rsrq == null then "" else (.rsrq | tostring) end),
+             (if .sinr == null then "" else (.sinr | tostring) end)]
+          | join(":")]
+         | join("|"))' 2>/dev/null)
+    { IFS= read -r cells; IFS= read -r bands; IFS= read -r cc_sig; } <<EOF
 $_cc
 EOF
+    # The encoded column carries only band tokens, digits, the three separators
+    # (`:` field, `|` carrier) and a leading `-`; refuse anything else so a stray
+    # field cannot corrupt the row. `|` MUST be in the allowed set — the first cut
+    # of this guard left it out and silently blanked every row.
+    case "$cc_sig" in *[,]*|*[\ ]*|*[!A-Za-z0-9:+.|-]*) cc_sig="" ;; esac
     [ -n "$bands" ] || bands="$lte_band"
     if [ -n "${nr_band:-}" ]; then
         # Append the serving NR band ONLY when no component already named it.
@@ -2056,6 +2082,7 @@ EOF
         --argjson mp "$mem_pct" --argjson dl "$dl_bps" --argjson ul "$ul_bps" \
         --argjson cac "${t2_ca_count:-null}" --argjson nrc "${t2_nr_ca_count:-null}" \
         --argjson bwv "${t2_total_bandwidth_mhz:-null}" --arg bnds "$bands" \
+        --arg ccsig "$cc_sig" \
         '{lte_rsrp:$lr, lte_rsrq:$lq, lte_rssi:$li, lte_sinr:$ls,
           nr_rsrp:$nr, nr_rsrq:$nq, nr_sinr:$ns, carrier:$car,
           rat: (if $ratv == "" then null else $ratv end),
@@ -2068,7 +2095,8 @@ EOF
           nr_avail:$na, cpu_pct:$cp, mem_pct:$mp,
           dl_bps:$dl, ul_bps:$ul,
           ca_cc:$cac, nrca_cc:$nrc, bw_mhz:$bwv,
-          bands: (if $bnds == "" then null else $bnds end)}' 2>/dev/null)
+          bands: (if $bnds == "" then null else $bnds end),
+          cc_sig: (if $ccsig == "" then null else $ccsig end)}' 2>/dev/null)
 
     snap=$(qm_phy_snapshot "$md" "$at" "$ctx")
     # Never hand an unvalidated string to write_cache: it goes in as --argjson,

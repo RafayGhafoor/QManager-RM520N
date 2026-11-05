@@ -135,7 +135,10 @@ ARCHIVE_DIR="${QM_PHY_ARCHIVE_DIR:-/usrdata/qmanager/metrics}"
 # the window and must keep serving its PHY series. It declares no identity
 # columns, which is exactly what makes coverage honest for it.
 ARCHIVE_NAME="qm_phy_archive"
-ARCHIVE_VERSIONS="1 2 3"
+# v4 appended `cc_sig` (per-carrier band:rsrp:rsrq:sinr). v1-v3 stay readable:
+# they declare fewer columns, and every reader resolves columns BY NAME from the
+# marker, so a v3 day file simply has no `cc_sig` to find.
+ARCHIVE_VERSIONS="1 2 3 4"
 SANE_EPOCH=1700000000
 PANELS="rsrp sinr rsrq rssi temp cqi rank mcs tx_power total_cells"
 
@@ -149,7 +152,7 @@ GAP_THRESHOLD=180
 # it is the field this page exists to explain; `rat`/`registered` are deliberately
 # absent — a registration flap is not a cell change, and `registered` is a boolean
 # whose flapping would drown the table.
-CELL_FIELDS="nr_avail lte_pci lte_band lte_earfcn lte_bw nr_pci nr_band nr_arfcn nr_bw lte_cellid nr_cellid network_type bands"
+CELL_FIELDS="nr_avail lte_pci lte_band lte_earfcn lte_bw nr_pci nr_band nr_arfcn nr_bw lte_cellid nr_cellid network_type bands cc_sig"
 
 qlog_init "cgi_fetch_signal_history"
 cgi_headers
@@ -571,6 +574,24 @@ FILENAME != prevfile { prevfile = FILENAME; have_schema = 0 }
     S_last[skey] = t
     if (av >= 0) { S_known[skey]++; if (av == 0) S_down[skey]++ }
 
+    # per-band RSRP — one line per band, which is what "aggregation graph" was
+    # asking for: the RSRP of the serving cell is one number, and an aggregated
+    # carrier has its own. `cc_sig` is `band:rsrp:rsrq:sinr|band:...` (archive
+    # schema v4); a v3 day file has no such column, so those samples simply add
+    # nothing here rather than contributing a zero.
+    sig = icol("cc_sig", F)
+    if (sig != "") {
+        ncc = split(sig, CC, "|")
+        for (ci = 1; ci <= ncc; ci++) {
+            nc = split(CC[ci], CF, ":")
+            if (nc < 2 || CF[1] == "" || CF[2] == "") continue
+            gk = int(t / bucket) * bucket SUBSEP CF[1]
+            if (!(gk in G_n)) { G_n[gk] = 0; G_sum[gk] = 0 }
+            G_n[gk]++
+            G_sum[gk] += CF[2] + 0
+        }
+    }
+
     last_id_ts = t
 }
 END {
@@ -593,6 +614,12 @@ END {
     }
     for (k in N)
         printf "V\t%s\t%d\t%.1f\n", PANEL[k], BTS[k], SUM[k] / N[k]
+    # G = per-band RSRP. Split the composite key on SUBSEP: the bucket, then the
+    # band token ("B3", "N41") exactly as the archive stores it.
+    for (k in G_n) {
+        split(k, GP, SUBSEP)
+        printf "G\t%d\t%s\t%.1f\n", GP[1], GP[2], G_sum[k] / G_n[k]
+    }
 }
 '
 
@@ -648,6 +675,11 @@ def n1: if . == "" then null else (tonumber) end;
        first_ts: (.[3] | tonumber), last_ts: (.[4] | tonumber),
        ca_cc: (.[5] | n1), bw_mhz: (.[6] | n1)}]
    | sort_by(-.samples)) as $combos
+| ([$rows[] | select(.[0] == "G")
+    | {ts: (.[1] | tonumber), band: (.[2] | s0), v: (.[3] | tonumber)}]
+   | group_by(.band)
+   | map({key: .[0].band, value: (map({ts: .ts, v: .v}) | sort_by(.ts))})
+   | from_entries) as $bandseries
 | ([$rows[] | select(.[0] == "E")
     | {ts: (.[1] | tonumber), field: .[2], from: (.[3] | s0), to: (.[4] | s0)}]
    | group_by(.ts)
@@ -690,6 +722,7 @@ def n1: if . == "" then null else (tonumber) end;
                                then (($r.up * 100 / $r.known) | floor)
                                else null end)})),
            bands: $bandruns,
+           band_series: $bandseries,
            combos: $combos}}
 '
 

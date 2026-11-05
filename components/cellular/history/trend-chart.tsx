@@ -48,12 +48,6 @@ export interface TrendChartProps {
   /** A fixed reporting bracket, or `null` where the metric has none. */
   domain: readonly [number, number] | null;
   longSpan: boolean;
-  /**
-   * Draw as a step instead of a line. Set from `STEP_METRICS` in `derive.ts` for
-   * the piecewise-constant metrics (carrier count, aggregated bandwidth), whose
-   * value holds until the radio's carrier set changes.
-   */
-  step?: boolean;
 }
 
 export function TrendChart({
@@ -63,7 +57,6 @@ export function TrendChart({
   color,
   domain,
   longSpan,
-  step,
 }: TrendChartProps) {
   const config = {
     v: {
@@ -140,11 +133,7 @@ export function TrendChart({
           // reading it.) Named on the series, not in the tooltip, so a
           // multi-series chart on the same tooltip still works.
           name={label}
-          // A step for the piecewise-constant metrics (carrier count, aggregated
-          // bandwidth) and a smooth line for a measurement. `stepAfter` holds the
-          // value until the NEXT sample, which is what "unchanged until the
-          // carrier set moved" actually looks like.
-          type={step ? "stepAfter" : "monotone"}
+          type="monotone"
           stroke="var(--color-v)"
           strokeWidth={2}
           dot={false}

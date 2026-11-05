@@ -248,6 +248,13 @@ export interface CellHistoryCells {
   timeline: CellRun[];
   /** Band / CA combo runs, oldest first. Empty for a pre-v3 window. */
   bands: BandRun[];
+  /**
+   * Per-band RSRP over time, keyed by the band token exactly as the archive
+   * stores it ("B3", "N41"). Built from the `cc_sig` column (schema v4), so a
+   * range that is entirely pre-v4 returns `{}` — no band lines, rather than
+   * lines at zero.
+   */
+  band_series: Record<string, CellHistoryPoint[]>;
   /** Per-combo time share, most samples first. */
   combos: BandCombo[];
 }

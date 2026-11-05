@@ -2798,8 +2798,8 @@
           "hint": "RSRP, SINR, RSRQ, RSSI — 4G vs 5G"
         },
         "agg": {
-          "label": "Aggregazione portanti",
-          "hint": "Quante portanti erano aggregate, e quando è cambiato"
+          "label": "Segnale per banda",
+          "hint": "Una linea RSRP per portante, colorata per qualità"
         },
         "bands": {
           "label": "Bande e aggregazione",
@@ -2969,8 +2969,17 @@
       "rf_title": "Segnale radio",
       "phy_title": "Profondità del livello fisico",
       "system_title": "Carico del dispositivo",
-      "agg_title": "Aggregazione",
-      "agg_note": "Un gradino per ogni insieme di portanti — un conteggio non è una pendenza.",
+      "band_signal_title": "Segnale per banda",
+      "band_signal_note": "RSRP di ogni portante riportata dal radio — colorato secondo la scala di qualità, banda più debole per prima.",
+      "band_signal_none": "Nessuna lettura per banda in questo intervallo.",
+      "quality": {
+        "excellent": "ottimo",
+        "good": "buono",
+        "fair": "discreto",
+        "poor": "scarso",
+        "bad": "debole",
+        "none": "nessuna lettura"
+      },
       "gap_note": "Un'interruzione nella linea è una finestra senza letture — non un valore pari a zero.",
       "no_data": "Nessun campione archiviato per questo pannello in questo intervallo.",
       "outage_band": "5G non disponibile",

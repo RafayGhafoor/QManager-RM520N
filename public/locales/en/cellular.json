@@ -2798,8 +2798,8 @@
           "hint": "RSRP, SINR, RSRQ, RSSI — 4G vs 5G"
         },
         "agg": {
-          "label": "Carrier aggregation",
-          "hint": "How many carriers were aggregated, and when that changed"
+          "label": "Signal by band",
+          "hint": "One RSRP line per carrier, coloured by quality"
         },
         "bands": {
           "label": "Bands & CA",
@@ -2969,8 +2969,17 @@
       "rf_title": "Radio signal",
       "phy_title": "PHY depth",
       "system_title": "Device load",
-      "agg_title": "Aggregation",
-      "agg_note": "One step per carrier set the radio held — a count is not a slope.",
+      "band_signal_title": "Signal by band",
+      "band_signal_note": "RSRP per carrier the radio reported — coloured by the quality ramp, weakest band first.",
+      "band_signal_none": "No per-band readings in this range yet — they start with the next archive row.",
+      "quality": {
+        "excellent": "excellent",
+        "good": "good",
+        "fair": "fair",
+        "poor": "poor",
+        "bad": "weak",
+        "none": "no reading"
+      },
       "gap_note": "A break in a line is a bucket with no reading — not a value of zero.",
       "no_data": "No archived samples for this panel in this range.",
       "outage_band": "5G down",

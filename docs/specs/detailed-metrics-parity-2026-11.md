@@ -116,7 +116,14 @@ address. Full value only if the owner asks for it.
 
 ## Phasing
 
-1. **No-backend phase** (C): aggregation panel **shipped 2026-11-05**
+1. **No-backend phase** (C): a carrier-count aggregation panel was shipped on
+   2026-11-05 and **removed the same day** — the owner's "aggregation graph"
+   meant per-band RSRP, not a carrier count ("multiple bars for each rsrp of
+   bands"). The replacement is `band-signal-card.tsx`, fed by the new `cc_sig`
+   archive column (schema v4, phase 3 brought forward). The carrier-count panel
+   and its `runStepPoints`/`comboCarriers` helpers were deleted rather than left
+   as dead code.
+   **Superseded detail:** aggregation panel **shipped 2026-11-05**
    (`components/cellular/history/aggregation-card.tsx`, `derive.ts` >
    `runStepPoints`/`comboCarriers`, panel id `agg`, five locales). Band-combo
    timeline already existed as `bands-card`.

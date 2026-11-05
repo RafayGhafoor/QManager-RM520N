@@ -2798,8 +2798,8 @@
           "hint": "RSRP、SINR、RSRQ、RSSI —— 4G 与 5G 对比"
         },
         "agg": {
-          "label": "载波聚合",
-          "hint": "聚合了多少载波，以及何时发生变化"
+          "label": "分频段信号",
+          "hint": "每个载波一条 RSRP 曲线，按质量着色"
         },
         "bands": {
           "label": "频段与载波聚合",
@@ -2969,8 +2969,17 @@
       "rf_title": "射频信号",
       "phy_title": "物理层深度",
       "system_title": "设备负载",
-      "agg_title": "载波聚合",
-      "agg_note": "每个载波集合一个阶梯——数量不是斜率。",
+      "band_signal_title": "分频段信号",
+      "band_signal_note": "无线电上报的每个载波的 RSRP —— 按质量色阶着色，最弱频段优先。",
+      "band_signal_none": "此范围内还没有分频段读数。",
+      "quality": {
+        "excellent": "极佳",
+        "good": "良好",
+        "fair": "一般",
+        "poor": "较差",
+        "bad": "弱",
+        "none": "无读数"
+      },
       "gap_note": "折线中的断开表示该区间没有读数 —— 而不是数值为零。",
       "no_data": "该范围内此面板没有归档采样。",
       "outage_band": "5G 不可用",

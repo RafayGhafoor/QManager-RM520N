@@ -2798,8 +2798,8 @@
           "hint": "RSRP, SINR, RSRQ, RSSI — 4G vs 5G"
         },
         "agg": {
-          "label": "Agregasi carrier",
-          "hint": "Berapa banyak carrier yang diagregasi, dan kapan berubah"
+          "label": "Sinyal per band",
+          "hint": "Satu garis RSRP per carrier, diwarnai menurut kualitas"
         },
         "bands": {
           "label": "Band & agregasi",
@@ -2969,8 +2969,17 @@
       "rf_title": "Sinyal radio",
       "phy_title": "Kedalaman lapisan fisik",
       "system_title": "Beban perangkat",
-      "agg_title": "Agregasi",
-      "agg_note": "Satu langkah per set carrier yang dipegang radio — jumlah bukan kemiringan.",
+      "band_signal_title": "Sinyal per band",
+      "band_signal_note": "RSRP untuk setiap carrier yang dilaporkan radio — diwarnai menurut skala kualitas, band terlemah lebih dulu.",
+      "band_signal_none": "Belum ada pembacaan per band pada rentang ini.",
+      "quality": {
+        "excellent": "sangat baik",
+        "good": "baik",
+        "fair": "cukup",
+        "poor": "buruk",
+        "bad": "lemah",
+        "none": "tidak ada pembacaan"
+      },
       "gap_note": "Jeda pada garis adalah slot waktu tanpa pembacaan — bukan nilai nol.",
       "no_data": "Tidak ada sampel arsip untuk panel ini pada rentang ini.",
       "outage_band": "5G terputus",

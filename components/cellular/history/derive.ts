@@ -540,31 +540,6 @@ export const METRIC_AXIS = {
 
 export type ChartMetric = keyof typeof METRIC_AXIS;
 
-/**
- * Aggregation as a STEP series, built from `cells.bands` runs.
- *
- * WHY NOT THE `bw` / `ca` / `total_cells` PANELS. Those series are bucketed and
- * AVERAGED by the CGI — a 15-minute bucket over a carrier change reports "1.4
- * carriers" and "29.1 MHz". An average is a fine statistic for a measurement and
- * a nonsense one for a piecewise-constant quantity: the whole question here is
- * "how many carriers, and when did that change", and averaging answers neither.
- *
- * The band runs are exact: each is one contiguous stretch of ONE carrier set,
- * with its own bandwidth and its own combo string. One point per run at its
- * start, drawn as a step, reproduces what the radio actually did.
- */
-export function runStepPoints(
-  runs: readonly BandRun[],
-  pick: (run: BandRun) => number | null,
-): { ts: number; v: number | null }[] {
-  return runs.map((run) => ({ ts: run.start_ts, v: pick(run) }));
-}
-
-/** Carrier components in a run's combo ("B3+N41" -> 2). Null when it named none. */
-export function comboCarriers(run: BandRun): number | null {
-  if (!run.bands) return null;
-  return run.bands.split("+").filter((token: string) => token.length > 0).length;
-}
 
 /**
  * A series converted to its plotted unit, `null` preserved.

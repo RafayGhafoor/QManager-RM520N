@@ -656,8 +656,16 @@ qm_phy_snapshot() {
 # Bands are stored EXACTLY as reported — "B3", "N78" — because
 # parse_serving_cell already builds the prefix and two firmwares disagree on the
 # bare form. Nothing may add a prefix here or downstream.
-QM_PHY_ARCHIVE_SCHEMA="qm_phy_archive,3"
-QM_PHY_ARCHIVE_COLUMNS="ts,lte_rsrp,lte_rsrq,lte_rssi,lte_sinr,lte_cqi,lte_ri,lte_pmi,lte_mimo_layers,lte_tm_mode,lte_ul_mcs,nr_rsrp,nr_rsrq,nr_sinr,nr_cqi,nr_ri,nr_pmi,nr_mimo_layers,nr_dl_mcs,nr_ul_mcs,nr_tx_power,temp,total_cells,rat,registered,lte_pci,lte_earfcn,lte_band,lte_bw,lte_cellid,lte_tac,nr_pci,nr_arfcn,nr_band,nr_bw,nr_cellid,nr_tac,nr_avail,cpu_pct,mem_pct,dl_bps,ul_bps,ca_cc,nrca_cc,bw_mhz,bands"
+# v4 appended ONE column, `cc_sig`: the per-carrier signal signature
+# (`B3:-70:-12:4|N41:-77:-11:18`, band:rsrp:rsrq:sinr). Until v4 the archive held
+# the SERVING cell's readings only, so a chart could not draw one line per band —
+# which is what "aggregation graph" was actually asking for. One encoded column
+# rather than a slot per carrier: no slot ceiling, no overflow column, and no
+# comma (a CSV field cannot carry one). A reader that meets a v3 day file simply
+# has no `cc_sig` column for that day, which is the existing, documented
+# behaviour for any column added after a day file's header was written.
+QM_PHY_ARCHIVE_SCHEMA="qm_phy_archive,4"
+QM_PHY_ARCHIVE_COLUMNS="ts,lte_rsrp,lte_rsrq,lte_rssi,lte_sinr,lte_cqi,lte_ri,lte_pmi,lte_mimo_layers,lte_tm_mode,lte_ul_mcs,nr_rsrp,nr_rsrq,nr_sinr,nr_cqi,nr_ri,nr_pmi,nr_mimo_layers,nr_dl_mcs,nr_ul_mcs,nr_tx_power,temp,total_cells,rat,registered,lte_pci,lte_earfcn,lte_band,lte_bw,lte_cellid,lte_tac,nr_pci,nr_arfcn,nr_band,nr_bw,nr_cellid,nr_tac,nr_avail,cpu_pct,mem_pct,dl_bps,ul_bps,ca_cc,nrca_cc,bw_mhz,bands,cc_sig"
 
 # Column ORDER must match QM_PHY_ARCHIVE_COLUMNS above, minus `ts`, `temp` and
 # `total_cells` (which are passed as separate arguments because they do not come
@@ -691,7 +699,8 @@ def b: if type == "boolean" then tostring else "" end;
      ($c.nr_cellid | g), ($c.nr_tac | g),
      ($c.nr_avail | g), ($c.cpu_pct | g), ($c.mem_pct | g),
      ($c.dl_bps | g), ($c.ul_bps | g),
-     ($c.ca_cc | g), ($c.nrca_cc | g), ($c.bw_mhz | g), ($c.bands | g) ] | join(","))
+     ($c.ca_cc | g), ($c.nrca_cc | g), ($c.bw_mhz | g), ($c.bands | g),
+     ($c.cc_sig | g) ] | join(","))
 '
 _QM_PHY_ARCHIVE_OK=true
 _QM_PHY_ARCHIVE_PRUNED_DAY=""
