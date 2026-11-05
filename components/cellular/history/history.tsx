@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 
 import { AvailabilityCard } from "./availability-card";
 import { BandsCard } from "./bands-card";
+import { AggregationCard } from "./aggregation-card";
 import { ChartCard } from "./chart-card";
 import {
   formatMoment,
@@ -266,6 +267,13 @@ export function CellHistory() {
                 missing={data.missing}
                 longSpan={longSpan}
                 full
+              />
+            ) : null}
+
+            {panels.agg ? (
+              <AggregationCard
+                runs={data.cells.bands ?? []}
+                longSpan={longSpan}
               />
             ) : null}
 

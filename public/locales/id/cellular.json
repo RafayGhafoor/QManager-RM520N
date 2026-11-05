@@ -2797,6 +2797,10 @@
           "label": "Sinyal radio",
           "hint": "RSRP, SINR, RSRQ, RSSI — 4G vs 5G"
         },
+        "agg": {
+          "label": "Agregasi carrier",
+          "hint": "Berapa banyak carrier yang diagregasi, dan kapan berubah"
+        },
         "bands": {
           "label": "Band & agregasi",
           "hint": "Band dan kombinasi agregasi yang melayani"
@@ -2965,6 +2969,8 @@
       "rf_title": "Sinyal radio",
       "phy_title": "Kedalaman lapisan fisik",
       "system_title": "Beban perangkat",
+      "agg_title": "Agregasi",
+      "agg_note": "Satu langkah per set carrier yang dipegang radio — jumlah bukan kemiringan.",
       "gap_note": "Jeda pada garis adalah slot waktu tanpa pembacaan — bukan nilai nol.",
       "no_data": "Tidak ada sampel arsip untuk panel ini pada rentang ini.",
       "outage_band": "5G terputus",
@@ -2984,7 +2990,8 @@
         "ul": "Unggah",
         "total_cells": "Carrier teragregasi",
         "ca": "Carrier teragregasi",
-        "bw": "Lebar pita teragregasi"
+        "bw": "Lebar pita teragregasi",
+        "bw_unit": "MHz"
       },
       "series": {
         "lte": "4G LTE",

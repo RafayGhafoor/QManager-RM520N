@@ -21,6 +21,7 @@ export const PANEL_IDS = [
   "pattern",
   "timeline",
   "rf",
+  "agg",
   "bands",
   "events",
   "outages",
@@ -34,9 +35,10 @@ export type PanelId = (typeof PANEL_IDS)[number];
 export type PanelVisibility = Record<PanelId, boolean>;
 
 /**
- * The first impression. The five that answer the field complaint ("5G
+ * The first impression. The six that answer the field complaint ("5G
  * disappears at night") are on — including the band/CA strip, which is the one
- * panel that names the band that went missing; the deeper depth — per-outage
+ * panel that names the band that went missing, and the aggregation charts that
+ * say when the carrier set moved; the deeper depth — per-outage
  * table, PHY figures, the identity grid and device load — is opt-in, because a
  * page that opens with nine panels opens with none of them read.
  */
@@ -44,6 +46,7 @@ export const PANEL_DEFAULT: PanelVisibility = {
   pattern: true,
   timeline: true,
   rf: true,
+  agg: true,
   bands: true,
   events: true,
   outages: false,

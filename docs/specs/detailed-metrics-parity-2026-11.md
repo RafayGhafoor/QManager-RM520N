@@ -1,6 +1,7 @@
 # 2026-11-05 — Detailed Metrics parity with the vendor `#metrics` page, and the History gaps
 
-**Status:** proposed · not built · needs an owner decision on the two items marked ⚠️.
+**Status:** phase 1 partially built (aggregation charts, 2026-11-05) · the three
+decisions are **taken** (see "Decisions taken") · phases 2–4 not started.
 **Owner's ask (verbatim):**
 
 > "in the detailed metrics we should include all metrics shown at
@@ -99,16 +100,51 @@ not a default**: recommend archiving a *truncated* form (`10.9.x.x`) plus a chan
 counter, so "the WAN IP changed at 03:12" is answerable without storing the
 address. Full value only if the owner asks for it.
 
+## Decisions taken (owner: "do what you think is best")
+
+1. **Pathloss: omitted.** This firmware publishes no reference-power field, so
+   `tx_power − rsrp` is a different quantity (it folds in the gNB's own transmit
+   power, which varies per cell). Same class of error as publishing RSSNR as
+   SINR. If it is ever added it must be labelled "UL−DL level difference".
+2. **SCC slots: fixed budget**, 2 LTE + 2 NR, plus an `scc_overflow` count so a
+   larger aggregation is visible as a count rather than silently truncated. A
+   JSON sidecar would fork the CSV readers for a case this unit has never shown.
+3. **WAN IP: truncated + a change counter** (`10.9.x.x`, plus a `wan_changed`
+   flag). It answers "the WAN IP changed at 03:12" without storing the address,
+   which is consistent with hard rule 10 and with the diagnostics payload
+   deliberately excluding it.
+
 ## Phasing
 
-1. **No-backend phase** (C): PCI panel, aggregation panel, band-combo timeline.
-   All data present; one app-layer change (AGENTS.md exception) + i18n.
+1. **No-backend phase** (C): aggregation panel **shipped 2026-11-05**
+   (`components/cellular/history/aggregation-card.tsx`, `derive.ts` >
+   `runStepPoints`/`comboCarriers`, panel id `agg`, five locales). Band-combo
+   timeline already existed as `bands-card`.
+   **PCI is NOT shipped as a chart, deliberately**: `timeline-card.tsx` is already
+   the PCI-over-time view (a gantt of one contiguous run per serving cell, with
+   the PCI in the tooltip), and a second PCI chart would restate it in a weaker
+   form. If the owner wants PCI plotted *as a line alongside the metrics*, that is
+   a different ask and needs an `lte_pci`/`nr_pci` **panel series** in the CGI
+   (they are identity fields today, not series) — recorded as phase 2 work.
 2. **Cheap backend phase** (A, the zero-extra-AT items): `lte_dl_mcs`, the four
    NR TX-power channels, `rrc_state`/`rrc_rat` into the archive → schema v4.
    Then their panels and charts.
 3. **Per-carrier phase** (B): SCC slots in the archive, then per-carrier series
    in History. This is the largest item and the one that changes the file format.
 4. **Pathloss**: decided, not built, until the owner picks (a)/(b)/(c).
+
+### What the aggregation panel deliberately does NOT plot
+
+The `bw`, `ca` and `total_cells` **panel series** are bucketed and averaged by the
+CGI — a 15-minute bucket that straddles a carrier change reports "1.4 carriers" and
+"29.1 MHz". An average is a fine statistic for a measurement and a nonsense one
+for a count of discrete things. The panel is therefore built from `cells.bands`
+**runs** (exact, one per contiguous carrier set) and drawn as steps.
+
+`ca` is also not the carrier count: it maps to `ca_cc`, which counts LTE
+**secondary** carriers only and reads 0 on this device's normal NSA link (one LTE
+PCC + one NR SCC). The count plotted is the token count of the run's combo
+("B3+N41" → 2).
 
 ## Acceptance criteria (falsifiable)
 
