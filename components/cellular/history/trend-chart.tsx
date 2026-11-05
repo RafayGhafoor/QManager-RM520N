@@ -127,6 +127,12 @@ export function TrendChart({
         />
         <Line
           dataKey="v"
+          // The hover card prints the SERIES NAME, and recharts falls back to the
+          // dataKey when a Line has none — so every hover read a bare "v".
+          // (The ChartConfig above already carried this label; nothing was
+          // reading it.) Named on the series, not in the tooltip, so a
+          // multi-series chart on the same tooltip still works.
+          name={label}
           type="monotone"
           stroke="var(--color-v)"
           strokeWidth={2}

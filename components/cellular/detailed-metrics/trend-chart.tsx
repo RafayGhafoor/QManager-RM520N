@@ -109,6 +109,12 @@ export function TrendChart({ points, label, unit, longSpan }: TrendChartProps) {
         />
         <Line
           dataKey="v"
+          // The hover card prints the SERIES NAME, and recharts falls back to the
+          // dataKey when a Line has none — which is why every hover on this
+          // chart read a bare "v" (the internal key) instead of "RSRP". The
+          // name belongs here rather than in the tooltip: each series names
+          // itself, so a multi-series chart on this same tooltip still works.
+          name={label}
           type="monotone"
           stroke="var(--color-v)"
           strokeWidth={2}

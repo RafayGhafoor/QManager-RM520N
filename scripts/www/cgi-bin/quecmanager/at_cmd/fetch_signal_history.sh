@@ -340,6 +340,26 @@ fi
 # not by position: the marker exists so a future column cannot silently shift
 # these readers.
 AWK_AGG='
+# dedupe_bands — collapse repeated tokens in a "+"-joined band combo.
+#
+# Rows written before 2026-11-05 appended the serving NR band to the carrier
+# list even when a component had already named it, so an NSA link with ONE n41
+# SCC was stored as "B3+N41+N41" — a combination that never existed. The writer
+# no longer produces them (`qmanager_poller`, poll_tier3), but the archive still
+# holds them, and Cell History drew each one as a handoff event. Normalising on
+# READ repairs the history without rewriting the stored CSV.
+function dedupe_bands(s,   n, a, i, out, seen) {
+    if (s == "" || index(s, "+") == 0) return s
+    n = split(s, a, "+")
+    split("", seen)
+    out = ""
+    for (i = 1; i <= n; i++) {
+        if (a[i] == "" || (a[i] in seen)) continue
+        seen[a[i]] = 1
+        out = (out == "") ? a[i] : out "+" a[i]
+    }
+    return out
+}
 function isnum(v) { return v ~ /^-?[0-9]+([.][0-9]+)?$/ }
 function num(v) { return (v != "" && v != "null" && isnum(v)) ? v + 0 : "" }
 # panel value from one row, following the documented preference chain
@@ -478,6 +498,10 @@ FILENAME != prevfile { prevfile = FILENAME; have_schema = 0 }
     # miss "NR dropped and came back on a different PCI".
     for (i = 1; i <= nid; i++) {
         f = ID[i]; v = IV[f]
+        # Normalise the combo HERE too: this loop is what emits the band-change
+        # events, and it reads the raw column. Without it the archive keeps
+        # announcing "B3+N41 -> B3+N41+N41", a handoff that never happened.
+        if (f == "bands") v = dedupe_bands(v)
         if (v == "") continue
         if (!(f in LK)) { LK[f] = v; continue }
         if (v != LK[f]) { printf "E\t%d\t%s\t%s\t%s\n", t, f, LK[f], v; LK[f] = v }
@@ -513,7 +537,7 @@ FILENAME != prevfile { prevfile = FILENAME; have_schema = 0 }
     # A row that named no combo — every pre-v3 row — contributes nothing here
     # rather than opening a run whose label is empty, so a window that straddles
     # the schema bump does not invent a "no bands" period.
-    bval = IV["bands"]
+    bval = dedupe_bands(IV["bands"])
     if (bval != "") {
         bca = icol("ca_cc", F); bbw = icol("bw_mhz", F)
         if (bn > 0 && bval == b_key && (t - b_last_ts) <= gap) {

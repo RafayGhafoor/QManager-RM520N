@@ -1985,9 +1985,22 @@ $_cc
 EOF
     [ -n "$bands" ] || bands="$lte_band"
     if [ -n "${nr_band:-}" ]; then
-        case "$bands" in
-            "") bands="$nr_band" ;;
-            *)   bands="$bands+$nr_band" ;;
+        # Append the serving NR band ONLY when no component already named it.
+        #
+        # It is a FALLBACK for a reply with no component list, not an extra
+        # carrier. An NSA link with one n41 SCC produced "B3+N41" from the
+        # components and then had the serving band appended a second time, so
+        # every row read "B3+N41+N41" — a band combination that never existed.
+        # Cell History drew those as handoff events (274 rows on 2026-11-05, and
+        # the owner reported the phantom directly: "we only had b3+n41").
+        case "+$bands+" in
+            *"+$nr_band+"*) : ;;                      # already named
+            *)
+                case "$bands" in
+                    "") bands="$nr_band" ;;
+                    *)  bands="$bands+$nr_band" ;;
+                esac
+                ;;
         esac
     fi
     # `/` and `,` cannot appear in a band token, but a stray one would corrupt the
