@@ -73,8 +73,12 @@ Anything that *can* be met by extending the backend must still be.
    component. `app/cellular/history/**`, `components/cellular/history/**`, `components/app-sidebar.tsx` (one nav
    entry), `hooks/use-cell-history.ts`, `types/cell-history.ts`, `lib/chart-time.ts`,
    `components/ui/chart-tooltip-time.tsx`, `public/locales/*/{cellular,sidebar,dashboard}.json`. Backend half is
-   `scripts/` only (`qm_phy_archive_row` schema v3, `qmanager_poller`'s `ctx` and its swap fields,
-   `fetch_signal_history.sh` `?view=cells`). The two chart-time files are here because the **same defect** shipped on
+   `scripts/` only (`qm_phy_archive_row` schema **v4** — v3 added the identity/swap fields, v4 added `cc_sig`, the
+   per-carrier `band:rsrp:rsrq:sinr` signature — `qmanager_poller`'s `ctx` and its swap fields,
+   `fetch_signal_history.sh` `?view=cells` and its `cells.band_series`). The per-band RSRP card
+   (`components/cellular/history/band-signal-card.tsx`, 2026-11-05) is inside this exception's existing
+   `components/cellular/history/**`: the archive had never recorded an SCC's readings, so the *data* had to come
+   first, and the card that plots it is a component like every other panel on that page. The two chart-time files are here because the **same defect** shipped on
    the Detailed Metrics chart (exception 3) and could not be fixed in one place without a shared module; the swap
    row lands in `components/dashboard/device-metrics.tsx`, which exception 9 already covers. Recorded in
    [`docs/specs/cell-history.md`](./docs/specs/cell-history.md) and
@@ -96,7 +100,6 @@ Anything that *can* be met by extending the backend must still be.
     `components/public/overview/band-rows.tsx` and `components/public/overview-card.tsx` (both call sites, which each held
     a hand-written `rsrp ? … : sinr` ternary). No i18n change: `overview.metrics.rsrq` and `rsrq_value` already existed in
     all five locales. Recorded in [`docs/plans/2026-11-05-signal-metric-provenance.md`](./docs/plans/2026-11-05-signal-metric-provenance.md).
-
 11. **RSSI on both legs — the dashboard's 5G card and the Cellular Information page** (2026-11-05, owner compared
     against the vendor UI: *"we have both RSSI for 5G and 4G, but on qmanager we don't have that, add its support on
     dashboard and cellular"*, plus *"on /cellular/, 5G SNR is not shown"*) — there is **no AT source for NR RSSI** on this
