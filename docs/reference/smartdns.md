@@ -121,6 +121,31 @@ Tunables (env): `THRESHOLD_MS`, `MIN_MEMBERS`, `MAX_IPS`, `PING_TIMEOUT`,
 | `blacklist-ip 192.178.0.0/16` | filters nothing (8/8 still far); unknown directives are silently ignored on 0.13.1 |
 | IP-range tests | impossible: `142.250.122.101` = 345 ms sits inside the "near" `142.250.0.0/15`; `142.250.203.14` = 62 ms is in the same /15 |
 | `edns-client-subnet` | measured no effect (sibling `dns.md`), and leaks the subnet |
+| `server h3://…` for the pool (**DoH3**) | 2026-11-05, 60 cold domains interleaved, same three members: p50 **78 → 86 ms**, p95 **202 → 272 ms**, 0 failures both arms. No win; q90 alone tightened (125 vs 186). Rejected |
+| `server quic://…` (**DoQ**) | unusable on this carrier: `dns.quad9.net:853` → `connection lost`, `dns.cloudflare.com:853` → `request timed out`, only AdGuard answers and it is far-class (330 ms). DoH3 on UDP/443 works, DoQ on UDP/853 does not |
+| Widening the flat pool to all 9 members | 2026-11-05: p50 **76 → 65 ms** but p95 **132 → 153 ms**, plus a reproducible 1.6–2.5 s cold outlier (`githubusercontent.com`). The verbatim live config beat it on p50 in both runs (48 / 50 ms). Rejected |
+
+### The 8.5 % `retried or failed` counter is NOT transport
+
+Measured 2026-11-05 in a window with **no** `apply-edge` restart and **no**
+`gp-keepalive` calibration (14:44:39 → 15:03:03, 1104 s): 1228 queries to
+`127.0.0.1#5353`, **105 retried or failed (8.5 %)**, and exactly 105 then sent to
+the carrier. So the counter is real and steady — and it is not explained by DoH
+over TCP (the DoH3 arm above had 0 failures in 60 cold queries), not by upstream
+connection errors (the log carries only ~14 `ERROR` lines/hour: `doh.opendns.com`
+the most frequent, then `1.1.1.1`, quad9, `dns.google`, cloudflare), and not by
+SERVFAIL propagation (11 SERVFAIL names through `192.168.0.1` added **+0** to it).
+**Unattributed** — attribute it with dnsmasq `log-queries` + `SIGHUP` before
+proposing a remedy. Work record:
+[`../plans/2026-11-05-dns-transport-quic.md`](../plans/2026-11-05-dns-transport-quic.md).
+
+### A silently-ignored pool line (live defect, unfixed)
+
+`/usrdata/qmanager/etc/smartdns.conf:291` reads `https://dns.nextdns.io/d496c7`
+with **no `server` keyword**, so it is an unknown directive and is dropped on
+0.13.1 (same class as fact 1). The NextDNS profile has therefore never been in the
+pool; only the bare `server https://dns.nextdns.io` on line 306 is. Fixing it
+changes membership → needs its own before/after sweep, not a drive-by edit.
 
 ## Keeping the wiring — `qmanager_dns_wire`
 
