@@ -89,6 +89,14 @@ Anything that *can* be met by extending the backend must still be.
    `types/modem-status.ts` (`LiveTrafficSnapshot`), `public/locales/*/dashboard.json`. Recorded in
    [`docs/specs/live-traffic-row.md`](./docs/specs/live-traffic-row.md) and
    [`docs/reference/live-traffic.md`](./docs/reference/live-traffic.md).
+10. **RSRQ joins the homepage splash's band metric toggle** (2026-11-05, owner reported *"RSRQ is missing"* on the
+    homepage) — `overview.sh` already publishes `carrier_components[].rsrq`, so the backend half needed nothing; what
+    could not be done there is the *control*: the toggle is a component and its member list is a typed union.
+    `components/public/overview/tone.ts` (one `BandMetric` member, its thresholds, and the `bandMetricValue()` reader),
+    `components/public/overview/band-rows.tsx` and `components/public/overview-card.tsx` (both call sites, which each held
+    a hand-written `rsrp ? … : sinr` ternary). No i18n change: `overview.metrics.rsrq` and `rsrq_value` already existed in
+    all five locales. Recorded in [`docs/plans/2026-11-05-signal-metric-provenance.md`](./docs/plans/2026-11-05-signal-metric-provenance.md).
+
 11. **RSSI on both legs — the dashboard's 5G card and the Cellular Information page** (2026-11-05, owner compared
     against the vendor UI: *"we have both RSSI for 5G and 4G, but on qmanager we don't have that, add its support on
     dashboard and cellular"*, plus *"on /cellular/, 5G SNR is not shown"*) — there is **no AT source for NR RSSI** on this
@@ -98,14 +106,6 @@ Anything that *can* be met by extending the backend must still be.
     `components/cellular/radio/active-bands-card.tsx` (the cell filter that had removed it), `types/modem-status.ts`
     (`NrStatus.rssi`). No i18n change: `signal_status.rssi` and `radio_info.bands.metric.rssi` already existed.
     Recorded in [`docs/plans/2026-11-05-nr-rssi.md`](./docs/plans/2026-11-05-nr-rssi.md).
-10. **RSRQ joins the homepage splash's band metric toggle** (2026-11-05, owner reported *"RSRQ is missing"* on the
-    homepage) — `overview.sh` already publishes `carrier_components[].rsrq`, so the backend half needed nothing; what
-    could not be done there is the *control*: the toggle is a component and its member list is a typed union.
-    `components/public/overview/tone.ts` (one `BandMetric` member, its thresholds, and the `bandMetricValue()` reader),
-    `components/public/overview/band-rows.tsx` and `components/public/overview-card.tsx` (both call sites, which each held
-    a hand-written `rsrp ? … : sinr` ternary). No i18n change: `overview.metrics.rsrq` and `rsrq_value` already existed in
-    all five locales. Recorded in [`docs/plans/2026-11-05-signal-metric-provenance.md`](./docs/plans/2026-11-05-signal-metric-provenance.md).
-
 Keep any such change minimal, add it here when you make it, and prefer extending
 the backend if a future need can be met without touching app code. An app-layer
 change that is not listed here is out of scope for this branch.
