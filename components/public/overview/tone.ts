@@ -7,6 +7,7 @@ import type { MaterialSymbolName } from "@/components/ui/material-symbol";
 import type { MetricBarTone } from "@/components/ui/metric-bar";
 import {
   RSRP_THRESHOLDS,
+  RSRQ_THRESHOLDS,
   SINR_THRESHOLDS,
   type ConnectionState,
   type SignalQuality,
@@ -56,15 +57,43 @@ export type TranslateFn = (
   opts?: Record<string, unknown>,
 ) => string;
 
-/** Per-band readout can show RSRP or SINR; thresholds switch with the metric. */
-export type BandMetric = "rsrp" | "sinr";
+/**
+ * Per-band readout can show RSRP, RSRQ or SINR; thresholds switch with the
+ * metric.
+ *
+ * RSRQ was missing from this surface until 2026-11-05. It is the one metric a
+ * technician reaches for when RSRP looks fine and the link does not — "strong
+ * signal, poor quality" is a congested cell, and the splash could show the RSRP
+ * that looks fine without the RSRQ that explains the complaint. The strings
+ * (`overview.metrics.rsrq`, `overview.metrics.rsrq_value`) already existed in
+ * all five locales, so this is the whole of the change: one union member.
+ */
+export type BandMetric = "rsrp" | "rsrq" | "sinr";
 
-export const BAND_METRICS: readonly BandMetric[] = ["rsrp", "sinr"] as const;
+export const BAND_METRICS: readonly BandMetric[] = [
+  "rsrp",
+  "rsrq",
+  "sinr",
+] as const;
 
 export const BAND_METRIC_THRESHOLDS: Record<BandMetric, SignalThresholds> = {
   rsrp: RSRP_THRESHOLDS,
+  rsrq: RSRQ_THRESHOLDS,
   sinr: SINR_THRESHOLDS,
 };
+
+/**
+ * Reads one metric off any record that carries the trio — a per-band carrier or
+ * the aggregate signal block. One reader, so the two call sites cannot disagree
+ * about which field a toggle member means (they were two hand-written ternaries
+ * before, and a third member would have had to be added to both).
+ */
+export function bandMetricValue(
+  source: { rsrp: number | null; rsrq: number | null; sinr: number | null },
+  metric: BandMetric,
+): number | null {
+  return source[metric] ?? null;
+}
 
 // ---------- Quality ramp (meters + numeric values) -------------------------
 

@@ -22,6 +22,7 @@ import type { PublicOverviewBand } from "@/types/public-overview";
 import {
   BAND_METRICS,
   BAND_METRIC_THRESHOLDS,
+  bandMetricValue,
   isNrBand,
   minusSign,
   qualityBarClass,
@@ -190,13 +191,14 @@ export function BandRow({
   t: TranslateFn;
   entranceIndex: number | null;
 }) {
-  // `overview.sh:48` forwards `carrier_components[].sinr` verbatim, which on an
-  // LTE carrier is AT+QCAINFO's RAW RSSNR field — 251 where the real SINR is
-  // 8 dB. `getSignalQuality()` now refuses to rate that, but the printed number
-  // and the meter read `value` directly, so the boundary has to be here too or
-  // the splash keeps showing the lie in two of its three channels.
+  // `overview.sh:48` forwards `carrier_components[].sinr` verbatim, which is
+  // AT+QCAINFO's per-carrier quality field — the reading AT+QSINR corroborates on
+  // this firmware, and the one the poller also publishes as `lte.sinr`
+  // (`serving_sinr_apply`). The range guard stays as the second line of defence:
+  // it is what refuses a raw field that arrives in the wrong unit, and a value
+  // outside the reported range is not a bad reading but not a reading at all.
   const value = normalizeMetricValue(
-    metric === "rsrp" ? band.rsrp : band.sinr,
+    bandMetricValue(band, metric),
     metric,
   );
   const thresholds = BAND_METRIC_THRESHOLDS[metric];

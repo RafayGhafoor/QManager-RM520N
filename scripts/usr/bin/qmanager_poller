@@ -1557,6 +1557,7 @@ collect_boot_data() {
     result=$(ca_info_read)
     if [ -n "$result" ]; then
         parse_ca_info "$result"
+        serving_sinr_apply
     fi
     ca_ext_on
     sleep "$SIP_DELAY"
@@ -1705,6 +1706,7 @@ poll_tier1_at() {
     if [ "$_rc" -eq 0 ] && [ -n "$_t1" ]; then
         serving_cell_apply 0 "$_t1"
         parse_ca_info "$_t1"
+        serving_sinr_apply
         return 0
     fi
     qcmd "$CA_INFO_OFF" >/dev/null 2>&1
@@ -1714,6 +1716,7 @@ poll_tier1_at() {
         _t1=$(ca_info_read)
         if [ $? -eq 0 ] && [ -n "$_t1" ]; then
             parse_ca_info "$_t1"
+            serving_sinr_apply
             return 0
         fi
     fi
@@ -1724,7 +1727,28 @@ poll_tier1_at() {
     t2_total_bandwidth_mhz=0
     t2_bandwidth_details=""
     t2_carrier_components="[]"
+    # No CA reply means no serving SINR either: publish null rather than let the
+    # QENG figure stand in for a quantity it is not (see serving_sinr_apply).
+    t2_lte_serving_sinr=""
+    serving_sinr_apply
     return 1
+}
+
+# Apply the serving LTE cell's SINR from the CA reply over the QENG one.
+#
+# AT+QENG="servingcell" field 17 is NOT this device's SINR. Measured on the
+# RG520N-EB 2026-11-05, one link, three sources: AT+QSINR (the command that
+# answers SINR, per antenna) `-2,-6,-10,-6`, AT+QCAINFO field 10 `-5`, and QENG
+# field 17 `+7/+8`. Two sources agree; field 17 is ~10 dB away and does not track
+# them. `parse_ca_info` publishes the QCAINFO value as `t2_lte_serving_sinr` and
+# this is the one place it replaces the QENG number, so the dashboard card, the
+# carrier list, the PHY archive and the history charts all show one figure.
+#
+# An empty value is a NULL and never a reason to keep the QENG figure: no LTE PCC
+# in the reply means the serving SINR was not read this cycle, and "—" is the
+# honest render.
+serving_sinr_apply() {
+    lte_sinr="$t2_lte_serving_sinr"
 }
 
 # Shared tail of the serving-cell read: $1 = qcmd_exec rc, $2 = its output.

@@ -918,3 +918,42 @@ tester compares the pool against the operator's own resolvers, auto-picked from
 timer never asks for them. Live on the X16, `youtube.com`: carrier 91/116 ms (near),
 dns.google 99, quad9 92, cloudflare 386, 1.1.1.1 372 — i.e. the carrier is *not* the
 slow path here and two pool members are worse than it.
+
+## 2026-11-05 — LTE SINR provenance, glued QCAINFO records, RSRQ on the splash
+
+**Why:** the owner reported three things — the homepage splash's SNR was wrong for
+LTE, RSRQ was missing from it, and the Cellular Information page did not populate
+5G NR properly while the dashboard did.
+
+**What was measured (this unit, one link, 2026-11-05 08:5x UTC, B3 / EARFCN 1850 /
+PCI 227):**
+
+| Source | Reading |
+| --- | --- |
+| `AT+QSINR` (per antenna) | `-2, -6, -10, -6` |
+| `AT+QCAINFO` field 10 (PCC) | `-5` (and `-2` on the next poll) |
+| `AT+QENG="servingcell"` field 17 | `+7` / `+8` |
+| vendor stack `:8092` | `"snr":-2.4,"sinr":8` — two names, two quantities |
+
+Field 17 is **not** this firmware's SINR. It was what `lte.sinr` published, so the
+dashboard's 4G card read `9 dB Fair` while the Cellular Information page read
+`-2 dB Poor` for the same poll. **First attempt at the fix went the wrong way** (it
+re-pointed the carrier components at field 17); the owner caught it — the Cellular
+Information page had been right.
+
+**Deployed:**
+
+- `/usrdata/qmanager/lib/parse_at.sh` — `parse_ca_info()`: splits QCAINFO records
+  glued onto one line (upstream `0133014e`); fills a missing NR `rsrp`/`rsrq` from
+  the QENG NR block, matched on ARFCN; publishes the first LTE PCC's field 10 as
+  `t2_lte_serving_sinr`. Pre-change copy kept as
+  `lib/parse_at.sh.pre-20261105`.
+- `/usrdata/qmanager/bin/qmanager_poller` — `serving_sinr_apply()` replaces
+  `lte.sinr` with `t2_lte_serving_sinr` after both CA parse sites, and nulls it in
+  the no-CA-reply branch. `lte.sinr` and `carrier_components[].sinr` now carry the
+  same number, so the dashboard card, the carrier list, the PHY archive
+  (`lte_sinr`) and the history charts agree. **Archive rows before this deploy
+  hold field 17 and are ~10 dB high; do not smooth the step.**
+- `/usrdata/qmanager/www` — rebuilt frontend: RSRQ is the third member of the
+  homepage splash's band-metric toggle (`overview.metrics.rsrq` already existed in
+  all five locales).

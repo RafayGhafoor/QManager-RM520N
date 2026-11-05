@@ -1,6 +1,7 @@
 # Carrier Aggregation
 
-> **Applies to:** RM520N-GL (SDX65) · verified 2026-08
+> **Applies to:** RM520N-GL (SDX65) · verified 2026-08 · **RG520N-EB (O5A Pro):**
+> the RSSNR/SINR split and the glued-record case were measured there 2026-11-05
 > **RG501Q-EU (SDX55):** unverified — see [`platform-matrix.md`](./platform-matrix.md)
 
 Carrier aggregation (CA) is the radio combining several frequency blocks, called *component carriers*, into one wider pipe. QManager reads the modem's aggregation state from a single AT command, `AT+QCAINFO`, turns each reported carrier into a JSON object in `/tmp/qmanager_status.json`, and renders the set as the dashboard's full-width **Carrier Aggregation strip**. This doc covers the three shapes `AT+QCAINFO` can emit, the two different bandwidth encodings hiding behind similar-looking field names, the NSA one-PCC rule and the "NR Anchor" role the frontend derives from it, and the pure view-model helpers in `lib/carrier-aggregation.ts`.
@@ -10,7 +11,7 @@ Carrier aggregation (CA) is the radio combining several frequency blocks, called
 | Thing | Where |
 | ----- | ----- |
 | AT command | `AT+QCAINFO` (**Tier 1, every cycle**, enabled at boot in the poller's Group B) |
-| Parser | `scripts/usr/lib/qmanager/parse_at.sh` > `parse_ca_info()` (field-order comment block at lines 475-501) |
+| Parser | `scripts/usr/lib/qmanager/parse_at.sh` > `parse_ca_info()` (field-order and provenance comment block above the function) |
 | Bandwidth maps | `_lte_rb_to_mhz()` (`parse_at.sh:437`), `_nr_bw_to_mhz()` (`parse_at.sh:452`) |
 | Poller call site | `scripts/usr/bin/qmanager_poller:2093-2106`, **Tier 1**, `qcmd_exec 'AT+QCAINFO'` |
 | Status JSON | `/tmp/qmanager_status.json` > `network.carrier_components[]`, plus `network.ca_active`, `ca_count`, `nr_ca_active`, `nr_ca_count`, `total_bandwidth_mhz`, `bandwidth_details` |
@@ -46,7 +47,7 @@ Every line is stripped of its `+QCAINFO: ` prefix, its quotes, its spaces, and i
 | 7 | RSRP | dBm |
 | 8 | RSRQ | dB |
 | 9 | RSSI | dBm |
-| 10 | RSSNR | stored as `sinr` |
+| 10 | RSSNR | stored as `sinr` — it is the real per-carrier quality reading here, see below |
 
 ### NR short form (PCC, or an older SCC)
 
@@ -71,82 +72,88 @@ Every line is stripped of its `+QCAINFO: ` prefix, its quotes, its spaces, and i
 
 Positions 1-4 are the same. Then: 5 state, 6 PCI, 7 UL config, 8 UL bandwidth, 9 UL ARFCN, 10 RSRP, 11 RSRQ, 12 SNR. 9 to 12 fields total. The parser picks this branch when the line has 9 or more fields.
 
-> ⚠️ WARNING: NR SNR is reported at 100x scale. The parser divides by 100 (`awk '{printf "%.1f", $1/100}'`) and maps the sentinel `-32768` to `null`. LTE `RSSNR` is already in dB and is stored as-is.
+> ⚠️ WARNING: NR SNR is reported at 100x scale. The parser divides by 100 (`awk '{printf "%.1f", $1/100}'`) and maps the sentinel `-32768` to `null`. LTE field 10 is already in dB and is stored as-is.
 
-Any line whose band string is neither `LTEBAND*` nor `NR5GBAND*`/`NRDCBAND*` is skipped outright. Non-numeric, empty, or `-` values in the numeric positions become `null` rather than `0`, so "the modem did not report this" never renders as a real reading.
+### Two records can be glued onto one line (RG520N-EB)
 
-## The two bandwidth encodings (the field-name trap)
-
-This is the single easiest thing to get wrong in this subsystem, because the modem uses three different encodings for "bandwidth" and two of them land in fields with nearly identical names.
-
-| Value | Source | Encoding | In MHz? |
-| ----- | ------ | -------- | ------- |
-| `network.carrier_components[].bandwidth_mhz` | `AT+QCAINFO` field 3 | LTE = resource blocks, NR = enum; **both decoded by the parser** | **Yes** |
-| `lte.bandwidth` | `AT+QENG="servingcell"` DL bandwidth | raw QENG **enum**, passed through undecoded | **No** |
-| `network.total_bandwidth_mhz` | sum of `bandwidth_mhz` over all carriers | integer MHz | **Yes** |
-
-> ⚠️ WARNING: `types/modem-status.ts` documents `LteStatus.bandwidth` as "Downlink bandwidth in MHz". That comment is wrong: the poller stores QENG field 10 (or field 12 on the NSA line) verbatim and nothing decodes it. Only `carrier_components[].bandwidth_mhz` and `total_bandwidth_mhz` are real MHz. If you need the serving cell's width in MHz, take it from the PCC entry in `carrier_components`, not from `lte.bandwidth`.
-
-### LTE: resource blocks to MHz
-
-`AT+QCAINFO` reports LTE bandwidth as a resource-block count, per 3GPP 36.101 Table 5.6-1. `_lte_rb_to_mhz()` maps it:
-
-| RB | MHz |
-| -- | --- |
-| 6 | 1 (really 1.4, rounded down for the shell's integer math) |
-| 15 | 3 |
-| 25 | 5 |
-| 50 | 10 |
-| 75 | 15 |
-| 100 | 20 |
-| anything else | 0 |
-
-### NR: enum to MHz
-
-Same enum `AT+QENG` uses for NR DL bandwidth, per 3GPP 38.101. `_nr_bw_to_mhz()`:
-
-| Enum | MHz | Enum | MHz |
-| ---- | --- | ---- | --- |
-| 0 | 5 | 9 | 70 |
-| 1 | 10 | 10 | 80 |
-| 2 | 15 | 11 | 90 |
-| 3 | 20 | 12 | 100 |
-| 4 | 25 | 13 | 200 |
-| 5 | 30 | 14 | 400 |
-| 6 | 40 | 15 | 35 |
-| 7 | 50 | 16 | 45 |
-| 8 | 60 | other | 0 |
-
-Two values decode to something the UI has to survive: the 1.4 MHz LTE case rounds to `1`, and an unrecognised enum decodes to `0`. Both are handled by the segment-width floor described below. A carrier that decodes to `0` MHz is still emitted as a `carrier_components` entry (it exists, we just could not measure it); it only stops contributing to `total_bandwidth_mhz` and `bandwidth_details`.
-
-## `earfcn` carries the NR-ARFCN too
-
-`CarrierComponent.earfcn` holds `+QCAINFO` field 2 regardless of technology. For LTE that is an E-UTRA ARFCN; for NR it is an NR-ARFCN, which is a different numbering scheme entirely (528030 is an n41 NR-ARFCN, not an EARFCN). The field was named before NR components were parsed and renaming it now would break `status.json` consumers, so the UI compensates at the label: `carrier-aggregation.tsx` prints `ARFCN` for NR tiles and `EARFCN` for LTE tiles off the same field.
-
-## CA counts and the NSA one-PCC rule
-
-In EN-DC (NSA 5G, where an LTE anchor cell carries the control plane and NR adds capacity) the **LTE cell holds the PCC and the NR leg reports as an ordinary SCC**. The radio only ever reports one `PCC` line.
-
-`parse_ca_info()` accounts for this when counting:
-
-- `ca_count` = number of SCC lines whose band string contains `LTE BAND`. `ca_active` is true when that is greater than zero.
-- `nr_ca_count` = number of SCC lines containing `NR`, **minus one** when `network_type` is `5G-NSA`, because the first NR SCC is the NR leg itself and not aggregation. `nr_ca_active` is therefore false on a plain NSA connection with a single NR carrier, and only true from the second NR carrier onward. Outside NSA (SA, where NR holds the PCC), every NR SCC counts.
-
-Both counts are **secondary-carrier counts**, not totals. The total number of carriers on a leg is the count plus one, which is why `events.sh` writes `$((t2_ca_count + 1)) carriers` in its alert copy.
-
-### Live verification (2026-07-28, Smart PH, PLMN 515-03, NSA)
-
-Three samples 3 seconds apart, stable ordering:
+The modem sometimes drops the line break between two records:
 
 ```
-+QCAINFO: "PCC",1350,75,"LTE BAND 3",1,295,-93,-8,-66,23
-+QCAINFO: "SCC",150,100,"LTE BAND 1",1,295,-88,-9,-69,0,0,-,-
-+QCAINFO: "SCC",528030,8,"NR5G BAND 41",262,-79,-11,2244
++QCAINFO: "SCC",520110,12,"NR5G BAND 41",1,495,1,14,528000+QCAINFO: "SCC",502110,11,"NR5G BAND 41",1,495,0,-,-
 ```
 
-Exactly one PCC, held by LTE. Derived values: `total_bandwidth_mhz: 95` (15 + 20 + 60), `ca_count: 1`, `nr_ca_active: false`. NR bandwidth enum `8` decoded to 60 MHz through `_nr_bw_to_mhz`, its first live exercise. Note that both LTE carriers report **PCI 295**: normal intra-site aggregation, and the reason list keys are built from `earfcn` rather than `pci` (see `carrierKey`).
+`parse_ca_info()` splits every input line at each `+QCAINFO:` that is **glued straight onto the previous field** (no space before it) and parses each piece as its own record; a marker after a space is text. Ported from upstream `dr-dolomite/QManager` `0133014e` on 2026-11-05, whose release note describes the symptom: *"Some modems run two carriers together in a single line of their reply, which made QManager show only some of your connected bands (for example one n41 instead of two)."*
 
-**Still unverified against live hardware:** the `nr_scc_count > 1` "true NR CA" branch, and SA mode where NR itself would hold the PCC. Both are implemented; neither has been observed. Treat behavior on those paths as designed-but-untested.
+Before that, the parser removed every prefix and split the line once, so two glued records became **one** carrier whose PCI came from the first record and whose RSRP/RSRQ/SNR came from the second — a 2-carrier NR reply rendered one NR carrier with wrong readings, and the count fed `nr_ca_count` as 1 instead of 2. Evidence that the O5A produces multi-carrier NR: the PHY archive for 2026-11-04/05 carries `bands` = `B3+N41+N41` (the poller appends the serving `nr_band` to the component list, so one n41 came from QCAINFO and one from QENG) while `nrca_cc` was 0 — i.e. the component list held a single NR carrier for a link with two. Treat the glued case as **expected** on this firmware; it has not been reproduced live since NR left the air on 2026-11-05 07:18 UTC.
+
+## Which SINR is real (RG520N-EB) — and why the dashboard was wrong
+
+`AT+QENG="servingcell"` field 17 is **not** this device's SINR. Measured
+2026-11-05, one link (B3 / EARFCN 1850 / PCI 227), three sources read inside the
+same minute:
+
+| Source | What it is | Reading |
+| --- | --- | --- |
+| `AT+QSINR` | the command that answers SINR, per antenna | `-2, -6, -10, -6` |
+| `AT+QCAINFO` field 10 | the per-carrier quality field (RSSNR) | `-5` (and `-2` on the next poll) |
+| `AT+QENG="servingcell"` field 17 | the field the poller used to publish as `lte.sinr` | `+7` / `+8` |
+
+Two independent sources agree with each other and disagree with field 17 by
+~10 dB, so field 17 is a different quantity on this firmware. The vendor stack
+sidesteps the question by publishing **both** — its `:8092` stream carries
+`"snr":-2.4,"sinr":8` for the same poll — which is exactly the split that made
+the confusion possible.
+
+What the code does now:
+
+- `network.carrier_components[].sinr` = `AT+QCAINFO` field 10. This was already
+  the behaviour, and it is what the Cellular Information page and the homepage
+  splash have always rendered.
+- `lte.sinr` = the **same** value, applied by `qmanager_poller` >
+  `serving_sinr_apply()` from `parse_ca_info()`'s `t2_lte_serving_sinr`. Before
+  this, `lte.sinr` carried QENG field 17, so the dashboard's 4G card showed
+  `9 dB Fair` while the Cellular Information page showed `-2 dB Poor` for the
+  same poll, same cell.
+- An empty value is published as `null` (a dash), never as field 17. A reply
+  with no LTE PCC means the serving SINR was not read this cycle.
+
+**Blast radius, on purpose.** `lte.sinr` also feeds the PHY archive's `lte_sinr`
+column (`phy_metrics.sh` reads the poller's `ctx`), so the History and Detailed
+Metrics charts show the corrected figure from this deploy onward and are ~10 dB
+lower than the rows before it. That step is the fix, not a regression: the old
+rows recorded field 17. Do not "smooth" it.
+
+> ⚠️ **A port must re-measure this.** The three-way comparison above is a
+> RG520N-EB fact, not a QManager rule. Run `AT+QSINR`, `AT+QCAINFO` and
+> `AT+QENG="servingcell"` on the new module and check which pair agrees before
+> trusting either mapping; see [`platform-matrix.md`](./platform-matrix.md).
+
+**What went wrong on the way here.** The first attempt at this fix went the other
+way: it read the vendor's `"snr"`/`"sinr"` pair as "one value, two names" and
+re-pointed the carrier components at QENG field 17, which made the homepage and
+the Cellular Information page agree with the *wrong* number. The owner caught it
+(the Cellular Information page had been right all along). The lesson is in the
+table: two sources that agree beat one that is louder, and the vendor publishing
+two names is evidence of two quantities, not of a naming accident.
+
+## NR readings fall back to the serving cell (RG520N-EB)
+
+Without the `=1` toggle the NR SCC line stops after its PCI:
+
+```
++QCAINFO: "SCC",509070,12,"NR5G BAND 41",47          <- no RSRP/RSRQ/SNR
+```
+
+With it, the same carrier reports `"NR5G BAND 41",47,-67,-11,2529`. Since
+2026-11-05 the parser fills a **missing RSRP/RSRQ** on the NR record whose ARFCN
+equals `nr_arfcn` from `AT+QENG` — the serving NR cell is exactly the carrier
+QENG describes, and matching on ARFCN means the fill can never land on a
+different carrier. Those are the two fields every source agrees on (measured:
+QCAINFO `-82/-19` vs QENG `-83/-19` on one poll).
+
+The **SINR slot is deliberately not filled** from the QENG NR block. It is the NR
+SNR, and the LTE section above is a worked example of what borrowing a
+differently-defined field to fill a slot costs.
 
 ## Empty array on any failed AT read
 

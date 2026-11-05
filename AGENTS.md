@@ -8,7 +8,7 @@ Scope: this branch is **deployment-only**. The application code (`app/`,
 `components/`, `lib/`, `types/`, `hooks/`) tracks upstream QManager and should
 not be modified here — the product-specific work lives in `deploy/`.
 
-**Nine recorded exceptions.** The criterion is the same in every case: the feature
+**Ten recorded exceptions.** The criterion is the same in every case: the feature
 needs a control the backend cannot provide, so it could not live in `deploy/` alone.
 Anything that *can* be met by extending the backend must still be.
 
@@ -89,6 +89,13 @@ Anything that *can* be met by extending the backend must still be.
    `types/modem-status.ts` (`LiveTrafficSnapshot`), `public/locales/*/dashboard.json`. Recorded in
    [`docs/specs/live-traffic-row.md`](./docs/specs/live-traffic-row.md) and
    [`docs/reference/live-traffic.md`](./docs/reference/live-traffic.md).
+10. **RSRQ joins the homepage splash's band metric toggle** (2026-11-05, owner reported *"RSRQ is missing"* on the
+    homepage) — `overview.sh` already publishes `carrier_components[].rsrq`, so the backend half needed nothing; what
+    could not be done there is the *control*: the toggle is a component and its member list is a typed union.
+    `components/public/overview/tone.ts` (one `BandMetric` member, its thresholds, and the `bandMetricValue()` reader),
+    `components/public/overview/band-rows.tsx` and `components/public/overview-card.tsx` (both call sites, which each held
+    a hand-written `rsrp ? … : sinr` ternary). No i18n change: `overview.metrics.rsrq` and `rsrq_value` already existed in
+    all five locales. Recorded in [`docs/plans/2026-11-05-signal-metric-provenance.md`](./docs/plans/2026-11-05-signal-metric-provenance.md).
 
 Keep any such change minimal, add it here when you make it, and prefer extending
 the backend if a future need can be met without touching app code. An app-layer

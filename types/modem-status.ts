@@ -193,7 +193,20 @@ export interface CarrierComponent {
   rsrq: number | null;
   /** Received Signal Strength Indication (dBm). LTE only, null for NR. */
   rssi: number | null;
-  /** Signal to Interference plus Noise Ratio (dB). NR values are already converted (raw/100). */
+  /**
+   * Signal to Interference plus Noise Ratio (dB).
+   *
+   * For an NR carrier this is the NR SNR from AT+QCAINFO (raw/100), which the
+   * UI labels SNR because that is what the 5G spec calls it. For an LTE carrier
+   * it is AT+QCAINFO field 10, the serving cell's quality reading.
+   *
+   * ⚠️ It is NOT AT+QENG="servingcell" field 17, and that is deliberate:
+   * measured on the RG520N-EB 2026-11-05, AT+QSINR answered `-2,-6,-10,-6` (per
+   * antenna) and AT+QCAINFO field 10 `-5` in the same minute that QENG field 17
+   * read `+8`. The QENG figure is ~10 dB away and does not track the two that
+   * agree, so the poller replaces it (`qmanager_poller` > `serving_sinr_apply`).
+   * See docs/reference/carrier-aggregation.md.
+   */
   sinr: number | null;
 }
 
@@ -435,14 +448,17 @@ export type ServingMetric = "rsrp" | "rsrq" | "sinr" | "rssi";
  * reading: an unavailable marker, a raw field in the wrong unit, or a parse
  * that grabbed the wrong CSV column.
  *
- * WHY THIS EXISTS. `AT+QCAINFO`'s LTE line reports RSSNR in field 10 as a RAW
- * value, while `AT+QENG="servingcell"` reports the same measurement in dB. The
- * poller's NR branch rescales and rejects `-32768`; its LTE branch
- * (`parse_at.sh:632`) takes the field verbatim. Live capture, one poll, one
- * cell (B28 / EARFCN 9485 / PCI 407): `lte.sinr` = 8 while
- * `carrier_components[0].sinr` = 251. RSRP and RSRQ agreed across the two
- * sources to within 1; only SINR diverged — and 251 is outside RSSNR's reported
- * range entirely, so it is not a scaled 8 either.
+ * WHY THIS EXISTS. `AT+QCAINFO`'s LTE line reports its quality field as a RAW
+ * number, and `AT+QENG="servingcell"` reports a value in a similar slot that is
+ * NOT the same quantity: measured on the RG520N-EB 2026-11-05, QSINR said
+ * `-2,-6,-10,-6` and QCAINFO `-5` while QENG field 17 said `+8`. The poller now
+ * publishes the QCAINFO figure as `lte.sinr` (`serving_sinr_apply`), so both
+ * halves of the snapshot agree — this ladder is the second line of defence that
+ * refuses a value arriving in the wrong unit or from the wrong column.
+ *
+ * Live capture, one poll, one cell (B28 / EARFCN 9485 / PCI 407): `lte.sinr` =
+ * 8 while `carrier_components[0].sinr` = 251 — a raw column, outside the
+ * reported range entirely, so it is not a scaled 8 either.
  *
  * That alone was survivable. What made it dangerous is that the ladder below
  * used to have no CEILING: `value >= thresholds.excellent` scored 251 dB

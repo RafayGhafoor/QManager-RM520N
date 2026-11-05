@@ -798,7 +798,7 @@ _nr_bw_to_mhz() {
 # Per-carrier component output (JSON array):
 #   [{"type":"PCC","technology":"LTE","band":"B3","earfcn":1350,
 #     "bandwidth_mhz":15,"pci":135,"rsrp":-115,"rsrq":-15,
-#     "rssi":-82,"sinr":5}, ...]
+#     "rssi":-82,"sinr":-5}, ...]
 #
 # AT+QCAINFO response formats (all fields after stripping +QCAINFO: and quotes/spaces):
 #
@@ -814,6 +814,35 @@ _nr_bw_to_mhz() {
 #   Total fields: 9-12
 #
 # NR_SNR conversion: actual_dB = raw_value / 100 (3GPP)
+#
+# THE LTE QUALITY FIELD IS TRUSTWORTHY — THE QENG ONE IS NOT (RG520N-EB).
+#
+# An earlier revision of this file published AT+QCAINFO field 10 as `sinr` on the
+# theory that it was RSSNR in disguise, and a later one went further and replaced
+# it with AT+QENG="servingcell" field 17. Both were wrong in opposite directions.
+# Measured on the O5A Pro, 2026-11-05, one link, three sources:
+#
+#   AT+QSINR (the command that answers SINR, per antenna)  -2, -6, -10, -6
+#   AT+QCAINFO field 10 (RSSNR)                            -5   (and -2 on the next poll)
+#   AT+QENG="servingcell" field 17                          +7 / +8
+#
+# Two independent sources agree; QENG field 17 is ~10 dB away and does not track
+# them. So field 10 IS the serving cell's SINR-class quality reading on this
+# firmware, and it is what this parser publishes as `sinr`. Field 17 is NOT
+# published as SINR anywhere — see `t2_lte_serving_sinr` below, which is what the
+# poller uses to replace the QENG value.
+#
+# A port must re-measure this (QSINR vs QCAINFO field 10 vs QENG field 17) before
+# assuming the same mapping; see docs/reference/platform-matrix.md.
+#
+# `rsrp`/`rsrq` of the NR serving carrier fall back to the QENG NR block when the
+# QCAINFO line omits them. Without the `=1` toggle the NR SCC line stops after
+# its PCI (`"NR5G BAND 41",47`), which left the Cellular Information page
+# showing an NR carrier with no readings while the dashboard's 5G card (QENG)
+# was fully populated. RSRP and RSRQ are the two fields every source agrees on
+# (measured: QCAINFO -82/-19 vs QENG -83/-19 on the same poll); the SINR slot is
+# deliberately NOT filled from QENG, because the LTE finding above is exactly
+# what happens when a differently-defined field is borrowed to fill it.
 # -----------------------------------------------------------------------------
 parse_ca_info() {
     local raw="$1"
@@ -835,8 +864,17 @@ parse_ca_info() {
     # byte-identical (pretty-printed) for every downstream consumer.
     local cc_tmpfile="/tmp/qmanager_cc_data.tmp"
     rm -f "$cc_tmpfile"
+    # The serving LTE cell's SINR, as QCAINFO reports it. Reset every call: an
+    # empty value means "this reply did not carry one", and the poller turns
+    # that into a null rather than keeping a number from another quantity.
+    t2_lte_serving_sinr=""
     local _pc
-    _pc=$(printf '%s\n' "$raw" | awk -v ccf="$cc_tmpfile" '
+    # QENG NR readings, for the two fills described in the header. Passed as
+    # strings: an unset value arrives as "" and every fill below tests for it.
+    _pc=$(printf '%s\n' "$raw" | awk -v ccf="$cc_tmpfile" \
+        -v q_narfcn="${nr_arfcn:-}" \
+        -v q_nrsrp="${nr_rsrp:-}" \
+        -v q_nrsrq="${nr_rsrq:-}" '
         function delfirst(s, t,   i) {
             i = index(s, t)
             if (i == 0) return s
@@ -846,6 +884,13 @@ parse_ca_info() {
             if (v == "" || v == "-" || v ~ /[^0-9-]/) return "null"
             return v
         }
+        # A QENG value is usable only when it is a number; "" and "-" mean the
+        # serving cell did not report it, which is not a reading.
+        function qval(v) {
+            if (v == "" || v == "-") return "null"
+            if (v ~ /[^0-9.-]/) return "null"
+            return v
+        }
         BEGIN {
             rb["6"]=1; rb["15"]=3; rb["25"]=5; rb["50"]=10; rb["75"]=15; rb["100"]=20
             nb["0"]=5; nb["1"]=10; nb["2"]=15; nb["3"]=20; nb["4"]=25; nb["5"]=30
@@ -853,23 +898,32 @@ parse_ca_info() {
             nb["12"]=100; nb["13"]=200; nb["14"]=400; nb["15"]=35; nb["16"]=45
             lte = 0; nr = 0; total = 0; details = ""
         }
-        {
-            line = $0
+        # ONE QCAINFO record. Uses return, not next, because the main block below
+        # feeds this function the pieces of a line the modem glued together.
+        function proc(line,   csv, n, bw, bs, tech, mhz, band, pci, rsrp, rsrq, rssi, sinr, snr, raw_snr, have_snr, fr) {
             if (index(line, "+QCAINFO: \"SCC\"")) {
                 if (index(line, "LTE BAND")) lte++
                 if (index(line, "NR")) nr++
             }
-            if (index(line, "+QCAINFO:") != 1) next
+            if (index(line, "+QCAINFO:") != 1) return
 
             csv = line
+            # The prefix is stripped with or without the space after the colon:
+            # some replies spell it `+QCAINFO:"PCC"` (upstream fixture
+            # ca_info__no_space_after_prefix). The while is the old defensive
+            # sweep for a second marker left mid-record; the split loop above
+            # makes that unreachable, and it stays because removing it would be
+            # a behaviour change in a parser this hot for no measured gain.
+            sub(/^\+QCAINFO:[ ]*/, "", csv)
             while (index(csv, "+QCAINFO: ")) csv = delfirst(csv, "+QCAINFO: ")
             gsub(/"/, "", csv); gsub(/ /, "", csv); gsub(/\r/, "", csv)
             n = (csv == "") ? 0 : split(csv, f, ",")
             if (n > 0 && f[n] == "") n--
-            if (n < 4) next
+            if (n < 4) return
 
             bw = f[3] ""; bs = f[4] ""
-            pci = "null"; rsrp = "null"; rsrq = "null"; rssi = "null"; sinr = "null"
+            pci = "null"; rsrp = "null"; rsrq = "null"; rssi = "null"
+            sinr = "null"; snr = "null"
             if (index(bs, "LTEBAND") == 1) {
                 tech = "LTE"
                 mhz = ((bw in rb) ? rb[bw] : 0)
@@ -878,30 +932,42 @@ parse_ca_info() {
                 if (n >= 7)  rsrp = f[7]
                 if (n >= 8)  rsrq = f[8]
                 if (n >= 9)  rssi = f[9]
+                # Field 10 is the LTE quality reading (RSSNR). It agrees with
+                # AT+QSINR on this firmware and is published as `sinr`; see the
+                # header for the three-source measurement that settled this.
                 if (n >= 10) sinr = f[10]
             } else if (index(bs, "NR5GBAND") == 1 || index(bs, "NRDCBAND") == 1) {
                 tech = "NR"
                 mhz = ((bw in nb) ? nb[bw] : 0)
                 band = "N" delfirst(delfirst(bs, "NR5GBAND"), "NRDCBAND")
-                snr = ""; have_snr = 0
+                raw_snr = ""; have_snr = 0
                 if (n >= 9) {
                     if (n >= 6)  pci  = f[6]
                     if (n >= 10) rsrp = f[10]
                     if (n >= 11) rsrq = f[11]
-                    if (n >= 12) { snr = f[12]; have_snr = 1 }
+                    if (n >= 12) { raw_snr = f[12]; have_snr = 1 }
                 } else {
                     if (n >= 5) pci  = f[5]
                     if (n >= 6) rsrp = f[6]
                     if (n >= 7) rsrq = f[7]
-                    if (n >= 8) { snr = f[8]; have_snr = 1 }
+                    if (n >= 8) { raw_snr = f[8]; have_snr = 1 }
                 }
                 if (have_snr) {
-                    if (snr == "-32768") sinr = "null"
-                    else if (snr == "") sinr = ""
-                    else if (snr + 0 == snr) sinr = sprintf("%.1f", snr / 100)
+                    if (raw_snr == "-32768") sinr = "null"
+                    else if (raw_snr == "") sinr = ""
+                    else if (raw_snr + 0 == raw_snr) sinr = sprintf("%.1f", raw_snr / 100)
                     else sinr = "null"
                 }
-            } else next
+                # The serving NR cell is the one QENG describes, so when this
+                # line omits its RSRP/RSRQ (the short form without `=1`) they are
+                # filled from there — matched on ARFCN, never assumed. The SINR
+                # slot is left alone: it is the NR SNR and has no equivalent in
+                # the QENG NR block.
+                if (q_narfcn != "" && f[2] == q_narfcn) {
+                    if (sane(rsrp) == "null") rsrp = qval(q_nrsrp)
+                    if (sane(rsrq) == "null") rsrq = qval(q_nrsrq)
+                }
+            } else return
 
             if (mhz > 0) {
                 total += mhz
@@ -910,9 +976,30 @@ parse_ca_info() {
             }
             pci = sane(pci); rsrp = sane(rsrp); rsrq = sane(rsrq); rssi = sane(rssi)
             if (sinr == "" || sinr == "-") sinr = "null"
+            if (snr == "" || snr == "-") snr = "null"
             fr = f[2]; if (fr == "") fr = "null"
             printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", \
                 f[1], tech, band, fr, mhz, pci, rsrp, rsrq, rssi, sinr > ccf
+        }
+        # The modem sometimes drops the line break between two records (seen on a
+        # 4-carrier SA reply: ...,528000+QCAINFO: "SCC",502110,...), so every
+        # "+QCAINFO:" glued straight onto the previous field (no space before it)
+        # starts a new record. A marker after a space ("junk +QCAINFO: ...") is
+        # text. Ported from upstream dr-dolomite/QManager 0133014e; before it, the
+        # old "strip every prefix then split once" loop merged the two records
+        # into ONE carrier whose RSRP/RSRQ/SNR were the fields of the second
+        # so a 2-carrier NR reply rendered one NR carrier with wrong readings.
+        {
+            line = $0 ""
+            off = 1
+            while ((q = index(substr(line, off + 1), "+QCAINFO:")) > 0) {
+                k = off + q
+                if (substr(line, k - 1, 1) == " ") { off = k; continue }
+                proc(substr(line, 1, k - 1))
+                line = substr(line, k)
+                off = 1
+            }
+            proc(line)
         }
         END { printf "%d|%d|%d|%s", lte, nr, total, details }
     ')
@@ -960,9 +1047,28 @@ parse_ca_info() {
     # forks) run every cycle although it only ever looks at tech/band/pci.
     t2_scc_sig=""
     if [ -s "$cc_tmpfile" ]; then
-        local _t _te _b _r1 _r2 _p _r3
-        while IFS='	' read -r _t _te _b _r1 _r2 _p _r3; do
+        local _t _te _b _r1 _r2 _p _r3 _r4 _r5 _sinr
+        while IFS='	' read -r _t _te _b _r1 _r2 _p _r3 _r4 _r5 _sinr; do
             [ "$_t" = "SCC" ] && t2_scc_sig="${t2_scc_sig}${_te}:${_b}:${_p};"
+            # The FIRST LTE PCC is the serving cell, and its field 10 is the only
+            # SINR-class reading this firmware gives per cycle. Published as
+            # `t2_lte_serving_sinr` for the poller to apply to `lte.sinr`, which
+            # otherwise carries AT+QENG field 17 — a number that disagrees with
+            # AT+QSINR by ~10 dB on the RG520N-EB (see this function's header).
+            if [ -z "$t2_lte_serving_sinr" ] && [ "$_te" = "LTE" ]; then
+                case "$_t" in
+                    PCC*)
+                        # Charset guard, not just a "null" test: this value is fed
+                        # to jq with --argjson downstream, and one garbled field
+                        # would fail the whole status write. A field that is not
+                        # a number is not a reading.
+                        case "$_sinr" in
+                            ''|*[!0-9.-]*) : ;;
+                            *) t2_lte_serving_sinr="$_sinr" ;;
+                        esac
+                        ;;
+                esac
+            fi
         done < "$cc_tmpfile"
         t2_carrier_components=$(jq -Rs '
             split("\n") | map(select(length > 0) | split("\t")) | map({

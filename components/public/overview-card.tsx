@@ -32,6 +32,7 @@ import {
 } from "@/components/public/overview/states";
 import { StatusTile, TonalTile } from "@/components/public/overview/tiles";
 import {
+  bandMetricValue,
   CONNECTION_TILE,
   EYEBROW_CLASS,
   formatAge,
@@ -566,7 +567,7 @@ function renderBody({
           ) : (
             <AggregateBandRow
               metric={bandMetric}
-              value={bandMetric === "rsrp" ? data.signal.rsrp : data.signal.sinr}
+              value={bandMetricValue(data.signal, bandMetric)}
               reachable={reachable}
               entranceIndex={entrance(0)}
               t={t}

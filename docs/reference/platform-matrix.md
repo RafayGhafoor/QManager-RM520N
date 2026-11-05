@@ -1570,6 +1570,8 @@ for another unit is a **fix**, a **no-op**, or a **regression** here.
 | `stat` applet | **present at `/bin/stat`**, `stat -c %Y` / `stat -c '%a'` work | `date -r` rewrites are no-ops; there is **no** latent `stat` defect here, unlike the X75 |
 | `date -r FILE +%s` | **works** | as above |
 | `awk` `x = x (cond) a` | **BROKEN — "Call to undefined function"** | A real hazard on this busybox awk, already documented and avoided twice in this tree (`phy_metrics.sh:391`, `qmi_read.sh:275`). Build the separator into its own variable |
+| LTE SINR: `AT+QENG="servingcell"` **field 17 is not SINR** | `AT+QSINR` = `-2,-6,-10,-6` (per antenna) and `AT+QCAINFO` field 10 = `-5` in the same minute that field 17 read `+7`/`+8` (2026-11-05, B3/EARFCN 1850/PCI 227) | Two sources agree, one does not. `lte.sinr` and `carrier_components[].sinr` both take the QCAINFO value (`qmanager_poller` > `serving_sinr_apply`). **A port must re-run all three** before reusing either mapping — see [`carrier-aggregation.md`](./carrier-aggregation.md#which-sinr-is-real-rg520n-eb--and-why-the-dashboard-was-wrong) |
+| `AT+QCAINFO` can glue two records on one line | Seen in the field shape `...,528000+QCAINFO: "SCC",502110,...`; the archive for 2026-11-04/05 shows `bands` = `B3+N41+N41` with `nrca_cc` = 0, i.e. a 2-carrier NR link whose component list held one. `parse_ca_info()` splits at every glued `+QCAINFO:` (upstream `0133014e`); without it a 2-carrier NR reply renders one carrier with the other's readings |
 
 ### RG520N-EB (GreenPacket O5A Pro) — vendor `netmgrd` heap growth (cause unknown)
 
