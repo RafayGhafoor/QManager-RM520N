@@ -2,6 +2,7 @@ import type { TFunction } from "i18next";
 
 import type { LteStatus, NrStatus } from "@/types/modem-status";
 import {
+  RSSI_THRESHOLDS,
   RSRP_THRESHOLDS,
   RSRQ_THRESHOLDS,
   SINR_THRESHOLDS,
@@ -34,17 +35,25 @@ import {
 //
 // THE TWO LEGS ARE NOT THE SAME LIST, so this branches on `family` rather than
 // pretending they are and reading through an optional field. NR carries SCS and
-// no RSSI; LTE carries RSSI and no SCS; and their channel numbers are different
-// quantities with different names (ARFCN vs EARFCN), not one field spelled two
-// ways. The measurement trio in the middle IS shared, and it is shared by
-// construction here rather than by two authors happening to agree.
+// LTE does not, and their channel numbers are different quantities with
+// different names (ARFCN vs EARFCN), not one field spelled two ways. Everything
+// else is shared: the four MEASUREMENTS in a fixed order, and the identity rows
+// above them.
 //
 // ROW ORDER IS PART OF THE CONTRACT. `TickGroup` ranks the values that moved
 // this poll by their live DOM position, and the card's row grid has no
 // `grid-cols-*`, so document order IS reading order. Identity first, then the
-// channel and cell identifiers, then the measurements. Do not reorder to make
-// the two legs symmetrical — LTE's RSSI sits with the measurements because it
-// is one, and NR's SCS sits last because it is an identifier.
+// channel and cell identifiers, then the measurements — RSRP, RSRQ, RSSI, SINR
+// — and NR's SCS last because it is an identifier.
+//
+// RSSI HOLDS THE SAME SLOT ON BOTH LEGS (2026-11-05). It used to sit after SINR
+// on NR and between RSRQ and SINR on LTE, on the reasoning that each leg should
+// order its own block — and it read as two different measurements when the two
+// cards were looked at side by side, which is the whole point of a paired
+// layout. The owner asked for the rows to line up and for RSSI to carry a bar
+// like its neighbours, so both legs now put it in the third measurement slot and
+// both give it `RSSI_THRESHOLDS`. The two cards therefore line up row for row
+// down to SCS, which is the one row only the NR leg has.
 // =============================================================================
 
 /**
@@ -104,9 +113,14 @@ export function buildSignalRows(
   // reads it as a property of the row, never of the reading; that split is the
   // whole of the no-reading state. A row with no `thresholds` is an identifier
   // and must never be tinted, gauged or announced with a quality word.
+  //
+  // All four measurements are built here, in one order, for both legs: that is
+  // what keeps the RSSI row in the same place on the two cards and gives it the
+  // same 56px gauge lane and fixed-width figure as the rest.
   const measurements = (source: {
     rsrp: number | null;
     rsrq: number | null;
+    rssi: number | null;
     sinr: number | null;
   }): SignalStatusRow[] => [
     {
@@ -122,6 +136,16 @@ export function buildSignalRows(
       thresholds: RSRQ_THRESHOLDS,
     },
     {
+      // Third slot on BOTH legs. `RSSI_THRESHOLDS` is the one ladder here that
+      // is a product decision rather than a 3GPP table — see the note beside it
+      // in types/modem-status.ts; it is monotone in received energy, not a
+      // verdict on link health.
+      label: t("signal_status.rssi"),
+      value: fmt(source.rssi, "dBm"),
+      rawValue: source.rssi,
+      thresholds: RSSI_THRESHOLDS,
+    },
+    {
       label: t("signal_status.sinr"),
       value: fmt(source.sinr, "dB"),
       rawValue: source.sinr,
@@ -129,9 +153,10 @@ export function buildSignalRows(
     },
   ];
 
-  const trio = measurements({
+  const quad = measurements({
     rsrp: data?.rsrp ?? null,
     rsrq: data?.rsrq ?? null,
+    rssi: data?.rssi ?? null,
     sinr: data?.sinr ?? null,
   });
 
@@ -153,20 +178,10 @@ export function buildSignalRows(
           value: nr?.pci?.toString() ?? ABSENT,
           isIdentifier: true,
         },
-        ...trio,
-        // RSSI is a measurement and joins the measurements, but it is appended
-        // rather than slotted between RSRQ and SINR the way the LTE leg does it.
-        // The two legs are NOT made symmetrical on purpose (see the header): the
-        // trio above is shared by construction, and RSSI is per-leg, so each leg
-        // puts it where its own block already ends. SCS stays last because it is
-        // an identifier.
-        //
-        // Carries NO threshold set, exactly like the LTE leg: total received
-        // power including noise and interference has no good-or-bad reading on
-        // its own. Untinted, ungauged, announced with no quality word.
-        { label: t("signal_status.rssi"), value: fmt(nr?.rssi, "dBm") },
+        ...quad,
         // Subcarrier spacing is a configuration of the carrier, not a reading
-        // off it — 30 kHz is not better or worse than 15. Identifier, last.
+        // off it — 30 kHz is not better or worse than 15. Identifier, last, and
+        // the only row the two cards do not share.
         {
           label: t("signal_status.scs"),
           value: fmt(nr?.scs, "kHz"),
@@ -193,15 +208,7 @@ export function buildSignalRows(
         value: lte?.pci?.toString() ?? ABSENT,
         isIdentifier: true,
       },
-      ...trio.slice(0, 2),
-      // RSSI is a measurement, and it sits between RSRQ and SINR exactly where
-      // it shipped. It carries NO threshold set, and that is deliberate rather
-      // than an omission: total received power including noise and interference
-      // has no good-or-bad reading on its own — a strong RSSI beside a weak
-      // RSRQ is a congested cell, not a healthy one. Untinted, ungauged, and
-      // announced with no quality word.
-      { label: t("signal_status.rssi"), value: fmt(lte?.rssi, "dBm") },
-      ...trio.slice(2),
+      ...quad,
     ],
   };
 }

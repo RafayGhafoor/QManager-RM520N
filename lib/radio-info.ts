@@ -16,6 +16,7 @@ import type {
   SignalQuality,
 } from "@/types/modem-status";
 import {
+  RSSI_THRESHOLDS,
   RSRP_THRESHOLDS,
   RSRQ_THRESHOLDS,
   SINR_THRESHOLDS,
@@ -111,8 +112,6 @@ export interface RadioMetric {
   /** 0-100 for a MetricBar, or null when value is null. */
   percent: number | null;
   quality: SignalQuality;
-  /** true when this metric has no bar and renders as a plain value row (RSSI). */
-  barless: boolean;
 }
 
 /**
@@ -151,7 +150,6 @@ function buildMetrics(carrier: ResolvedCarrier): RadioMetric[] {
       // aggregation.tsx, which plots it under its own documented convention.
       percent: rsrp === null ? null : signalToProgress(rsrp, RSRP_THRESHOLDS),
       quality: getSignalQuality(rsrp, RSRP_THRESHOLDS),
-      barless: false,
     },
     {
       id: "rsrq",
@@ -160,7 +158,6 @@ function buildMetrics(carrier: ResolvedCarrier): RadioMetric[] {
       unit: "dB",
       percent: rsrq === null ? null : signalToProgress(rsrq, RSRQ_THRESHOLDS),
       quality: getSignalQuality(rsrq, RSRQ_THRESHOLDS),
-      barless: false,
     },
     {
       id: "sinr",
@@ -169,7 +166,6 @@ function buildMetrics(carrier: ResolvedCarrier): RadioMetric[] {
       unit: "dB",
       percent: sinr === null ? null : signalToProgress(sinr, SINR_THRESHOLDS),
       quality: getSignalQuality(sinr, SINR_THRESHOLDS),
-      barless: false,
     },
   ];
 
@@ -180,10 +176,14 @@ function buildMetrics(carrier: ResolvedCarrier): RadioMetric[] {
   // Before 2026-11-05 this row was LTE-only and its comment said NR lines carry
   // no RSSI at all, which was true of the line and false of the modem.
   //
-  // It stays barless: RSSI has no meaningful 0-100 scale to plot against, and
-  // the same range guard applies even though it has no quality verdict to
-  // corrupt — an out-of-range RSSI would still PRINT, and a printed number is a
-  // claim regardless of whether a chip sits next to it.
+  // It USED to be `barless: true` with a caption where the track goes, on the
+  // argument that "total received power has no meaningful 0-100 scale". That
+  // argument only holds for a VERDICT — RSSI still moves monotonically with the
+  // energy arriving at the antenna, which is what a bar plots — and keeping it
+  // barless left this page disagreeing with the dashboard's two primary status
+  // cards, which the owner asked to gauge on 2026-11-05. Both surfaces now read
+  // the same `RSSI_THRESHOLDS` (`types/modem-status.ts`), so a carrier's RSSI
+  // reads identically wherever it is shown.
   const rssi = normalizeMetricValue(carrier.rssi, "rssi");
   if (rssi !== null) {
     metrics.push({
@@ -191,9 +191,8 @@ function buildMetrics(carrier: ResolvedCarrier): RadioMetric[] {
       labelKey: "rssi",
       value: rssi,
       unit: "dBm",
-      percent: null,
-      quality: "none",
-      barless: true,
+      percent: signalToProgress(rssi, RSSI_THRESHOLDS),
+      quality: getSignalQuality(rssi, RSSI_THRESHOLDS),
     });
   }
 

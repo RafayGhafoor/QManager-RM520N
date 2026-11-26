@@ -30,10 +30,10 @@ import { cn } from "@/lib/utils";
 import { copyText } from "@/lib/clipboard";
 import type { ModemStatus } from "@/types/modem-status";
 import {
-  calculateLteDistance,
-  calculateNrDistance,
-  formatDistance,
+  formatCellDistance,
   formatUptime,
+  readLteDistance,
+  readNrDistance,
 } from "@/types/modem-status";
 import { useUnitPreferences } from "@/hooks/use-system-settings";
 
@@ -491,13 +491,19 @@ export function CellularInformationCard({
   // is DERIVED — TA is quantised in ~78m steps on LTE — so it carries the same
   // focusable marker the inferred-SCS field uses rather than being printed as
   // though the modem measured it.
-  const distanceKm = isSA
-    ? calculateNrDistance(nr?.ta ?? null)
-    : calculateLteDistance(lte?.ta ?? null);
-  const distance =
-    distanceKm === null
-      ? null
-      : formatDistance(distanceKm, unitPrefs?.distanceUnit);
+  //
+  // Read through the shared `readLteDistance`/`readNrDistance` pair, NOT the raw
+  // calculators, so this row and the dashboard's two Cell Distance rows answer
+  // identically. The `connected` argument is the difference between "inside the
+  // first step" and "the modem has nothing to report", which is the distinction
+  // that kept both rows blank while the radio sat on the timing reference.
+  const distanceReading = isSA
+    ? readNrDistance(nr?.ta ?? null, nr?.state === "connected")
+    : readLteDistance(lte?.ta ?? null, lte?.state === "connected");
+  const distance = formatCellDistance(
+    distanceReading,
+    unitPrefs?.distanceUnit,
+  );
 
   return (
     <CardShell title={title} description={description}>

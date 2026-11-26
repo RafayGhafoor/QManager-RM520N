@@ -1516,6 +1516,8 @@ because these are exactly the facts a port re-discovers the hard way.
 | `AT+QNWCFG="rrc_state"` | `1,"LTE",4` |
 | `AT+QNWCFG="nr5g_tx_pwr"` | `1,2,-10,18,-10` |
 | `AT+QNWCFG="ssb_beam_id"` | 6 beams: `…,<count>,<beam>,<rsrp>,<rsrq>,<pci>` |
+| `AT+QNWCFG="lte_time_advance"` | `1,0` — index 0 = inside the first 78 m step (**2026-11-05**; the same unit answered a latched `1968` on 2026-10-22) |
+| `AT+QNWCFG="nr5g_time_advance"` | `1,-512,0` — **signed, four fields** (**2026-11-05**; `1,25600,25600` on 2026-10-22). See [`carrier-aggregation.md`](./carrier-aggregation.md#timing-advance-is-not-a-stable-absolute-on-this-firmware-measured-2026-11-05) |
 | **`AT+QNWCFG="lte_tx_pwr"`** | **`ERROR: command_failed` — absent on this firmware** |
 | **`AT+QNWCFG="nr5g_pathloss"`** | **`ERROR: command_failed` — absent on this firmware** |
 
@@ -1573,6 +1575,7 @@ for another unit is a **fix**, a **no-op**, or a **regression** here.
 | `awk` `x = x (cond) a` | **BROKEN — "Call to undefined function"** | A real hazard on this busybox awk, already documented and avoided twice in this tree (`phy_metrics.sh:391`, `qmi_read.sh:275`). Build the separator into its own variable |
 | LTE SINR: `AT+QENG="servingcell"` **field 17 is not SINR** | `AT+QSINR` = `-2,-6,-10,-6` (per antenna) and `AT+QCAINFO` field 10 = `-5` in the same minute that field 17 read `+7`/`+8` (2026-11-05, B3/EARFCN 1850/PCI 227) | Two sources agree, one does not. `lte.sinr` and `carrier_components[].sinr` both take the QCAINFO value (`qmanager_poller` > `serving_sinr_apply`). **A port must re-run all three** before reusing either mapping — see [`carrier-aggregation.md`](./carrier-aggregation.md#which-sinr-is-real-rg520n-eb--and-why-the-dashboard-was-wrong) |
 | `AT+QCAINFO` can glue two records on one line | Seen in the field shape `...,528000+QCAINFO: "SCC",502110,...`; the archive for 2026-11-04/05 shows `bands` = `B3+N41+N41` with `nrca_cc` = 0, i.e. a 2-carrier NR link whose component list held one. `parse_ca_info()` splits at every glued `+QCAINFO:` (upstream `0133014e`); without it a 2-carrier NR reply renders one carrier with the other's readings |
+| Timing advance | **Cell-dependent and NOT a stable absolute.** `lte_time_advance` measured `1968` (2026-10-22, latched) then `0` (2026-11-05, per-read enable) and `nr5g_time_advance` measured `25600` then `-512` — while the anchor moved from B1/EARFCN 250/NR PCI 47 to B3/EARFCN 1850/NR PCI 776. `nr5g_time_advance` is **signed**: a small negative is "at the timing reference", not an error | Never carry a TA reading across attach, never average two, and never treat a signed NR value as missing data. `readNrDistance()` in `types/modem-status.ts` is the only reader — see [`carrier-aggregation.md`](./carrier-aggregation.md#timing-advance-is-not-a-stable-absolute-on-this-firmware-measured-2026-11-05) |
 
 ### RG520N-EB (GreenPacket O5A Pro) — vendor `netmgrd` heap growth (cause unknown)
 

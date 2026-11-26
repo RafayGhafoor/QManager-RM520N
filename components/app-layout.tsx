@@ -23,6 +23,7 @@ import { Separator } from "@/components/ui/separator";
 import { AppSidebar } from "@/components/app-sidebar";
 import { useBreadcrumbs } from "@/hooks/use-breadcrumbs";
 import { SimSwapBanner } from "@/components/monitoring/watchdog/sim-swap-banner";
+import { AppStatusStrip } from "@/components/app-status-strip";
 import { isLoggedIn } from "@/hooks/use-auth";
 import { useAutoLogout } from "@/hooks/use-auto-logout";
 import { DUR, EASE_STANDARD } from "@/lib/motion";
@@ -85,6 +86,10 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               </BreadcrumbList>
             </Breadcrumb>
           </div>
+          {/* The three live facts, right-aligned in the bar. It owns its own
+              `ml-auto`, so the header stays a plain flex row with two children
+              and does not need a spacer element that exists only to push. */}
+          <AppStatusStrip />
         </header>
         <SimSwapBanner />
         <motion.div

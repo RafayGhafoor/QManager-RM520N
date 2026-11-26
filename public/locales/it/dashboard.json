@@ -102,6 +102,8 @@
     "nr_cell_distance": "NR Distanza cella",
     "lte_distance_tooltip": "Questa è solo un'approssimazione basata sul valore LTE Timing Advance di {{ta}}.",
     "nr_distance_tooltip": "Questa è solo un'approssimazione basata sul valore NR Timing Advance di {{ta}}.",
+    "distance_at_reference_tooltip": "Il modem riporta un anticipo temporale di {{ta}}, cioè è esattamente sul riferimento temporale della rete. La cella servente si trova da qualche parte entro un passo (fino a {{bound}}), quindi la riga mostra la larghezza di quel passo: un limite superiore, non una misura.",
+    "distance_out_of_range_tooltip": "Il modem riporta un anticipo temporale di {{ta}}. Nessuna lettura standard di quel valore produce una distanza plausibile, quindi non ne viene mostrata alcuna.",
     "ta_unavailable": "Il valore dell'anticipo temporale non è disponibile.",
     "connection_uptime": "Tempo di attività della connessione",
     "device_uptime": "Tempo di attività del dispositivo",

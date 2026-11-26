@@ -1968,7 +1968,6 @@
         "sinr": "SINR",
         "snr": "SNR",
         "rssi": "RSSI",
-        "rssi_caption": "宽带接收功率",
         "not_reported": "此载波未上报",
         "not_reported_short": "未上报"
       },

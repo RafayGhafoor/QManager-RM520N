@@ -102,6 +102,8 @@
     "nr_cell_distance": "NR 基站距離",
     "lte_distance_tooltip": "這只是基於 LTE 時間提前量 {{ta}} 的估算值。",
     "nr_distance_tooltip": "這只是基於 NR 時間提前量 {{ta}} 的估算值。",
+    "distance_at_reference_tooltip": "數據機回報的時間提前量為 {{ta}}，即正好位於網路的定時參考點。服務小區位於一個步長之內（最多 {{bound}}），因此該列顯示的是這個步長的寬度——上限值，而非實測距離。",
+    "distance_out_of_range_tooltip": "數據機回報的時間提前量為 {{ta}}，依標準無論如何換算都得不到合理的距離，因此不顯示距離。",
     "ta_unavailable": "時間提前量資料不可用。",
     "connection_uptime": "連線執行時長",
     "device_uptime": "裝置執行時長",

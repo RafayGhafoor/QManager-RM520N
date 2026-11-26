@@ -343,41 +343,38 @@ function MetricCell({
       </div>
 
       <div className={METER_LANE}>
-        {metric.barless ? (
-          // RSSI has no meaningful 0-100 scale, so it gets a caption where the
-          // track would be rather than a bar that means nothing.
-          <span className="truncate text-xs leading-4 text-on-surface-variant">
-            {t("radio_info.bands.metric.rssi_caption")}
-          </span>
-        ) : (
-          // A null metric is NOT zero percent, and `MetricBar` now says so in
-          // the one channel that cannot be misread: `value={null}` renders the
-          // TRACK ALONE, with no fill element at all. A zero-length fill would
-          // read as "signal is zero", which is a different and alarming claim
-          // about a value the radio simply did not report — SCCs routinely
-          // report only a subset.
-          //
-          // This replaces a "Not reported" caption in the meter lane. The words
-          // did not disappear: they moved to the `sr-only` line below, so the
-          // lane now holds a bar on every metric row and the four bars in a
-          // carrier's grid stay scannable as one column instead of one of them
-          // turning into a sentence.
-          <MetricBar
-            value={metric.percent}
-            max={100}
-            // Unreachable by construction: `colorOverride` pins the tone, so
-            // these two only exist to satisfy the required props.
-            warnAt={101}
-            dangerAt={101}
-            // Null passes straight through, never a fallback COLOUR. When
-            // `tone` is null there is no reading, `value` is null in the same
-            // breath, and MetricBar renders no fill for this prop to tint.
-            // A `?? "success"` here is exactly the bug this file used to ship.
-            colorOverride={tone}
-            track="surface-container-high"
-            index={index}
-          />
-        )}
+        {/* Every metric draws a bar now, RSSI included (2026-11-05). The
+            `barless` branch that stood here gave RSSI a caption in this lane
+            instead of a track; the owner asked for it to be gauged like its
+            neighbours, so the flag and the caption went with it — a fourth
+            metric with no bar would be the odd cell out in a grid of four. */}
+        {/* A null metric is NOT zero percent, and `MetricBar` says so in the
+            one channel that cannot be misread: `value={null}` renders the
+            TRACK ALONE, with no fill element at all. A zero-length fill would
+            read as "signal is zero", which is a different and alarming claim
+            about a value the radio simply did not report — SCCs routinely
+            report only a subset.
+
+            This replaces a "Not reported" caption in the meter lane. The words
+            did not disappear: they moved to the `sr-only` line below, so the
+            lane now holds a bar on every metric row and the four bars in a
+            carrier's grid stay scannable as one column instead of one of them
+            turning into a sentence. */}
+        <MetricBar
+          value={metric.percent}
+          max={100}
+          // Unreachable by construction: `colorOverride` pins the tone, so
+          // these two only exist to satisfy the required props.
+          warnAt={101}
+          dangerAt={101}
+          // Null passes straight through, never a fallback COLOUR. When
+          // `tone` is null there is no reading, `value` is null in the same
+          // breath, and MetricBar renders no fill for this prop to tint.
+          // A `?? "success"` here is exactly the bug this file used to ship.
+          colorOverride={tone}
+          track="surface-container-high"
+          index={index}
+        />
       </div>
 
       {/* Colour is not an accessible channel. The ramp's adjacent stops sit
@@ -386,13 +383,11 @@ function MetricCell({
           An absent reading says so too — otherwise an empty track and a
           full-length one differ only by pixels a screen reader cannot see.
           Same treatment as `antenna-statistics/tech-card.tsx`. */}
-      {!metric.barless ? (
-        <span className="sr-only">
-          {tone === null
-            ? t("radio_info.bands.metric.not_reported")
-            : t(`radio_info.bands.quality.${metric.quality}`)}
-        </span>
-      ) : null}
+      <span className="sr-only">
+        {tone === null
+          ? t("radio_info.bands.metric.not_reported")
+          : t(`radio_info.bands.quality.${metric.quality}`)}
+      </span>
     </div>
   );
 }
@@ -707,13 +702,15 @@ export function ActiveBandsCard({
                             no 0-100 scale to plot and read as an afterthought
                             next to three real bars" — and the owner asked for
                             it back, because the vendor UI shows RSSI on both
-                            legs and this page showed neither. `MetricCell`
-                            already renders a barless metric correctly (a
-                            caption in the meter lane, no track, no quality
-                            word), so the fix is to stop filtering rather than
-                            to teach the cell a new form. Do not re-add the
-                            filter: the objection was to a meaningless BAR, and
-                            that is what the `barless` branch exists to avoid. */}
+                            legs and this page showed neither. Later the same
+                            day the owner asked for the dashboard's RSSI rows to
+                            be gauged like their neighbours, so the `barless`
+                            flag is gone from `RadioMetric` entirely and RSSI
+                            draws a bar here too, from the same
+                            `RSSI_THRESHOLDS`. Do not re-add the filter, and do
+                            not re-introduce a barless metric form: one metric
+                            with no bar in a grid of four is the afterthought
+                            the original request was objecting to. */}
                         <IdentityMetricCell
                           arfcnLabel={arfcnLabel}
                           earfcn={c.earfcn}

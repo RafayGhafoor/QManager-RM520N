@@ -347,3 +347,62 @@ on this unit. Fixed by the per-mode table above.
 > An earlier version of this section checked `phy.lte.time_advance` /
 > `phy.nr.time_advance`, which do not exist, so its "null" observations meant
 > nothing. Find a field with `jq 'paths(scalars)'` before asserting its value.
+
+### Timing advance is not a stable absolute on this firmware (measured 2026-11-05)
+
+The 2026-10-22 row above recorded `.nr.ta = 24576` on the anchor cell of the
+day. Two weeks later the same command on the same unit answers a completely
+different shape, and both cell-distance rows on the dashboard had gone blank.
+That is not a regression in the read path — it is what the modem reports now.
+
+| Probe (2026-11-05, 5G-NSA, B3 EARFCN 1850 / N41 ARFCN 509070) | Answer |
+| --- | --- |
+| `.lte.band` / `.nr.band`, `.lte.pci` / `.nr.pci` in `/tmp/qmanager_status.json` | `B3` / `N41`, **420** / **776** |
+| Anchor cell on 2026-10-25 (archive `metrics/2026-10-25.csv`) | LTE **B1** EARFCN 250, **NR PCI 47** — a different cell, so every timing number below describes a different geometry |
+| `AT+QNWCFG="lte_time_advance",1` then query | `+QNWCFG: "lte_time_advance",1,0` |
+| `AT+QNWCFG="nr5g_time_advance",1` then query | `+QNWCFG: "nr5g_time_advance",1,-512,0` — **four fields, the third negative**, and the fourth is `0`, not a duplicate of the third |
+| Same, held enabled 50 s with a 2 Hz ping running | **unchanged** (`1,0` / `1,-512,0`), so this is the modem's report and not a read-too-early artefact |
+| Published | `.lte.ta = 0`, `.nr.ta = -512` |
+
+What this means for a port:
+
+> **It is also not constant between ticks.** Re-read an hour later the same
+> serving cell answered `-1024` instead of `-512` — still inside the reference
+> band, and now exactly at the edge of `TA_REFERENCE_SPAN_UNITS` (1024 units =
+> 78 m, one LTE step). A value beyond that is treated as out of range rather
+> than clamped, which is the boundary to watch if this ever reads large and
+> negative again.
+
+- **`nr5g_time_advance` is SIGNED.** A negative N_TA is not an error: 3GPP
+  TS 38.211 puts transmit timing at `(N_TA + N_TA,offset)·Tc` and the offset
+  absorbs the frame-reference difference, so a modem that has already subtracted
+  its offset can legitimately answer with a small negative. Do not clamp it to
+  zero and do not treat it as "no data" — that is exactly what blanked the row.
+- **`lte_time_advance = 0` on a CONNECTED leg is a reading**, not silence. It
+  means "inside the first step" (78.1 m). It is only "no data" on an idle leg,
+  which is why the reader takes a `connected` flag.
+- **The value is cell- and session-dependent, and it is not comparable across
+  attach.** 24576 (≈1.9 km) and −512 (≈ −39 m) are the same command, weeks
+  apart, on different cells. Do not average them, do not carry one over, and do
+  not build a trend from them.
+- **The old 1968 is still refused.** Any value above the 3GPP index ceiling of
+  1282 stays unrenderable (see `AGENTS.md` > Gotchas); nothing here reintroduces
+  a divisor.
+
+### How the UI turns a timing advance into a distance
+
+`types/modem-status.ts` > `readLteDistance()` / `readNrDistance()` are the only
+readers; `components/dashboard/device-metrics.tsx` (both Cell Distance rows) and
+`components/cellular/radio/cellular-information-card.tsx` (the Timing Advance
+row on the Connection details card) both go through them, so the two surfaces
+cannot disagree. Four states, and only the first two print a number:
+
+| `kind` | When | Rendered |
+| --- | --- | --- |
+| `measured` | a TA the standards turn into a distance | `1.95 km` |
+| `at_reference` | LTE index `0` on a connected leg; NR `N_TA ≤ 0` with `|N_TA| ≤ 1024` on a connected leg | `≤ 78 m` / `≤ 39 m` — **an upper bound**, one step wide |
+| `out_of_range` | LTE index > 1282 (the 1968 case), or a negative N_TA further out than one LTE step | nothing; the tooltip names the raw value |
+| `absent` | no value, or the leg is not connected | nothing; the tooltip says the reading is unavailable |
+
+The `≤` is load-bearing: `at_reference` is a bounded statement, and printing a
+bare `78 m` would present the width of a quantisation bucket as a measurement.

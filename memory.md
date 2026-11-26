@@ -993,3 +993,32 @@ pointing at `/usr/lib/qmanager/parse_at.sh`; the unit exited 1 with no log line,
 and after three restarts systemd's start-rate limiter refused further starts
 (`systemctl reset-failed` + start was the recovery). Order is: ship → pathfix →
 restart.
+
+## 2026-11-05 (later again) — Cell Distance rows un-blanked; an app-wide status strip
+
+Both `www` deployments this evening were UI-only (`out/` extracted INTO
+`/usrdata/qmanager/www`, `chown -R root:root` afterwards — the tarball stamps
+uid 501 on the directory itself, which the `www` root had until it was fixed).
+
+**Cell Distance.** The rows were empty because the modem now reports
+`.lte.ta = 0` and `.nr.ta = -512` (5G-NSA, B3 EARFCN 1850 / N41 ARFCN 509070,
+PCI 420/776) and both guards discarded `≤ 0`. Held enabled 50 s with traffic and
+the `poller` stopped, the answers did not change — so it is the modem's report,
+not a read-too-early artefact. On **2026-10-22** the same commands answered
+`1968` / `24576` on a **different anchor cell** (B1 EARFCN 250, NR PCI 47), so
+the timing advance is cell-dependent and not comparable across attach. The UI now
+reads it through `readLteDistance()` / `readNrDistance()` (`types/modem-status.ts`)
+and prints `≤ 78 m` / `≤ 39 m` for a reference reading instead of nothing. Full
+record: `docs/reference/carrier-aggregation.md` → "Timing advance is not a stable
+absolute on this firmware".
+
+**Status strip.** `components/app-status-strip.tsx` in the app `<header>`: three
+lanes (connection / signal RSRP / live traffic), each a link to the page that
+owns the number. Status poll 10 s (cached CGI), traffic 1 Hz (static JSON), both
+paused while the tab is hidden. `docs/reference/app-header.md`.
+
+**Follow-up measured an hour later (same evening):** the same serving cell now
+answers `nr5g_time_advance = -1024` (was `-512`) while `lte_time_advance` stays
+`0`, and `.lte.rssi = -37` / `.nr.rssi = -63` hold steady. So the NR figure
+wanders inside the reference band — one LTE step (1024 units) is the floor of
+what a reference reading can be, and anything past it is refused as out of range.

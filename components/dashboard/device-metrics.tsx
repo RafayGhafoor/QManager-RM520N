@@ -38,10 +38,12 @@ import { TickGroup } from "@/components/ui/tick-group";
 import type { DeviceStatus, LteStatus, NrStatus } from "@/types/modem-status";
 import {
   formatBytes,
-  calculateLteDistance,
-  calculateNrDistance,
-  formatDistance,
+  formatCellDistance,
+  formatDistanceBound,
   formatTemperature,
+  LTE_TA_STEP_KM,
+  readLteDistance,
+  readNrDistance,
 } from "@/types/modem-status";
 import { useUnitPreferences } from "@/hooks/use-system-settings";
 import { useDataUsed } from "@/hooks/use-data-used";
@@ -379,16 +381,34 @@ const DeviceMetricsComponent = ({
       ? `${formatBytes(storageUsedKb * 1024)} / ${formatBytes(storageTotalKb * 1024)}`
       : ABSENT;
 
-  const lteKm = calculateLteDistance(lteData?.ta ?? null);
-  const nrKm = calculateNrDistance(nrData?.ta ?? null);
-  const lteDistance =
-    unreachable || lteKm === null
-      ? ABSENT
-      : formatDistance(lteKm, unitPrefs?.distanceUnit);
-  const nrDistance =
-    unreachable || nrKm === null
-      ? ABSENT
-      : formatDistance(nrKm, unitPrefs?.distanceUnit);
+  // THE TWO DISTANCES, and why a reported zero no longer blanks them.
+  //
+  // Both rows were empty on this unit for a week because the modem sat ON the
+  // timing reference and the old code read that as "no data": LTE reported
+  // `lte_time_advance = 0` and NR reported `nr5g_time_advance = -512`
+  // (measured 2026-11-05, 5G-NSA on B3 + N41). `readLteDistance()` /
+  // `readNrDistance()` now separate the four things a TA can mean — measured,
+  // inside one step of the reference, out of range, absent — and only the last
+  // two render nothing. The step width (78 m) is printed for the reference
+  // case with a `≤`, because it is an upper bound and not a measurement.
+  //
+  // The `connected` flag is what makes a 0 trustworthy: an idle leg also
+  // reports 0, and there the row must stay blank rather than claim the cell is
+  // 78 m away.
+  const lteReading = readLteDistance(
+    lteData?.ta ?? null,
+    lteData?.state === "connected",
+  );
+  const nrReading = readNrDistance(
+    nrData?.ta ?? null,
+    nrData?.state === "connected",
+  );
+  const lteDistance = unreachable
+    ? ABSENT
+    : (formatCellDistance(lteReading, unitPrefs?.distanceUnit) ?? ABSENT);
+  const nrDistance = unreachable
+    ? ABSENT
+    : (formatCellDistance(nrReading, unitPrefs?.distanceUnit) ?? ABSENT);
 
   const body = isLoading ? (
     <MetricsSkeleton />
@@ -681,10 +701,28 @@ const DeviceMetricsComponent = ({
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  {!unreachable && lteData?.ta ? (
-                    <p>{t("metrics.lte_distance_tooltip", { ta: lteData.ta })}</p>
-                  ) : (
+                  {unreachable || lteReading.kind === "absent" ? (
                     <p>{t("metrics.ta_unavailable")}</p>
+                  ) : lteReading.kind === "out_of_range" ? (
+                    <p>
+                      {t("metrics.distance_out_of_range_tooltip", {
+                        ta: lteReading.ta,
+                      })}
+                    </p>
+                  ) : lteReading.kind === "at_reference" ? (
+                    <p>
+                      {t("metrics.distance_at_reference_tooltip", {
+                        ta: lteReading.ta,
+                        bound: formatDistanceBound(
+                          LTE_TA_STEP_KM,
+                          unitPrefs?.distanceUnit,
+                        ),
+                      })}
+                    </p>
+                  ) : (
+                    <p>
+                      {t("metrics.lte_distance_tooltip", { ta: lteReading.ta })}
+                    </p>
                   )}
                 </TooltipContent>
               </Tooltip>
@@ -712,10 +750,28 @@ const DeviceMetricsComponent = ({
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  {!unreachable && nrData?.ta ? (
-                    <p>{t("metrics.nr_distance_tooltip", { ta: nrData.ta })}</p>
-                  ) : (
+                  {unreachable || nrReading.kind === "absent" ? (
                     <p>{t("metrics.ta_unavailable")}</p>
+                  ) : nrReading.kind === "out_of_range" ? (
+                    <p>
+                      {t("metrics.distance_out_of_range_tooltip", {
+                        ta: nrReading.ta,
+                      })}
+                    </p>
+                  ) : nrReading.kind === "at_reference" ? (
+                    <p>
+                      {t("metrics.distance_at_reference_tooltip", {
+                        ta: nrReading.ta,
+                        bound: formatCellDistance(
+                          nrReading,
+                          unitPrefs?.distanceUnit,
+                        ),
+                      })}
+                    </p>
+                  ) : (
+                    <p>
+                      {t("metrics.nr_distance_tooltip", { ta: nrReading.ta })}
+                    </p>
                   )}
                 </TooltipContent>
               </Tooltip>

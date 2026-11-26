@@ -1968,7 +1968,6 @@
         "sinr": "SINR",
         "snr": "SNR",
         "rssi": "RSSI",
-        "rssi_caption": "Potenza ricevuta a banda larga",
         "not_reported": "Non riportato per questa portante",
         "not_reported_short": "Non riportato"
       },

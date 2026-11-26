@@ -102,6 +102,8 @@
     "nr_cell_distance": "NR 基站距离",
     "lte_distance_tooltip": "这只是基于 LTE 时间提前量 {{ta}} 的估算值。",
     "nr_distance_tooltip": "这只是基于 NR 时间提前量 {{ta}} 的估算值。",
+    "distance_at_reference_tooltip": "调制解调器上报的时间提前量为 {{ta}}，即正好处于网络的定时参考点。服务小区位于一个步长之内（最多 {{bound}}），因此该行显示的是这个步长的宽度——上限值，而非实测距离。",
+    "distance_out_of_range_tooltip": "调制解调器上报的时间提前量为 {{ta}}，按标准无论如何换算都得不出合理的距离，因此不显示距离。",
     "ta_unavailable": "时间提前量数据不可用。",
     "connection_uptime": "连接运行时长",
     "device_uptime": "设备运行时长",

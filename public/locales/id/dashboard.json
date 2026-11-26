@@ -102,6 +102,8 @@
     "nr_cell_distance": "Jarak Sel NR",
     "lte_distance_tooltip": "Ini hanya perkiraan berdasarkan nilai LTE Timing Advance sebesar {{ta}}.",
     "nr_distance_tooltip": "Ini hanya perkiraan berdasarkan nilai NR Timing Advance sebesar {{ta}}.",
+    "distance_at_reference_tooltip": "Modem melaporkan timing advance sebesar {{ta}}, artinya posisinya tepat pada acuan waktu jaringan. Sel pelayan berada di suatu tempat dalam satu langkah (hingga {{bound}}), jadi lebar langkah itulah yang ditampilkan — batas atas, bukan hasil pengukuran.",
+    "distance_out_of_range_tooltip": "Modem melaporkan timing advance sebesar {{ta}}. Tidak ada pembacaan standar atas nilai itu yang menghasilkan jarak masuk akal, jadi jarak tidak ditampilkan.",
     "ta_unavailable": "Nilai Timing Advance tidak tersedia.",
     "connection_uptime": "Waktu Aktif Koneksi",
     "device_uptime": "Waktu Aktif Perangkat",

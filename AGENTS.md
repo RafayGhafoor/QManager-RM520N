@@ -8,7 +8,7 @@ Scope: this branch is **deployment-only**. The application code (`app/`,
 `components/`, `lib/`, `types/`, `hooks/`) tracks upstream QManager and should
 not be modified here — the product-specific work lives in `deploy/`.
 
-**Eleven recorded exceptions.** The criterion is the same in every case: the feature
+**Thirteen recorded exceptions.** The criterion is the same in every case: the feature
 needs a control the backend cannot provide, so it could not live in `deploy/` alone.
 Anything that *can* be met by extending the backend must still be.
 
@@ -20,9 +20,14 @@ Anything that *can* be met by extending the backend must still be.
    `components/cellular/cell-scanner/**` (+ `neighbourcell/aim-strip.tsx`),
    `hooks/use-neighbour-scanner.ts`, `lib/neighbour-live.ts`,
    `types/cell-scanner.ts`, `public/locales/{en,id,it,zh-CN,zh-TW}/{cellular,dashboard}.json`.
+   **Extended 2026-11-05** (owner: the live screen "disappears", the type is too
+   small to read while aiming, and he wants beeps + speech): `lib/aim-audio.ts`,
+   `hooks/use-aim-audio.ts` (+ the `live.stale` hold in `use-neighbour-scanner.ts`
+   and the enlarged `AIM` scale in `components/cellular/cell-scanner/shapes.ts`).
    Authorised by the owner, recorded in
    [`docs/specs/neighbour-live-aim.md`](./docs/specs/neighbour-live-aim.md) →
-   "Authorisation to touch the app layer".
+   "Authorisation to touch the app layer" and
+   [`docs/plans/2026-11-05-cell-distance-and-app-header.md`](./docs/plans/2026-11-05-cell-distance-and-app-header.md).
 3. **Detailed Metrics page** (2026-10-22, owner authorised R1–R6) — one new route
    presenting PHY depth and a range trend; a metric group cannot be rendered
    without components.
@@ -109,6 +114,27 @@ Anything that *can* be met by extending the backend must still be.
     `components/cellular/radio/active-bands-card.tsx` (the cell filter that had removed it), `types/modem-status.ts`
     (`NrStatus.rssi`). No i18n change: `signal_status.rssi` and `radio_info.bands.metric.rssi` already existed.
     Recorded in [`docs/plans/2026-11-05-nr-rssi.md`](./docs/plans/2026-11-05-nr-rssi.md).
+
+12. **The two Cell Distance rows say what a timing advance means** (2026-11-05, owner reported *"lte cell distance,
+    nr cell distance not being shown"*) — nothing was broken in the backend: the modem reports `.lte.ta = 0` and
+    `.nr.ta = -512` on this cell (measured 2026-11-05, B3/N41, PCI 420/776; on 2026-10-22 the same commands gave
+    1968/24576 on a different cell), and both frontend guards discarded `≤ 0`. The meanings — measured / inside the
+    first step / out of range / absent — are a rendering decision, so the fix could not live in `deploy/`.
+    `types/modem-status.ts` (`readLteDistance`, `readNrDistance`, `formatCellDistance`, `formatDistanceBound`,
+    `LTE_TA_STEP_KM`, `NR_NTA_UNIT_KM`, `TA_REFERENCE_SPAN_UNITS`),
+    `components/dashboard/device-metrics.tsx` (both rows and their tooltips),
+    `components/cellular/radio/cellular-information-card.tsx` (the Timing Advance row, so the two surfaces agree),
+    `public/locales/*/dashboard.json` (two tooltip strings). Recorded in
+    [`docs/reference/carrier-aggregation.md`](./docs/reference/carrier-aggregation.md) → "Timing advance is not a
+    stable absolute on this firmware" and [`docs/plans/2026-11-05-cell-distance-and-app-header.md`](./docs/plans/2026-11-05-cell-distance-and-app-header.md).
+
+13. **The app-wide status strip in the top bar** (2026-11-05, owner asked for a header showing "important stuff"
+    at the top right) — a persistent control surface is a component, so `deploy/` could not deliver it. Every field it
+    reads (`.network.*`, `.lte.*`, `.nr.*`, `.connectivity.*`, `/live-traffic.json`) already shipped in the backend;
+    no script changed. `components/app-status-strip.tsx`, `components/app-layout.tsx` (one child in the existing
+    `<header>`), `public/locales/*/common.json` (`statusStrip`). Recorded in
+    [`docs/reference/app-header.md`](./docs/reference/app-header.md) with its measured cost (status 10 s, traffic
+    1 Hz static, both paused while the tab is hidden).
 Keep any such change minimal, add it here when you make it, and prefer extending
 the backend if a future need can be met without touching app code. An app-layer
 change that is not listed here is out of scope for this branch.
@@ -506,15 +532,21 @@ contention — check which `AT_DEV` the shim is using.
   for `/dev/smd11`, which never appears for CGI.
 - `/tmp/qmanager_status.json` is tmpfs — it is the poller cache and is
   regenerated on poller start. Never treat it as durable state.
-- **LTE Cell Distance is intentionally blank on this firmware.** The modem reports
+- **LTE Cell Distance is intentionally blank on this firmware — unless the modem sits on the timing reference.** The modem reported
   `lte_time_advance=1968` (stable across samples) while `nr5g_time_advance=25600`
   -> ~2.0 km, and the owner confirms the tower is at most 2.5 km away. Under 3GPP
   the LTE figure means ~9.6 km, which the ground truth rules out, and no
   spec-justified reading of 1968 gives ~2 km (as an index it exceeds the 1282
-  ceiling; as N_TA it is 9.6 km). The raw value is published unchanged and the
-  dashboard's range check declines to render it. Do NOT reintroduce a scale factor
-  to force a plausible number — an earlier /16 guess was disproved by the owner.
-  NR distance is trustworthy and does render.
+  ceiling; as N_TA it is 9.6 km). That value stays refused. **Measured
+  2026-11-05:** the same field now answers `0` on a connected leg (B3, PCI 420)
+  and `nr5g_time_advance` answers `-512` — both mean "on the timing reference",
+  so both rows now render a bounded `≤ 78 m` / `≤ 39 m` instead of a blank. The
+  raw value is still published unchanged, and `readLteDistance()` /
+  `readNrDistance()` decide what it means
+  ([`docs/reference/carrier-aggregation.md`](./docs/reference/carrier-aggregation.md)).
+  Do NOT reintroduce a scale factor to force a plausible number from an
+  out-of-range value — an earlier /16 guess was disproved by the owner. NR
+  distance is trustworthy and does render.
 - **SMS: do not read the modem to answer "what is my inbox".** On this device the
   inbox is `/data/turin/mifi_config.sqlite` → `sms_config` (written by the vendor's
   `smsd`, and what the `:80` UI is served from); the modem's `ME` slots hold

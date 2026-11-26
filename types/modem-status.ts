@@ -571,6 +571,35 @@ export const SINR_THRESHOLDS: SignalThresholds = {
 };
 
 /**
+ * RSSI thresholds (dBm) — higher (less negative) is better.
+ *
+ * RSSI IS THE ONE METRIC HERE WITH NO STANDARD QUALITY LADDER, and this set is
+ * therefore a product decision rather than a citation. It is total received
+ * power across the band, so it folds in noise and interference and cannot on its
+ * own say whether a link is healthy: a strong RSSI beside a poor RSRQ is a
+ * congested cell, not a good one. What it IS monotone in is the energy arriving
+ * at the antenna — which is exactly what someone aiming an antenna moves the
+ * unit for — so it gets a scale of its own rather than borrowing RSRP's, and
+ * the row's tooltip says what the number is.
+ *
+ * The cuts are placed against measurements from this unit rather than copied
+ * from a vendor table: on 2026-11-05 `lte.rssi` read −36 dBm on a strong B3 cell
+ * while `nr.rssi` read −63 dBm on N41 in the same minute. Those are not the same
+ * quantity — LTE's RSSI is integrated over the whole channel, modemd's `NR_rssi`
+ * is not — so the bar compares a leg to ITSELF over time; across legs it is only
+ * a rough comparison, which is why both rows are labelled RSSI rather than being
+ * merged into one verdict.
+ */
+export const RSSI_THRESHOLDS: SignalThresholds = {
+  excellent: -55,
+  good: -65,
+  fair: -75,
+  poor: -87,
+  floor: -100,
+  range: METRIC_RANGES.rssi,
+};
+
+/**
  * Categorizes a signal value into a quality level based on thresholds.
  * Works for any metric where higher = better.
  *
@@ -1047,10 +1076,11 @@ export function formatBytes(bytes: number): string {
  * Based on 3GPP TS 36.213: NTA = 16 × TA, TS = 1/(2048×15000).
  * Distance = (c × NTA × TS) / 2.
  *
- * NOTE: TA=0 is treated as "no data" rather than "zero distance". The modem
- * reports 0 both when the radio isn't connected (e.g., no 5G link) and when
- * TA reporting is unavailable — a genuine TA of 0 is physically meaningless
- * at any real-world cell distance, so null is the correct signal for the UI.
+ * NOTE: TA=0 is returned as null here — this function answers "what is the
+ * distance for this index", and index 0 has no point value. The STATE that a
+ * zero represents ("inside the first step", or "nothing to report") is decided
+ * by `readLteDistance()`, which is what the UI calls; this primitive stays a
+ * pure range check.
  *
  * @param ta - LTE TA index (0–1282)
  * @returns distance in km, or null if TA is unavailable/invalid/zero
@@ -1068,7 +1098,11 @@ export function calculateLteDistance(ta: number | null): number | null {
  * Based on 3GPP TS 38.213: TC = 1/(480×10³×4096).
  * Distance = (c × NTA × TC) / 2.
  *
- * NOTE: NTA=0 is treated as "no data" — see calculateLteDistance for rationale.
+ * NOTE: NTA=0 is returned as null here — see `calculateLteDistance` for why the
+ * range check and the meaning of zero are separate concerns. A small NEGATIVE
+ * N_TA is a real report (the modem has already subtracted its offset); that
+ * case is handled by `readNrDistance()`, not swallowed here.
+ *
  * This is especially important for NR: when there's no 5G connection at all,
  * the modem still reports nr_ta=0 (stale initial value).
  *
@@ -1080,6 +1114,131 @@ export function calculateNrDistance(nta: number | null): number | null {
   const TC = 1 / (480 * 1000 * 4096);
   const SPEED_OF_LIGHT = 3e8;
   return (SPEED_OF_LIGHT * nta * TC) / 2 / 1000;
+}
+
+/**
+ * One step of the LTE timing-advance index, in km.
+ *
+ * NTA = 16 × TA and Ts = 1/30720000 s, so one index step is 16·Ts of round
+ * trip: 3e8 × 16 / 30720000 / 2 = 78.125 m. This is the width of the bucket a
+ * TA index describes, and therefore the honest answer when the modem reports
+ * index 0 — the cell is inside the first step, it is not "0 m away".
+ */
+export const LTE_TA_STEP_KM = 0.078125;
+
+/**
+ * One NR N_TA unit in km.
+ *
+ * 3GPP TS 38.213: Tc = 1/(480·10³·4096) s, so one unit is 3e8 × Tc / 2 =
+ * 76.29 mm of downlink distance.
+ */
+export const NR_NTA_UNIT_KM = 0.000076293945312;
+
+/**
+ * How far a reading may sit from the timing reference — in TA steps on LTE,
+ * N_TA units on NR — and still be reported as "inside the first step".
+ *
+ * 1024 units is 78 m of one-way distance, i.e. exactly one LTE step, which is
+ * the coarsest quantum either radio reports in. A reading further out than
+ * this is not "near the reference" any more and is treated as unusable rather
+ * than clamped to zero.
+ */
+export const TA_REFERENCE_SPAN_UNITS = 1024;
+
+/**
+ * What a timing-advance reading can say about distance. Four states, because
+ * collapsing them is how a blank row became indistinguishable from a cell that
+ * is genuinely next to the antenna (see `readLteDistance`).
+ */
+export type CellDistanceKind =
+  /** A TA the standard turns into a distance. */
+  | "measured"
+  /**
+   * The modem sits ON the timing reference (LTE index 0, or an NR N_TA of zero
+   * or slightly negative). The cell is inside one step; `km` is that step's
+   * width and the reading is an upper bound, never a measurement.
+   */
+  | "at_reference"
+  /** A value the standards do not turn into a plausible distance. */
+  | "out_of_range"
+  /** Nothing was reported, or the leg is not connected. */
+  | "absent";
+
+export interface CellDistanceReading {
+  kind: CellDistanceKind;
+  /** The raw value as the modem published it, for tooltips. `null` if absent. */
+  ta: number | null;
+  /** Distance in km; `null` unless `kind` is `measured` or `at_reference`. */
+  km: number | null;
+}
+
+/**
+ * Reads the LTE timing-advance index into a distance statement.
+ *
+ * THE ZERO CASE. This used to be discarded outright — `calculateLteDistance()`
+ * returns null for `ta <= 0` and the dashboard printed nothing — on the reading
+ * that "0 is what the modem reports when it has no TA to give". That is true of
+ * an idle leg, and it is why `connected` is a parameter: on a CONNECTED leg a
+ * reported 0 is a real index, it just means "inside the first step", and the
+ * row now says so (≤ 78 m) instead of going blank.
+ *
+ * THE OUT-OF-RANGE CASE is the opposite: this firmware has been measured
+ * reporting `lte_time_advance = 1968` (AGENTS.md > Gotchas), which as an index
+ * is past the 3GPP ceiling of 1282 and as N_TA is 150 km. That stays refused
+ * and stays visible as a refusal, so nobody re-introduces a divisor to make it
+ * look plausible.
+ */
+export function readLteDistance(
+  ta: number | null,
+  connected: boolean,
+): CellDistanceReading {
+  if (ta === null || ta === undefined || !Number.isFinite(ta)) {
+    return { kind: "absent", ta: null, km: null };
+  }
+  if (ta === 0) {
+    return connected
+      ? { kind: "at_reference", ta, km: LTE_TA_STEP_KM }
+      : { kind: "absent", ta: null, km: null };
+  }
+  const km = calculateLteDistance(ta);
+  if (km === null) return { kind: "out_of_range", ta, km: null };
+  return { kind: "measured", ta, km };
+}
+
+/**
+ * Reads the NR N_TA into a distance statement.
+ *
+ * NEGATIVE N_TA IS A REAL REPORT, not an error: 3GPP TS 38.211 puts the UE's
+ * transmit timing at (N_TA + N_TA,offset)·Tc, and N_TA,offset absorbs the
+ * frame-reference difference, so a modem that has already subtracted its offset
+ * can legitimately answer with a small negative number — it means the cell is
+ * at or inside the reference, exactly the statement LTE's index 0 makes.
+ * Measured on this unit (RG520N-EB, 2026-11-05, 5G-NSA, B3 + N41):
+ * `AT+QNWCFG="nr5g_time_advance"` → `"nr5g_time_advance",1,-512,0`, which as a
+ * plain N_TA would be −39 m. Reported as an upper bound, not a negative range.
+ */
+export function readNrDistance(
+  nta: number | null,
+  connected: boolean,
+): CellDistanceReading {
+  if (nta === null || nta === undefined || !Number.isFinite(nta)) {
+    return { kind: "absent", ta: null, km: null };
+  }
+  if (nta <= 0) {
+    // `nta === 0` and a small negative are the same statement: at the timing
+    // reference. Anything further out than one LTE step is not a reference
+    // reading and is refused rather than clamped to it.
+    if (Math.abs(nta) > TA_REFERENCE_SPAN_UNITS) {
+      return { kind: "out_of_range", ta: nta, km: null };
+    }
+    // An idle leg reports the same 0 / small negative without meaning anything,
+    // so "at the reference" is only claimed on a connected leg.
+    if (!connected) return { kind: "absent", ta: null, km: null };
+    return { kind: "at_reference", ta: nta, km: Math.abs(nta) * NR_NTA_UNIT_KM };
+  }
+  const km = calculateNrDistance(nta);
+  if (km === null) return { kind: "out_of_range", ta: nta, km: null };
+  return { kind: "measured", ta: nta, km };
 }
 
 /**
@@ -1101,6 +1260,40 @@ export function formatDistance(
   if (km < 0.01) return "< 10 m";
   if (km < 1) return `${Math.round(km * 1000)} m`;
   return `${km.toFixed(2)} km`;
+}
+
+/**
+ * Formats an UPPER BOUND on a distance — the `at_reference` case, where the
+ * modem has told us the cell is inside one step rather than where it is.
+ *
+ * The `≤` is not decoration. A bounded statement and a measured one are
+ * different claims, and printing "78 m" for a figure the radio never measured
+ * is the kind of quiet lie `PRODUCT.md` principle 3 names. Anything below the
+ * 10 m display floor is reported as `≤ 10 m` rather than as `< 10 m`, so the
+ * prefix is the only thing that varies between the two cases.
+ */
+export function formatDistanceBound(
+  km: number | null,
+  unit?: "km" | "miles",
+): string {
+  if (km === null) return "-";
+  return `≤ ${formatDistance(Math.max(km, 0.01), unit)}`;
+}
+
+/**
+ * The single renderer both cell-distance rows use, so the dashboard and the
+ * Cellular Information card cannot disagree about what a reading means.
+ * Returns `null` for every state that has no distance to print; callers render
+ * their own absent sentinel (the dashboard uses `—`, the card uses
+ * "Not reported") because those two surfaces word absence differently.
+ */
+export function formatCellDistance(
+  reading: CellDistanceReading,
+  unit?: "km" | "miles",
+): string | null {
+  if (reading.kind === "measured") return formatDistance(reading.km, unit);
+  if (reading.kind === "at_reference") return formatDistanceBound(reading.km, unit);
+  return null;
 }
 
 /**

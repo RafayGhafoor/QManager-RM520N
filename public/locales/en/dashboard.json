@@ -102,6 +102,8 @@
     "nr_cell_distance": "NR Cell Distance",
     "lte_distance_tooltip": "This is only an approximation based on the LTE Timing Advance value of {{ta}}.",
     "nr_distance_tooltip": "This is only an approximation based on the NR Timing Advance value of {{ta}}.",
+    "distance_at_reference_tooltip": "The modem reports a timing advance of {{ta}}, i.e. it is sitting on the network's timing reference. The serving cell is somewhere inside one step (up to {{bound}}), so that step width is what the row shows — an upper bound, not a measurement.",
+    "distance_out_of_range_tooltip": "The modem reports a timing advance of {{ta}}. No standard reading of that value yields a plausible distance, so none is shown.",
     "ta_unavailable": "Timing Advance value is not available.",
     "connection_uptime": "Connection Uptime",
     "device_uptime": "Device Uptime",

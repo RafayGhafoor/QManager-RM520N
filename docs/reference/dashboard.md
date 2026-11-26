@@ -294,6 +294,16 @@ the adoption pass. Changing any of it needs its own justification.
   > `SignalStatusRow[]` and forwarded six props — so they collapsed into
   > `signal-rows.ts` (R2). The builder branches on `family` rather
   > than pretending the legs match: **NR carries `scs` and LTE does not.**
+  >
+  > **RSSI holds the same slot on both legs (2026-11-05).** It is the third
+  > measurement — RSRP, RSRQ, **RSSI**, SINR — on the 4G and the 5G card alike,
+  > and it is gauged and tinted like its neighbours, so the two cards line up row
+  > for row down to SCS (the one row only NR has). It previously sat after SINR on
+  > NR and between RSRQ and SINR on LTE, ungaugeed, which read as two different
+  > measurements side by side. `RSSI_THRESHOLDS` (`types/modem-status.ts`) is the
+  > one ladder on these cards that is a **product decision rather than a 3GPP
+  > table** — RSSI is total received power, monotone in arriving energy but not a
+  > verdict on link health — and its cuts are placed from this unit's own readings.
 - **Recent Activity's age-gated tone.** Tone is *what kind of thing happened* and never
   expires — carried by a full-strength disc for as long as the row exists. Weight is
   *how much it still deserves attention* and does expire, settling the container onto

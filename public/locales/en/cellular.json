@@ -1968,7 +1968,6 @@
         "sinr": "SINR",
         "snr": "SNR",
         "rssi": "RSSI",
-        "rssi_caption": "Wideband received power",
         "not_reported": "Not reported for this carrier",
         "not_reported_short": "Not reported"
       },
