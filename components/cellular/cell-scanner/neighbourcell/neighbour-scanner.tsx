@@ -129,6 +129,19 @@ export function NeighbourScanner() {
     null,
   );
 
+  /**
+   * In `now`, the full cell list is a DISCLOSURE, not a second card.
+   *
+   * The console above already ranks the strongest neighbours, and until
+   * 2026-11-05 the same cells were listed again underneath in a sortable table
+   * with its own filter and row limit. Two lists of one set is indecision: while
+   * turning a dish, the reader has to decide which one to look at, and so reads
+   * neither. The table is still the right view for "what is out there" — it just
+   * has to be asked for. It stays open in `last`, where listing everything IS the
+   * job.
+   */
+  const [showAllCells, setShowAllCells] = React.useState(false);
+
   const isLive = range === "now";
   const paused = liveStop !== null;
 
@@ -143,8 +156,13 @@ export function NeighbourScanner() {
 
   const hasResults = posture === "complete" && results.length > 0;
 
-  /** The results card follows the anchor: in `now` it waits for the first sample. */
-  const showResultsCard = isLive ? live !== null : posture !== "idle";
+  /**
+   * In `now` the card is behind the disclosure above; in `last` it follows the
+   * anchor as it always did.
+   */
+  const showResultsCard = isLive
+    ? live !== null && showAllCells && rows.length > 0
+    : posture !== "idle";
 
   /**
    * What the columns need from the sample rather than from the row. Memoised by
@@ -294,6 +312,12 @@ export function NeighbourScanner() {
               liveFailed={liveFailed}
               onResume={resumeLive}
               rangePicker={rangePicker}
+              actions={
+                <>
+                  {pauseAction}
+                  {downloadAction}
+                </>
+              }
             />
           )}
         </motion.div>
@@ -361,6 +385,33 @@ export function NeighbourScanner() {
         </motion.div>
       )}
 
+      {/* The disclosure that opens the full list. It sits directly under the
+          console and reads as one line — the count is the interesting part, and
+          it is the only thing that changes between ticks. */}
+      {isLive && rows.length > 0 ? (
+        <motion.div variants={staggerItem}>
+          <Button
+            type="button"
+            variant="tonal-neutral"
+            className={cn(PILL_QUIET, "w-full justify-between")}
+            aria-expanded={showAllCells}
+            onClick={() => setShowAllCells((open) => !open)}
+          >
+            <span>
+              {showAllCells
+                ? t("cell_scanner.neighbour.results.hide_list")
+                : t("cell_scanner.neighbour.results.all_cells", {
+                    count: rows.length,
+                  })}
+            </span>
+            <MaterialSymbol
+              name={showAllCells ? "expand_more" : "chevron_right"}
+              size={18}
+            />
+          </Button>
+        </motion.div>
+      ) : null}
+
       {showResultsCard ? (
         <motion.div variants={staggerItem} initial="hidden" animate="visible">
           <Card className={SCAN_RESULTS_CARD}>
@@ -385,12 +436,10 @@ export function NeighbourScanner() {
                   data={rows}
                   sample={sample}
                   onLockCell={handleLockCell}
-                  toolbarActions={
-                    <>
-                      {pauseAction}
-                      {downloadAction}
-                    </>
-                  }
+                  // No actions: pause and export moved to the console's own
+                  // toolbar when the table became a disclosure. A second copy
+                  // here would be two controls for one lease.
+                  toolbarActions={null}
                 />
               ) : (
                 // A live sample with no rows. The AT worker's "nothing was

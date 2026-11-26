@@ -539,6 +539,84 @@ Both hooks receive `{"status":"idle"}` in two unrelated situations, and answerin
 
 > ⚠️ **`t` must not sit in the dep array of anything that owns the poll interval.** i18next runs with the default `bindI18n: 'languageChanged'`, so switching language hands back a fresh `t` identity. With `t` in `pollStatus`'s deps, that identity change rebuilt `pollStatus`, which rebuilt the mount effect, whose cleanup calls `stopPolling()` — so **changing language mid-scan tore down the poll interval and nothing ever re-armed it**, while the modem carried on sweeping for its full three minutes. Both hooks now read `t` through a `tRef` that is reassigned on every render: messages stay current (a translation is read at the moment an error is raised, never cached) and `pollStatus` stays identity-stable. Removing `t` from the deps *without* the ref would be the mirror bug — errors raised after a language switch worded in the old language.
 
+## The live aim surface holds its last sample (2026-11-05)
+
+`?range=now` answers `live_at: null` **with `cells: []`** in two unrelated cases —
+the poller has not published yet, and its sample has aged past the CGI's 6 s
+window — and the two are indistinguishable from the browser. The live loop used to
+take that answer at face value and replace the sample with an empty one, so the
+aim card, the two serving figures and every neighbour row vanished for a beat
+several times a minute while somebody was turning a dish. The publish and the read
+are simply not synchronised.
+
+`useNeighbourScanner` now HOLDS the previous sample in that case and ages it by
+one tick per dropped read, flagging it `stale: true` (`NeighbourLiveView.stale`).
+The strip labels it — a `warning` chip reading "Not updating · last sample N s
+old" in the card head — and the trend comparison, the beeps and the voice are all
+suppressed while the sample is held, because repeating a figure with a new
+timestamp would read as "steady", which is a claim about the antenna that no fresh
+reading supports.
+
+> ⚠️ The rule this must not break is `docs/specs/neighbour-live-aim.md`'s: a stale
+> sample is never passed off as current. Holding it *with its age on screen* is on
+> the right side of that line; holding it silently is not. If the chip is ever
+> removed, the hold must go with it.
+
+## The aim console is one question, answered once (2026-11-05, later)
+
+`Range = now` renders `aim-strip.tsx` as a console, in strict priority order:
+
+| Rank | Element | Why it is where it is |
+| --- | --- | --- |
+| 1 | Serving RSRP at 48px → 64px, with the trend chip beside it and a **60-sample trace** under it | The figure says where the dish is pointing; the trace says which way it just came from, which is what an operator acts on |
+| 2 | SINR / RSRQ / RSSI as one row of smaller readouts with bars | "Clean strong signal or loud dirty one" is the follow-up question, not the first |
+| 3 | Top 4 neighbours, ranked, bar + peak tick | The peak is the affordance: a sweet spot swept past is still visible |
+| Footer | Age, the cost line, pause/expired/failed notes | Facts about the surface, not the radio |
+
+**Controls are at the TOP**: the range picker, pause, export and the two audible-aid
+toggles all sit in the console's own toolbar. An operator twenty metres from the
+antenna must not scroll to silence the beeps.
+
+**The full table is a disclosure** (`results.all_cells` → `hide_list`). Until this
+change the same cells were listed twice — ranked in the strip and again in a
+sortable, filterable table underneath. Two lists of one set is indecision: while
+turning a dish the reader has to choose which one to look at and so reads neither.
+The table remains the right surface for "what is out there" after the dish is down,
+so it stayed, one click away. It is still open by default in `last`, where listing
+everything IS the job.
+
+The trace is a 30-line inline SVG, not recharts: ≤ 90 points, no animation (the
+figures already retarget at 1 Hz and a redraw would compete with the number above
+it), and absent samples are GAPS in the line rather than zeros — a zero would draw
+a dive to the floor that never happened.
+
+## The aim surface's type scale is one step up
+
+`AIM` in `components/cellular/cell-scanner/shapes.ts` runs a size larger than the
+rest of the product, at the owner's request (2026-11-05): the card is read
+outdoors, at arm's length, one-handed, with the other hand on a mount. The
+serving figure is 34px → 52px, the neighbour value 16px, PCI 15px, and the eyebrow
+13px/600 — one step off the Label role, which is otherwise reserved for chips and
+table headers. Figures stay `Numeric` (sized to their slot, per `DESIGN.md`), and
+the neighbour row is deliberately taller than the 40px metric-row canon.
+
+## The audible aiming aid
+
+`lib/aim-audio.ts` (pure) + `hooks/use-aim-audio.ts` (Web Audio + `speechSynthesis`).
+
+| Piece | Rule |
+| --- | --- |
+| Trend | `aimTrend(prev, next)` needs a `TREND_STEP_DB` (2 dB) move; anything smaller is `steady` |
+| Beep | only on a confirmed move, sine at 1046.5 Hz (better) / 392 Hz (worse), ≥ `MIN_BEEP_GAP_MS` (450 ms) apart |
+| Voice | the reading plus "improving"/"worse", at most once per `MIN_SPEAK_GAP_MS` (6 s), never queued |
+| Consent | both OFF by default, persisted in `localStorage` (`qm_aim_beeps`, `qm_aim_voice`), and the `AudioContext` is created **inside the toggle's click** — a context created anywhere else starts suspended and the toggle looks broken |
+| Cost | zero while off; a note is one oscillator + gain envelope, stopped and disconnected on release |
+
+Only a MOVE beeps. A steady sample is silent on purpose: at 1 Hz it would click
+once a second for as long as the reader holds still, and a click that means
+"nothing is happening" is indistinguishable from the click that means "keep
+turning".
+
 ## Known gaps
 
 - **`AT+QSCAN` has no cancel.** Once the sweep is in flight the only way to end it early is to kill the worker; the UI has no stop control, and adding one means killing the pid and relying on the `TERM` trap (`qmanager_cell_scanner:44`) to clear the marker.

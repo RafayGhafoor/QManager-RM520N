@@ -374,12 +374,36 @@ export function networkIdentity(networkType: string): TagVariant {
 export const AIM = {
   /** Serving readouts side by side from `@md/section`; stacked on a phone. */
   READOUTS: "grid grid-cols-1 gap-4 @md/section:grid-cols-2",
-  READOUT: "flex min-w-0 flex-col gap-2 rounded-tile bg-surface-container p-4",
-  READOUT_HEAD: "flex flex-wrap items-baseline gap-x-2 gap-y-1",
-  EYEBROW: "text-xs font-medium text-on-surface-variant",
+  READOUT: "flex min-w-0 flex-col gap-3 rounded-tile bg-surface-container p-5",
+  READOUT_HEAD: "flex flex-wrap items-center gap-x-2 gap-y-1",
+  /**
+   * 13px/600, one step off the Label role (12px/500) ON THIS SURFACE ONLY.
+   *
+   * This card is read outdoors, at arm's length, one-handed, while the other
+   * hand is on a dish mount — sometimes through sunglasses. The owner asked for
+   * exactly that on 2026-11-05 ("the font should be larger and easier to read,
+   * the idea is when using directional or parabolic antenna"). Every size in
+   * `AIM` is one step up for the same reason, and the figures are `Numeric`,
+   * the one step DESIGN.md sizes to its slot rather than to the ramp.
+   */
+  EYEBROW: "text-[13px] font-semibold text-on-surface-variant",
+  /**
+   * The console's hero block: the figure an operator reads from a metre away,
+   * its trace, and the attachment chip. Its own tile, larger than the neighbour
+   * rows beneath it, because it is the answer and they are the context.
+   */
+  HERO: "flex flex-col gap-3 rounded-tile bg-surface-container p-5",
+  /**
+   * The hero figure. The largest numeral on the page by a wide margin — 48px on
+   * a phone, 64px on a wide card. `Numeric` is the one step DESIGN.md sizes to
+   * its SLOT rather than to the ramp, so this is the step working as written.
+   */
+  HERO_FIGURE:
+    "text-[48px] font-semibold leading-none tabular-nums @2xl/section:text-[64px]",
+  HERO_UNIT: "text-lg font-semibold text-on-surface-variant",
   /** The figure. Sized to its slot, per DESIGN.md > Typography > Numeric. */
-  FIGURE: "text-[28px] font-semibold leading-none tabular-nums @2xl/section:text-[40px]",
-  UNIT: "text-sm font-semibold text-on-surface-variant",
+  FIGURE: "text-[34px] font-semibold leading-none tabular-nums @2xl/section:text-[52px]",
+  UNIT: "text-base font-semibold text-on-surface-variant",
   /**
    * A neighbour row's bar lane. `relative`, because the peak marker is absolutely
    * positioned inside it — the marker's percentage is the bar's own scale, so the
@@ -387,20 +411,25 @@ export const AIM = {
    */
   ROW_LANE: "relative min-w-0",
   /** See `CONSOLE.PEAK_TICK` in `antenna-alignment/shapes.ts` — same object, same reasoning. */
-  PEAK_TICK: "absolute top-[-2px] h-3 w-0.5 rounded-pill bg-on-surface-variant",
-  CAPTION: "text-xs tabular-nums text-on-surface-variant",
+  PEAK_TICK: "absolute top-[-3px] h-4 w-0.5 rounded-pill bg-on-surface-variant",
+  CAPTION: "text-[13px] tabular-nums text-on-surface-variant",
 
   /** The registration line, above the two readouts it makes interpretable. */
   STATE: "flex flex-wrap items-center gap-x-3 gap-y-2",
 
-  NEIGHBOURS: "flex flex-col gap-2",
-  /** Rank, identity, lane, value — one 40px pill per neighbour, per DESIGN.md > Metric rows. */
-  ROW: "grid grid-cols-[1rem_5.5rem_minmax(0,1fr)_4.75rem] items-center gap-3 rounded-pill bg-surface-container px-4 py-2.5",
-  RANK: "text-xs font-semibold tabular-nums text-on-surface-variant",
+  NEIGHBOURS: "flex flex-col gap-2.5",
+  /**
+   * Rank, identity, lane, value — one pill per neighbour, per DESIGN.md > Metric
+   * rows, at the aim surface's one-step-larger scale (see `EYEBROW`). The row is
+   * taller than the 40px metric-row canon on purpose: this is a row you read
+   * from a metre away, not one on a dense card.
+   */
+  ROW: "grid grid-cols-[1.5rem_7rem_minmax(0,1fr)_6.25rem] items-center gap-3.5 rounded-pill bg-surface-container px-5 py-3.5",
+  RANK: "text-[13px] font-semibold tabular-nums text-on-surface-variant",
   ROW_IDENTITY: "flex min-w-0 flex-col",
-  ROW_PCI: "truncate text-[13px] font-semibold tabular-nums",
-  ROW_BAND: "truncate text-xs tabular-nums text-on-surface-variant",
-  ROW_VALUE: "text-right text-[13px]/5 font-semibold tabular-nums",
+  ROW_PCI: "truncate text-[15px] font-semibold tabular-nums",
+  ROW_BAND: "truncate text-[13px] tabular-nums text-on-surface-variant",
+  ROW_VALUE: "text-right text-[16px]/5 font-semibold tabular-nums",
 } as const;
 
 // -----------------------------------------------------------------------------

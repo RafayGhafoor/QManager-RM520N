@@ -117,6 +117,24 @@ export interface NeighbourLiveView {
   serving: LiveServingReadings | null;
   /** The sample's cells, mapped onto the table's row shape. */
   cells: NeighbourCellResult[];
+  /**
+   * True when these readings are being HELD: the CGI answered with no fresh
+   * sample (`live_at: null`, `cells: []`) and what is on screen is the last one
+   * it did serve, with `ageS` counting up from there.
+   *
+   * The alternative was what it used to do — replace the sample with an empty
+   * one — and on a real aim session that means the whole card, the serving
+   * figures and every neighbour row vanish for a beat several times a minute,
+   * because the poller's publish and this read are not synchronised. Aiming
+   * happens with one hand on a dish and one eye on a phone, and a screen that
+   * empties is a screen that has to be re-read from scratch.
+   *
+   * Held is NOT presented as live: the strip labels the age and says it is not
+   * updating. That is the line `docs/specs/neighbour-live-aim.md` draws — a
+   * stale sample may never be passed off as current — and holding it with an
+   * honest label is on the right side of it.
+   */
+  stale: boolean;
 }
 
 interface UseNeighbourScannerReturn {
@@ -250,6 +268,35 @@ export function useNeighbourScanner(
 
       liveFailuresRef.current = 0;
       setLiveFailed(false);
+
+      // NO FRESH SAMPLE. The CGI answers `live_at: null` with `cells: []` both
+      // when the poller has not published yet and when its sample has aged past
+      // the CGI's 6 s window, and the two are indistinguishable from here. What
+      // is NOT acceptable is replacing a full aim card with an empty one: the
+      // publish and the read are unsynchronised, so that happens several times
+      // a minute while somebody is turning a dish. Hold the previous sample,
+      // age it by one tick, and say so (`stale`) — the strip labels it.
+      if (data.live_at === null || data.cells.length === 0) {
+        setLive((prev) =>
+          prev === null
+            ? {
+                liveAt: null,
+                ageS: null,
+                registered: data.registered,
+                carrier: data.carrier,
+                serving: null,
+                cells: [],
+                stale: false,
+              }
+            : {
+                ...prev,
+                ageS: prev.ageS === null ? null : prev.ageS + 1,
+                stale: true,
+              },
+        );
+        return;
+      }
+
       setLive({
         liveAt: data.live_at,
         ageS: data.age_s,
@@ -257,6 +304,7 @@ export function useNeighbourScanner(
         carrier: data.carrier,
         serving: data.serving,
         cells: liveCellsToRows(data.cells),
+        stale: false,
       });
     } catch {
       if (seq !== liveSeqRef.current) return;

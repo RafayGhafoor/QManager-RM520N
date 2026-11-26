@@ -18,10 +18,14 @@ import {
   topMeasured,
   type PeakMap,
 } from "@/lib/neighbour-live";
+import { aimTrend, type AimTrend } from "@/lib/aim-audio";
+import { useAimAudio } from "@/hooks/use-aim-audio";
 import { cn } from "@/lib/utils";
 import type { NeighbourCellResult } from "@/types/cell-scanner";
 import {
+  RSSI_THRESHOLDS,
   RSRP_THRESHOLDS,
+  RSRQ_THRESHOLDS,
   SINR_THRESHOLDS,
   normalizeMetricValue,
   signalToProgress,
@@ -42,170 +46,221 @@ import {
 import type { LiveStop, NeighbourLiveView } from "@/hooks/use-neighbour-scanner";
 
 // =============================================================================
-// AimStrip — the `now` range's anchor
+// The aim console — the `now` range, rebuilt around one question
 // =============================================================================
-// Pointing a directional antenna is a closed physical loop: rotate, watch, hold
-// still, remember. Three of those the interface can do, and the one it cannot is
-// "remember" — so the peak is the feature, not the decoration. While the strip is
-// on screen the reader is outside, in sunlight, looking at a phone in one hand.
-// Everything here is sized for that: one figure per metric, a bar you can compare
-// across rows, and no interaction beyond the range picker above it.
+// "Is turning the dish this way better, worse, or neither?"
 //
-// WHY THE REGISTRATION STATE IS BESIDE THE FIGURES. QMI reports RSRP/RSRQ/SNR for
-// whatever cell the radio can HEAR, attached or not — observed live with the modem
-// at 'not-registered-searching' while it reported a plausible 5G reading
-// (`docs/reference/qmi-transport.md` > The trap: signal is not attachment). A
-// strong figure beside a detached modem is the one reading that would send an
-// operator to the wrong tower, so the two are never separated.
+// That question has one answer, and the surface is built to give it in the time
+// it takes to glance up from a mount. Everything else on the card is ranked
+// below it:
 //
-// WHY THE COST IS STATED. Live mode is a browser-held lease that spends ~4 % of
-// this device's single core. That is a fair trade for the feature — and a hidden
-// one if the surface does not say so.
+//   1. THE SERVING RSRP, at the largest size on the page, with the direction of
+//      travel beside it and a one-minute trace under it. A single figure tells
+//      you where you are; the trace tells you which way you just came from, which
+//      is the thing an operator actually acts on.
+//   2. THE CARRIER'S OTHER READINGS — SINR, RSRQ, RSSI — as one row of smaller
+//      readouts. They answer "is this a clean strong signal or a loud dirty one",
+//      which is a follow-up question, not the first one.
+//   3. THE NEIGHBOURS, ranked, with the peak each has reached since the range
+//      opened, so a sweet spot swept past is still visible.
 //
-// NO ANIMATION, deliberately. The figures retarget at 1 Hz, so the change is
-// already visible without help; a tick or a fade would dim, once a second, the
-// one number being watched. The peak marker snaps for the same reason it exists:
-// a new best is a discrete event.
+// WHAT WAS HERE BEFORE, and why it went. This card used to be a strip: two
+// equal-sized readouts, three neighbour rows, a caption, a cost line, and two
+// audio toggles at the bottom — with the full sortable table of the SAME cells
+// directly beneath it, competing for the same attention. Two lists of the same
+// neighbours on one screen is not redundancy, it is indecision: nothing tells the
+// reader which one to look at, so they read neither while turning a dish. The
+// table is still there, behind a disclosure (see `neighbour-scanner.tsx`), because
+// it is genuinely useful when you have PUT the dish down and want to know what is
+// out there.
+//
+// CONTROLS SIT AT THE TOP. Pause, the audible aid and the export are on the
+// console's own toolbar rather than under the fold: an operator who has just
+// walked twenty metres to the antenna must not have to scroll to silence the
+// beeps.
 // =============================================================================
 
-/** How many neighbours the strip ranks. Three: the number of candidates an
- *  operator compares while sweeping, and what the aim panel has room for. */
-const TOP_NEIGHBOURS = 3;
+/** How many neighbours the console ranks. Four: what fits above the fold on a
+ *  phone in landscape, which is how this page is read in the field. */
+const TOP_NEIGHBOURS = 4;
 
 /** The metric bars' threshold props. Both are inert: the tone comes from the
- *  three-tier scale below, not from a percentage crossing a cut. */
+ *  three-tier scale, not from a percentage crossing a cut. */
 const NO_ALERT = 101;
 
-/** The dBm/dB figure, as reported. One decimal when the modem gives one. */
-function figureText(value: number): string {
-  return String(value);
+/** One serving readout in the secondary row. */
+interface SecondaryMetric {
+  id: "sinr" | "rsrq" | "rssi";
+  label: string;
+  value: number | null;
+  unit: "dB" | "dBm";
+  thresholds: SignalThresholds;
 }
 
 /**
- * The registration chip.
+ * The trace under the hero figure.
  *
- * `success`/`warning` are the functional roles and each carries its own glyph, so
- * the two states are told apart without colour. Words, not a symbol alone: this is
- * the reading that makes the figures above trustworthy.
+ * A 30-line inline SVG rather than a chart library: this draws at most 90 points
+ * from a fixed window, it must not animate (the figures retarget at 1 Hz and a
+ * redraw would compete with the number above it), and pulling recharts in here
+ * would cost a route chunk for a polyline. The scale is the RSRP quality window
+ * — the same one the bar under the figure uses — so the trace and the bar cannot
+ * disagree about where −80 dBm sits.
+ *
+ * Absent readings are GAPS, not zeros: dropping the point leaves a break in the
+ * line, where a zero would draw a dive to the floor that never happened.
  */
-function RegistrationState({
-  registered,
-  carrier,
-}: {
-  registered: boolean;
-  carrier: string | null;
-}) {
+function RsrpTrace({ points }: { points: (number | null)[] }) {
   const { t } = useTranslation("cellular");
+  const width = 300;
+  const height = 56;
+
+  const segments = React.useMemo(() => {
+    const range = RSRP_THRESHOLDS.range;
+    const span = range.max - range.min;
+    const stepX = points.length > 1 ? width / (points.length - 1) : width;
+    const paths: string[] = [];
+    let current: string[] = [];
+
+    points.forEach((value, index) => {
+      if (value === null) {
+        if (current.length > 0) paths.push(current.join(" "));
+        current = [];
+        return;
+      }
+      const clamped = Math.min(Math.max(value, range.min), range.max);
+      const y = height - ((clamped - range.min) / span) * height;
+      current.push(`${current.length === 0 ? "M" : "L"}${(index * stepX).toFixed(1)},${y.toFixed(1)}`);
+    });
+    if (current.length > 0) paths.push(current.join(" "));
+    return paths;
+  }, [points]);
+
   return (
-    <div className={AIM.STATE}>
-      {registered ? (
-        <Badge variant="success">
-          <MaterialSymbol name="check_circle" size={BADGE_GLYPH_SIZE} filled />
-          {t("cell_scanner.neighbour.live.registered")}
-        </Badge>
-      ) : (
-        <Badge variant="warning">
-          <MaterialSymbol name="warning" size={BADGE_GLYPH_SIZE} filled />
-          {t("cell_scanner.neighbour.live.not_registered")}
-        </Badge>
-      )}
-      {carrier ? (
-        <span className={AIM.CAPTION}>{carrier}</span>
-      ) : null}
-      {!registered ? (
-        <span className={cn(AIM.CAPTION, "text-pretty")}>
-          {t("cell_scanner.neighbour.live.detached_note")}
-        </span>
-      ) : null}
-    </div>
+    <svg
+      className="h-14 w-full"
+      viewBox={`0 0 ${width} ${height}`}
+      preserveAspectRatio="none"
+      role="img"
+      aria-label={t("cell_scanner.neighbour.live.trace_label")}
+    >
+      {segments.map((d, i) => (
+        <path
+          key={i}
+          d={d}
+          fill="none"
+          strokeWidth={2}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="stroke-quality-4"
+          vectorEffect="non-scaling-stroke"
+        />
+      ))}
+    </svg>
   );
 }
 
 /**
- * One big reading: key, figure, unit, meter, and the quality word for assistive
- * tech. A missing reading is an EMPTY TRACK and an em dash — never a zero-length
- * fill, which reads as "measured, and as bad as this metric goes".
+ * The direction of travel, as a chip.
+ *
+ * The visual twin of the beep: the same `aimTrend()` decision drives both, so a
+ * sound and a chip cannot disagree about which way the dish moved. Three states
+ * and three GLYPHS — up arrow, down arrow, flat waveform — because on this
+ * surface the chip is read in sunlight, where a fill difference between
+ * `success-container` and `destructive-container` is not a difference at all.
  */
-function AimReadout({
-  label,
-  value,
-  unit,
-  thresholds,
-  index,
-}: {
-  label: string;
-  value: number | null;
-  unit: string;
-  thresholds: SignalThresholds;
-  index: number;
-}) {
+function TrendChip({ trend, delta }: { trend: AimTrend; delta: number }) {
   const { t } = useTranslation("cellular");
-  const tier = signalTier(value);
+  if (trend === "unknown") return null;
+  const rounded = Math.round(Math.abs(delta));
+
+  if (trend === "steady") {
+    return (
+      <Badge variant="muted" className="text-sm">
+        <MaterialSymbol name="graphic_eq" size={BADGE_GLYPH_SIZE} filled />
+        {t("cell_scanner.neighbour.live.trend_steady")}
+      </Badge>
+    );
+  }
+
+  return trend === "improving" ? (
+    <Badge variant="success" className="text-sm">
+      <MaterialSymbol name="arrow_upward" size={BADGE_GLYPH_SIZE} filled />
+      {t("cell_scanner.neighbour.live.trend_up", { value: rounded })}
+    </Badge>
+  ) : (
+    <Badge variant="destructive" className="text-sm">
+      <MaterialSymbol name="arrow_downward" size={BADGE_GLYPH_SIZE} filled />
+      {t("cell_scanner.neighbour.live.trend_down", { value: rounded })}
+    </Badge>
+  );
+}
+
+/**
+ * One secondary reading: label, figure, bar.
+ *
+ * No quality chip and no ramp ink on the figure — the bar's length carries the
+ * reading, which is the one channel DESIGN.md lets a minuscule row rely on.
+ */
+function SecondaryReadout({ metric, index }: { metric: SecondaryMetric; index: number }) {
+  const { t } = useTranslation("cellular");
+  const tier = signalTier(metric.value);
 
   return (
-    <div className={AIM.READOUT}>
-      <div className={AIM.READOUT_HEAD}>
-        <span className={AIM.EYEBROW}>{label}</span>
-        <MaterialSymbol
-          name={SIGNAL_BADGE[tier].glyph}
-          size={16}
-          filled
-          className="text-on-surface-variant"
-        />
-      </div>
-
-      <div className="flex items-baseline gap-1">
-        <span className={AIM.FIGURE}>
-          {value === null ? "\u2014" : figureText(value)}
+    <div className="flex min-w-0 flex-col gap-1.5">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-[13px] font-semibold text-on-surface-variant">
+          {metric.label}
         </span>
-        {value === null ? null : <span className={AIM.UNIT}>{unit}</span>}
-        {/* The tint lives on the bar, not on the numeral: bar LENGTH is the
-            channel DESIGN.md makes the ramp's non-chromatic partner, and a
-            tinted figure with no bar beside it would be colour carrying a
-            verdict alone. The word is the third channel, for a screen reader. */}
-        <span className="sr-only">
-          {value === null
-            ? t("cell_scanner.neighbour.cells.unreported")
-            : t(
-                tier === "good"
-                  ? "cell_scanner.signal.good"
-                  : tier === "fair"
-                    ? "cell_scanner.signal.fair"
-                    : "cell_scanner.signal.poor",
-              )}
+        <span className="flex items-baseline gap-1">
+          <span className="text-[18px] font-semibold tabular-nums">
+            {metric.value === null ? "\u2014" : metric.value}
+          </span>
+          {metric.value === null ? null : (
+            <span className="text-[13px] font-semibold text-on-surface-variant">
+              {metric.unit}
+            </span>
+          )}
         </span>
       </div>
-
       <div aria-hidden="true">
         <MetricBar
-          /* A percentage for the LENGTH, from the product's own signal scale
-             (`signalToProgress`, [floor, excellent] -> [0, 100]); the tone comes
-             from this family's three-tier cut. Length is magnitude, the tier is
-             the verdict — two ladders, and neither is asked to stand in for the
-             other. */
-          value={value === null ? null : signalToProgress(value, thresholds)}
+          value={
+            metric.value === null
+              ? null
+              : signalToProgress(metric.value, metric.thresholds)
+          }
           max={100}
           warnAt={NO_ALERT}
           dangerAt={NO_ALERT}
-          colorOverride={signalBarTone(value)}
+          colorOverride={signalBarTone(metric.value)}
           track="surface-container-high"
           index={index}
         />
       </div>
+      <span className="sr-only">
+        {metric.value === null
+          ? t("cell_scanner.neighbour.cells.unreported")
+          : t(
+              tier === "good"
+                ? "cell_scanner.signal.good"
+                : tier === "fair"
+                  ? "cell_scanner.signal.fair"
+                  : "cell_scanner.signal.poor",
+            )}
+      </span>
     </div>
   );
 }
 
 /**
- * One ranked neighbour: rank, identity, a bar lane with the cell's peak, and the
- * reading.
+ * One ranked neighbour: rank, identity, bar with its peak, reading, and how far
+ * it just moved.
  *
  * The peak marker is the affordance: it marks the best this cell has managed
  * since the range was entered, so a reader who swept past the sweet spot can see
  * it without having watched the number at the right instant. It is positioned
- * with `left` and is deliberately NOT transitioned — DESIGN.md's Transform-Only
- * Rule keeps layout properties out of transitions, and snapping is the honest
- * gesture for a discrete new high.
+ * with `left` and deliberately NOT transitioned — a new best is a discrete event.
  */
 function NeighbourRow({
   rank,
@@ -285,6 +340,8 @@ export interface AimStripProps {
   onResume: () => void;
   /** The range picker, held in this card's head so it does not move when the range does. */
   rangePicker: React.ReactNode;
+  /** Pause/resume, export — the page's own actions, placed by this card. */
+  actions?: React.ReactNode;
 }
 
 export function AimStrip({
@@ -293,25 +350,93 @@ export function AimStrip({
   liveFailed,
   onResume,
   rangePicker,
+  actions,
 }: AimStripProps) {
   const { t } = useTranslation("cellular");
 
   const rsrp = normalizeMetricValue(live.serving?.rsrp ?? null, "rsrp");
   const sinr = normalizeMetricValue(live.serving?.sinr ?? null, "sinr");
+  const rsrq = normalizeMetricValue(live.serving?.rsrq ?? null, "rsrq");
+  const rssi = normalizeMetricValue(live.serving?.rssi ?? null, "rssi");
 
+  // ── The one-minute trace ───────────────────────────────────────────────────
+  // A ring buffer of the last TRACE_POINTS samples, appended once per FRESH
+  // sample. Held samples append nothing: repeating a reading would draw a flat
+  // stretch that looks like "the antenna is not moving" when the truth is "the
+  // modem is not publishing".
+  const [trace, setTrace] = React.useState<(number | null)[]>([]);
+  React.useEffect(() => {
+    if (live.stale) return;
+    if (live.liveAt === null) return;
+    setTrace((points) =>
+      [...points, rsrp].slice(-TRACE_POINTS),
+    );
+  }, [live.liveAt, live.stale, rsrp]);
+
+  // Neighbours ranked by measured RSRP; the peak-hold resets when this card
+  // unmounts, which is exactly when the range leaves `now`.
   const neighbours = React.useMemo(
     () => topMeasured(live.cells, TOP_NEIGHBOURS),
     [live.cells],
   );
 
-  // Peak-hold, per cell, since the component mounted — and it unmounts when the
-  // range leaves `now`, which is exactly the reset R5 asks for. `recordPeaks`
-  // returns the SAME object when nothing improved, so a steady sample does not
-  // re-render the strip once a second for nothing.
   const [peaks, setPeaks] = React.useState<PeakMap>({});
   React.useEffect(() => {
     setPeaks((held) => recordPeaks(held, live.cells));
   }, [live.cells]);
+
+  // ── Direction of travel, and the audible aid ───────────────────────────────
+  // ONE decision feeds three outputs: the chip, the beep and the spoken line, so
+  // what you hear is what is on screen. The comparison metric is the serving RSRP
+  // and NOT the best neighbour — the serving cell is the one the dish is pointed
+  // at and the one a lock will apply to.
+  //
+  // A HELD sample is never compared: repeating a figure with a new timestamp
+  // would read as "steady", which is a claim about the antenna that no fresh
+  // reading supports.
+  //
+  // Destructured so the effect depends on STABLE callbacks: the hook returns a
+  // fresh object every render, and an object dependency would re-fire the beep
+  // once a render instead of once a sample.
+  const {
+    beep,
+    speak,
+    beepsOn,
+    voiceOn,
+    toggleBeeps,
+    toggleVoice,
+    voiceSupported,
+  } = useAimAudio();
+
+  const previousRsrpRef = React.useRef<number | null>(null);
+  const [trend, setTrend] = React.useState<{ dir: AimTrend; delta: number }>({
+    dir: "unknown",
+    delta: 0,
+  });
+
+  React.useEffect(() => {
+    if (live.stale) return;
+    const previous = previousRsrpRef.current;
+    const dir = aimTrend(previous, rsrp);
+    const delta = previous === null || rsrp === null ? 0 : rsrp - previous;
+    previousRsrpRef.current = rsrp;
+    setTrend({ dir, delta });
+
+    if (rsrp === null) return;
+    beep(dir);
+    // Speech carries the figure the beep cannot: which metric, what value, and
+    // which way it just went. Throttled inside the hook, so calling it on every
+    // sample is correct — the hook decides when a line is due.
+    if (dir === "improving" || dir === "degrading") {
+      speak(
+        `${t("cell_scanner.neighbour.live.speech_reading", { value: rsrp })} ${
+          dir === "improving"
+            ? t("cell_scanner.neighbour.live.speech_improving")
+            : t("cell_scanner.neighbour.live.speech_worse")
+        }`,
+      );
+    }
+  }, [rsrp, live.stale, beep, speak, t]);
 
   const age = live.ageS === null ? null : ageParts(live.ageS);
   const ageText =
@@ -335,8 +460,35 @@ export function AimStrip({
           ? t("cell_scanner.neighbour.live.stopped_failed")
           : null;
 
+  const tier = signalTier(rsrp);
+
+  const secondary: SecondaryMetric[] = [
+    {
+      id: "sinr",
+      label: t("cell_scanner.neighbour.live.serving_sinr"),
+      value: sinr,
+      unit: "dB",
+      thresholds: SINR_THRESHOLDS,
+    },
+    {
+      id: "rsrq",
+      label: t("cell_scanner.neighbour.live.serving_rsrq"),
+      value: rsrq,
+      unit: "dB",
+      thresholds: RSRQ_THRESHOLDS,
+    },
+    {
+      id: "rssi",
+      label: t("cell_scanner.neighbour.live.serving_rssi"),
+      value: rssi,
+      unit: "dBm",
+      thresholds: RSSI_THRESHOLDS,
+    },
+  ];
+
   return (
     <Card className={SCAN_RESULTS_CARD}>
+      {/* ── Toolbar: the range, the actions, the audible aid ─────────────── */}
       <div className={SECTION_HEAD.ROOT}>
         <div className={SECTION_HEAD.TITLES}>
           <h2 className={SECTION_HEAD.TITLE}>
@@ -346,54 +498,150 @@ export function AimStrip({
             {t("cell_scanner.neighbour.live.description")}
           </p>
         </div>
-        <div className={SECTION_HEAD.META}>
-          {ageText ? (
+        <div className={cn(SECTION_HEAD.META, "flex-wrap")}>
+          {live.stale && ageText ? (
+            <Badge variant="warning">
+              <MaterialSymbol name="schedule" size={BADGE_GLYPH_SIZE} filled />
+              {t("cell_scanner.neighbour.live.holding", { age: ageText })}
+            </Badge>
+          ) : ageText ? (
             <span className={AIM.CAPTION}>
               {t("cell_scanner.neighbour.live.updated", { age: ageText })}
             </span>
           ) : null}
           {rangePicker}
+          {actions}
         </div>
       </div>
 
-      {/* The attachment state is shown ONLY with a sample beside it. The CGI
-          answers `registered: false` whenever it has no live file to read, and
-          printing "Not registered" over that would accuse a perfectly healthy
-          modem of being off the network. */}
+      {/* The audible aid, directly under the toolbar and above the fold. Two
+          word-only toggles: the icon subset carries no speaker, ear or
+          microphone mark, and the words are unambiguous while the filled pill is
+          what changes. `aria-pressed` is what makes them toggles to a screen
+          reader rather than two buttons that might navigate. */}
+      <div className="flex flex-wrap items-center gap-2">
+        <span className={AIM.CAPTION}>
+          {t("cell_scanner.neighbour.live.audio_title")}
+        </span>
+        <Button
+          type="button"
+          variant={beepsOn ? "tonal" : "tonal-neutral"}
+          className={PILL_QUIET}
+          aria-pressed={beepsOn}
+          onClick={toggleBeeps}
+        >
+          {t("cell_scanner.neighbour.live.audio_beeps")}
+        </Button>
+        {voiceSupported ? (
+          <Button
+            type="button"
+            variant={voiceOn ? "tonal" : "tonal-neutral"}
+            className={PILL_QUIET}
+            aria-pressed={voiceOn}
+            onClick={toggleVoice}
+          >
+            {t("cell_scanner.neighbour.live.audio_voice")}
+          </Button>
+        ) : null}
+        <span className={cn(AIM.CAPTION, "text-pretty")}>
+          {t("cell_scanner.neighbour.live.audio_hint")}
+        </span>
+      </div>
+
       {live.liveAt === null ? (
         // No sample yet, or one the CGI judged too old to serve. Both mean the
-        // same thing to the reader: the modem has not published a reading
-        // recently, so there is nothing to aim by until it does.
+        // same thing to the reader: nothing to aim by until the modem publishes.
         <p className={cn(AIM.CAPTION, "text-pretty")}>
           {t("cell_scanner.neighbour.live.waiting")}
         </p>
       ) : (
         <>
-          <RegistrationState
-            registered={live.registered}
-            carrier={live.carrier}
-          />
+          {/* ── The hero: one figure, one direction, one trace ──────────── */}
+          <div className={AIM.HERO}>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+              <span className={AIM.EYEBROW}>
+                {t("cell_scanner.neighbour.live.serving_rsrp")}
+              </span>
+              <MaterialSymbol
+                name={SIGNAL_BADGE[tier].glyph}
+                size={18}
+                filled
+                className="text-on-surface-variant"
+              />
+              <TrendChip trend={trend.dir} delta={trend.delta} />
+            </div>
 
-          <div className={AIM.READOUTS}>
-            <AimReadout
-              label={t("cell_scanner.neighbour.live.serving_rsrp")}
-              value={rsrp}
-              /* Units are symbols, not words: the repo passes them as literals
-                 (`antenna-alignment/live-aim.tsx` does the same for dB/dBm)
-                 rather than routing them through the catalogue. */
-              unit="dBm"
-              thresholds={RSRP_THRESHOLDS}
-              index={0}
-            />
-            <AimReadout
-              label={t("cell_scanner.neighbour.live.serving_sinr")}
-              value={sinr}
-              unit="dB"
-              thresholds={SINR_THRESHOLDS}
-              index={1}
-            />
+            <div className="flex items-baseline gap-2">
+              <span className={AIM.HERO_FIGURE}>
+                {rsrp === null ? "\u2014" : rsrp}
+              </span>
+              {rsrp === null ? null : (
+                <span className={AIM.HERO_UNIT}>dBm</span>
+              )}
+              <span className="sr-only">
+                {rsrp === null
+                  ? t("cell_scanner.neighbour.cells.unreported")
+                  : t(
+                      tier === "good"
+                        ? "cell_scanner.signal.good"
+                        : tier === "fair"
+                          ? "cell_scanner.signal.fair"
+                          : "cell_scanner.signal.poor",
+                    )}
+              </span>
+            </div>
+
+            <RsrpTrace points={trace} />
+
+            {/* Attachment, beside the figures it makes interpretable and never
+                above them: QMI reports signal for whatever cell the radio can
+                HEAR, attached or not, so a strong figure beside a detached modem
+                is the one reading that would send an operator to the wrong
+                tower. `registered: false` with no sample is NOT shown — the CGI
+                answers that whenever it has no live file, and printing it would
+                accuse a healthy modem. */}
+            {live.registered ? (
+              <div className={AIM.STATE}>
+                <Badge variant="success">
+                  <MaterialSymbol
+                    name="check_circle"
+                    size={BADGE_GLYPH_SIZE}
+                    filled
+                  />
+                  {t("cell_scanner.neighbour.live.registered")}
+                </Badge>
+                {live.carrier ? (
+                  <span className={AIM.CAPTION}>{live.carrier}</span>
+                ) : null}
+              </div>
+            ) : (
+              <div className={AIM.STATE}>
+                <Badge variant="warning">
+                  <MaterialSymbol
+                    name="warning"
+                    size={BADGE_GLYPH_SIZE}
+                    filled
+                  />
+                  {t("cell_scanner.neighbour.live.not_registered")}
+                </Badge>
+                {live.carrier ? (
+                  <span className={AIM.CAPTION}>{live.carrier}</span>
+                ) : null}
+                <span className={cn(AIM.CAPTION, "text-pretty")}>
+                  {t("cell_scanner.neighbour.live.detached_note")}
+                </span>
+              </div>
+            )}
           </div>
 
+          {/* ── The carrier's other readings ─────────────────────────────── */}
+          <div className="grid grid-cols-1 gap-4 @md/section:grid-cols-3">
+            {secondary.map((metric, index) => (
+              <SecondaryReadout key={metric.id} metric={metric} index={index} />
+            ))}
+          </div>
+
+          {/* ── The neighbours ───────────────────────────────────────────── */}
           <div className={AIM.NEIGHBOURS}>
             <span className={AIM.EYEBROW}>
               {t("cell_scanner.neighbour.live.neighbours_title")}
@@ -418,11 +666,13 @@ export function AimStrip({
       )}
 
       {/* Both lines are facts about the surface, not states of the radio: one
-          says what it costs, the other says it has stopped costing it. Neither
-          carries a glyph: `schedule` would be true of the five-minute stop and
-          false of a pause, and a mark that means something different in each of
-          three states is the ambiguity the glyph rules exist to prevent. */}
-      <div className={cn(AIM.CAPTION, "flex flex-wrap items-center gap-x-4 gap-y-2")}>
+          says what it costs, the other says it has stopped costing it. */}
+      <div
+        className={cn(
+          AIM.CAPTION,
+          "flex flex-wrap items-center gap-x-4 gap-y-2",
+        )}
+      >
         <span className="text-pretty">
           {t("cell_scanner.neighbour.live.cost")}
         </span>
@@ -446,8 +696,11 @@ export function AimStrip({
   );
 }
 
+/** How many samples the trace holds: one minute at the poller's 1 Hz cadence. */
+const TRACE_POINTS = 60;
+
 /**
- * The strip's loading state, mirroring the loaded geometry by import.
+ * The console's loading state, mirroring the loaded geometry by import.
  *
  * A live sample takes one poller cycle (~1 s) to exist at all, so this is on
  * screen only briefly — but a blank card that becomes a full one is a reflow
@@ -475,18 +728,23 @@ export function AimStripSkeleton({
         </div>
       </div>
 
-      <div className={AIM.READOUTS}>
-        {[0, 1].map((index) => (
-          <div key={index} className={AIM.READOUT}>
+      <div className={AIM.HERO}>
+        <Skeleton className={SKELETON_SHAPE.DESC} />
+        <Skeleton className={cn(SKELETON_SHAPE.TITLE, "h-12 w-40")} />
+        <Skeleton className={cn(SKELETON_SHAPE.ROW, "h-14")} />
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 @md/section:grid-cols-3">
+        {[0, 1, 2].map((index) => (
+          <div key={index} className="flex flex-col gap-2">
             <Skeleton className={SKELETON_SHAPE.DESC} />
-            <Skeleton className={SKELETON_SHAPE.TITLE} />
             <Skeleton className={SKELETON_SHAPE.ROW} />
           </div>
         ))}
       </div>
 
-      <div className="flex flex-col gap-2">
-        {[0, 1, 2].map((index) => (
+      <div className="flex flex-col gap-2.5">
+        {[0, 1, 2, 3].map((index) => (
           <Skeleton key={index} className={SKELETON_SHAPE.ROW} />
         ))}
       </div>
